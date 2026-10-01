@@ -1,0 +1,30 @@
+IOClassManager/
+├── App.xaml                    # Настройки приложения
+├── App.xaml.cs
+├── Views/
+│   ├── MainWindow.xaml         # Главное окно
+│   ├── MainWindow.xaml.cs
+│   ├── MappingDialog.xaml      # Окно маппинга Excel
+│   ├── MappingDialog.xaml.cs
+│   ├── AccessDialog.xaml       # Окно работы с Access
+│   └── AccessDialog.xaml.cs
+├── ViewModels/
+│   ├── MainViewModel.cs
+│   └── MappingViewModel.cs
+├── Models/
+│   ├── IOPoint.cs
+│   └── InstrumentTag.cs
+├── Interfaces/
+│   ├── IRepository.cs
+│   ├── IEventLogger.cs
+│   ├── IExcelMappingService.cs
+│   └── IAccessService.cs
+├── Services/
+│   ├── InMemoryRepository.cs
+│   ├── EventLogger.cs
+│   ├── ExcelMappingService.cs
+│   └── AccessService.cs
+├── Converters/
+│   └── Converters.cs
+└── Resources/
+    └── (иконки, шрифты и т.д.)
