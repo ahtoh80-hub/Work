@@ -1,0 +1,186 @@
+<Window x:Class="IO_PJT.Views.ImportWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Импорт Excel → IO_LIST (единое окно)" Width="1360" Height="860"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+
+    <!-- Единое окно импорта (ТЗ F6.3): сверху источник/таблица/шаблон,
+         слева привязка Excel↔колонки, центр — предпросмотр, низ — ошибки -->
+    <DockPanel Margin="6">
+
+        <!-- ===== 1. Источник Excel (F2.1): файл, вкладка, строка начала чтения ===== -->
+        <GroupBox Header="1. Источник Excel — файл, вкладка (лист), строка начала чтения (первая строка = названия колонок)"
+                  DockPanel.Dock="Top" Margin="0,0,0,4">
+            <StackPanel Margin="4">
+                <DockPanel Margin="0,2">
+                    <TextBlock Text="Файл:" Width="120" VerticalAlignment="Center" />
+                    <Button DockPanel.Dock="Right" Content="Обзор..." Width="90" Margin="6,0,0,0"
+                            Command="{Binding BrowseFileCommand}" />
+                    <TextBox Text="{Binding ExcelPath, Mode=OneWay}" IsReadOnly="True" Height="26" />
+                </DockPanel>
+                <DockPanel Margin="0,4">
+                    <TextBlock Text="Вкладка (лист):" Width="120" VerticalAlignment="Center" />
+                    <TextBlock Text="Строка начала чтения:" Width="165" VerticalAlignment="Center" Margin="12,0,0,0" />
+                    <TextBox Text="{Binding HeaderRow, UpdateSourceTrigger=PropertyChanged}"
+                             Width="50" Height="26" Margin="0,0,10,0" />
+                    <Button DockPanel.Dock="Right" Content="Считать" Width="100" Margin="6,0,0,0"
+                            Command="{Binding RefreshSheetCommand}" />
+                    <ComboBox ItemsSource="{Binding Sheets}" SelectedItem="{Binding SelectedSheet}"
+                              Height="26" />
+                </DockPanel>
+            </StackPanel>
+        </GroupBox>
+
+        <!-- ===== 2. База Access (F1): выбор таблицы / создание с нуля ===== -->
+        <GroupBox Header="2. База Access — таблица (по умолчанию IO_LIST) или создание с нуля; режим импорта (F2.7)"
+                  DockPanel.Dock="Top" Margin="0,0,0,4">
+            <StackPanel Orientation="Horizontal" Margin="4,2">
+                <TextBlock Text="Таблица:" VerticalAlignment="Center" />
+                <ComboBox Width="190" Margin="6,0,16,0"
+                          ItemsSource="{Binding Tables}" SelectedItem="{Binding SelectedTable}" />
+                <TextBlock Text="Имя новой:" VerticalAlignment="Center" />
+                <TextBox Width="140" Margin="6,0,8,0" Text="{Binding NewTableName, UpdateSourceTrigger=PropertyChanged}" />
+                <Button Content="Создать таблицу" Command="{Binding CreateTableCommand}" Margin="0,0,16,0" />
+                <TextBlock Text="Режим:" VerticalAlignment="Center" />
+                <ComboBox Width="220" Margin="6,0,0,0"
+                          ItemsSource="{Binding Modes}" SelectedItem="{Binding SelectedMode}" />
+                <CheckBox Content="Импорт с аудитом" IsChecked="{Binding ImportWithAudit}"
+                          VerticalAlignment="Center" Margin="16,0,0,0"
+                          ToolTip="Запись истории в IO_LIST_Audit при импорте (F2.7). Выключено — история не создаётся; журнал событий работает всегда." />
+            </StackPanel>
+        </GroupBox>
+
+        <!-- ===== 3. Шаблон маппинга (таблица MappingTemplates самой базы) ===== -->
+        <GroupBox Header="3. Шаблон маппинга (сохраняется в базе Access — MappingTemplates)"
+                  DockPanel.Dock="Top" Margin="0,0,0,6">
+            <StackPanel Orientation="Horizontal" Margin="4,2">
+                <TextBox Width="190" Text="{Binding TemplateName, UpdateSourceTrigger=PropertyChanged}" />
+                <Button Content="Сохранить" Command="{Binding SaveTemplateCommand}" Margin="6,0,16,0" />
+                <ComboBox Width="220" ItemsSource="{Binding TemplateNames}"
+                          SelectedItem="{Binding SelectedTemplate}" />
+                <Button Content="Загрузить" Command="{Binding LoadTemplateCommand}" Margin="6,0,0,0" />
+                <Button Content="Удалить" Command="{Binding DeleteTemplateCommand}" />
+            </StackPanel>
+        </GroupBox>
+
+        <!-- ===== Список ошибок/предупреждений (низ) ===== -->
+        <GroupBox Header="Ошибки и предупреждения валидации (код, Tag, строка Excel)"
+                  DockPanel.Dock="Bottom" Height="120" Margin="0,0,0,4">
+            <ListBox ItemsSource="{Binding Issues}" Background="White"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock TextWrapping="Wrap">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="#9C6500" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsWarning}" Value="False">
+                                            <Setter Property="Foreground" Value="#C42B1C" />
+                                            <Setter Property="FontWeight" Value="SemiBold" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                            <Run Text="{Binding Code, Mode=OneWay}" FontWeight="Bold" />
+                            <Run Text=" " />
+                            <Run Text="{Binding Message, Mode=OneWay}" />
+                        </TextBlock>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </GroupBox>
+
+        <!-- ===== Слева: панель привязки Excel ↔ колонки таблицы (Bind/Apply) ===== -->
+        <Border DockPanel.Dock="Left" Width="470" Margin="0,0,6,0"
+                BorderBrush="{StaticResource BorderBrushLight}" BorderThickness="1" Padding="6">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,0,0,4"
+                           Text="Привязка «столбец Excel → колонка таблицы» (выбор в комбобоксе = Bind). Обязательное поле — Tag." />
+
+                <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,6">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Text" Value="✓ Поле Tag привязано — импорт разрешён" />
+                            <Setter Property="Foreground" Value="#107C10" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding HasTagMapping}" Value="False">
+                                    <Setter Property="Text" Value="⚠ Привязка Tag не задана — Apply заблокирован (F2.2)" />
+                                    <Setter Property="Foreground" Value="#C42B1C" />
+                                    <Setter Property="FontWeight" Value="Bold" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+
+                <StackPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
+                    <TextBlock Text="{Binding ReportText}" TextWrapping="Wrap" Margin="0,0,0,6"
+                               Background="{StaticResource BlueSoft}" Padding="6" />
+
+                    <!-- Прогресс записи в Access: данные + генерация аудита -->
+                    <ProgressBar Height="16" Minimum="0"
+                                 Maximum="{Binding ProgressMaximum}"
+                                 Value="{Binding ProgressValue, Mode=OneWay}"
+                                 Margin="0,0,0,3" />
+                    <TextBlock Text="{Binding ProgressText}" TextWrapping="Wrap"
+                               Margin="0,0,0,6" Foreground="#17375E" />
+
+                    <Button Height="34" FontWeight="Bold" Command="{Binding ApplyCommand}">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                <Setter Property="Content" Value="Apply — записать в базу (F2.7)" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsBusy}" Value="True">
+                                        <Setter Property="IsEnabled" Value="False" />
+                                        <Setter Property="Content" Value="Запись… (данные + аудит)" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                </StackPanel>
+
+                <DataGrid ItemsSource="{Binding Mappings}" MaxHeight="560">
+                    <DataGrid.RowStyle>
+                        <!-- Тултип строки: краткое описание назначения поля (MappingService/FieldDescriptions) -->
+                        <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+                            <Setter Property="ToolTip" Value="{Binding Description}" />
+                            <Setter Property="ToolTipService.InitialShowDelay" Value="250" />
+                            <Setter Property="ToolTipService.ShowDuration" Value="30000" />
+                        </Style>
+                    </DataGrid.RowStyle>
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Колонка Excel" Binding="{Binding ExcelColumnDisplay}"
+                                            IsReadOnly="True" Width="190"
+                                            ToolTipService.ToolTip="Позиция колонки в листе — различие дубликатов заголовков (F2.14)" />
+                        <DataGridComboBoxColumn Header="Колонка таблицы (Bind)" Width="200"
+                            SelectedItemBinding="{Binding AccessColumn, UpdateSourceTrigger=PropertyChanged}">
+                            <DataGridComboBoxColumn.ElementStyle>
+                                <Style TargetType="ComboBox">
+                                    <Setter Property="ItemsSource"
+                                            Value="{Binding DataContext.AccessColumns, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                    <Setter Property="IsEditable" Value="False" />
+                                </Style>
+                            </DataGridComboBoxColumn.ElementStyle>
+                            <DataGridComboBoxColumn.EditingElementStyle>
+                                <Style TargetType="ComboBox">
+                                    <Setter Property="ItemsSource"
+                                            Value="{Binding DataContext.AccessColumns, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                    <Setter Property="IsEditable" Value="True" />
+                                </Style>
+                            </DataGridComboBoxColumn.EditingElementStyle>
+                        </DataGridComboBoxColumn>
+                        <DataGridCheckBoxColumn Header="Tag?" Binding="{Binding IsTag, Mode=OneWay}"
+                                                IsReadOnly="True" Width="50" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </Border>
+
+        <!-- ===== Центр: предпросмотр с подсветкой некорректных данных ===== -->
+        <GroupBox Header="Предпросмотр (первые 50 строк; красным — некорректные данные для сопоставленных колонок; зачёркнутым — пропуск строки/значения, F2.12)">
+            <DataGrid x:Name="previewGrid" ItemsSource="{Binding PreviewRows}" IsReadOnly="True" />
+        </GroupBox>
+    </DockPanel>
+</Window>

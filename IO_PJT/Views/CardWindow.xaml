@@ -1,0 +1,33 @@
+<Window x:Class="IO_PJT.Views.CardWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="{Binding Title}" Width="620" Height="720"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+
+    <!-- Карточка сигнала (F6.2): все поля дерева IOclass, стиль Screen forma.JPG -->
+    <DockPanel Margin="10">
+
+        <Border DockPanel.Dock="Top" Background="#EAF3FB" BorderBrush="#B8D6F0"
+                BorderThickness="1" Padding="8,6" Margin="0,0,0,8">
+            <TextBlock TextWrapping="Wrap" Foreground="#1E1E1E"
+                       Text="Поля PTag_* (парсинг тега) заполняются автоматически из Tag при сохранении. Поле Tag обязательно." />
+        </Border>
+
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Margin="0,10,0,0">
+            <Button Content="Сохранить" Width="110" Margin="0,0,8,0" IsDefault="True"
+                    Command="{Binding SaveCommand}" />
+            <Button Content="Отмена" Width="110" IsCancel="True"
+                    Command="{Binding CancelCommand}" />
+        </StackPanel>
+
+        <DataGrid ItemsSource="{Binding Rows}" AutoGenerateColumns="False">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Колонка таблицы" Binding="{Binding Column}"
+                                    IsReadOnly="True" Width="230" />
+                <DataGridTextColumn Header="Значение" Binding="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
+                                    Width="*" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</Window>

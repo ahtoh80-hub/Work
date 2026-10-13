@@ -1,0 +1,119 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+      Светлая классическая тема в стиле эталонных скриншотов
+      (_Specification/Screen forma*.JPG): светлый фон, чёрный текст,
+      системные кнопки/поля, выделенная строка грида голубая.
+    -->
+
+    <!-- ===== Светло-голубая тема (решение: светло-голубые тона интерфейса) ===== -->
+    <SolidColorBrush x:Key="WindowBackground" Color="#E3EEF9" />
+    <SolidColorBrush x:Key="PanelBackground" Color="#F7FBFF" />
+    <SolidColorBrush x:Key="BorderBrushLight" Color="#9FBCD9" />
+    <SolidColorBrush x:Key="AccentBrush" Color="#BBD9F5" />
+    <SolidColorBrush x:Key="HeaderBackground" Color="#C9DDF2" />
+    <SolidColorBrush x:Key="BluePanel" Color="#D6E7F7" />
+    <SolidColorBrush x:Key="BlueSoft" Color="#EFF6FC" />
+
+    <!-- Цвета журнала событий: белый — норма, жёлтый — предупреждение, красный — ошибка -->
+    <SolidColorBrush x:Key="LogInfoBrush" Color="#1E1E1E" />
+    <SolidColorBrush x:Key="LogWarningBrush" Color="#9C6500" />
+    <SolidColorBrush x:Key="LogErrorBrush" Color="#C42B1C" />
+    <SolidColorBrush x:Key="LogWarningBackground" Color="#FFF4CE" />
+    <SolidColorBrush x:Key="LogErrorBackground" Color="#FDE7E9" />
+
+    <Style TargetType="Window">
+        <Setter Property="Background" Value="{StaticResource WindowBackground}" />
+        <Setter Property="Foreground" Value="#1E1E1E" />
+        <Setter Property="FontFamily" Value="Segoe UI" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="UseLayoutRounding" Value="True" />
+    </Style>
+
+    <Style TargetType="Menu">
+        <Setter Property="Background" Value="{StaticResource WindowBackground}" />
+        <Setter Property="Padding" Value="2,1" />
+    </Style>
+
+    <Style TargetType="ToolBar">
+        <Setter Property="Background" Value="{StaticResource WindowBackground}" />
+        <Setter Property="Padding" Value="2" />
+    </Style>
+
+    <!-- Кнопка в светло-голубом стиле -->
+    <Style TargetType="Button">
+        <Setter Property="Padding" Value="10,3" />
+        <Setter Property="Margin" Value="2" />
+        <Setter Property="Background" Value="#D6E8F8" />
+        <Setter Property="BorderBrush" Value="#9FBCD9" />
+        <Setter Property="MinWidth" Value="75" />
+    </Style>
+
+    <Style TargetType="TextBox">
+        <Setter Property="Padding" Value="2,1" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrushLight}" />
+    </Style>
+
+    <Style TargetType="ComboBox">
+        <Setter Property="Padding" Value="2,1" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+
+    <Style TargetType="GroupBox">
+        <Setter Property="Margin" Value="4" />
+        <Setter Property="Padding" Value="4" />
+        <Setter Property="BorderBrush" Value="#A9C6DF" />
+        <Setter Property="Foreground" Value="#17375E" />
+    </Style>
+
+    <!-- Основной грид данных -->
+    <Style TargetType="DataGrid">
+        <Setter Property="Background" Value="{StaticResource PanelBackground}" />
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrushLight}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="GridLinesVisibility" Value="Horizontal" />
+        <Setter Property="HorizontalGridLinesBrush" Value="#E0E0E0" />
+        <Setter Property="HeadersVisibility" Value="Column" />
+        <Setter Property="SelectionMode" Value="Single" />
+        <Setter Property="SelectionUnit" Value="FullRow" />
+        <Setter Property="CanUserAddRows" Value="False" />
+        <Setter Property="CanUserDeleteRows" Value="False" />
+        <Setter Property="AutoGenerateColumns" Value="False" />
+        <Setter Property="RowHeaderWidth" Value="0" />
+    </Style>
+
+    <Style TargetType="DataGridColumnHeader">
+        <Setter Property="Background" Value="{StaticResource HeaderBackground}" />
+        <Setter Property="Padding" Value="4,3" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="BorderBrush" Value="#D0D0D0" />
+        <Setter Property="BorderThickness" Value="0,0,1,1" />
+    </Style>
+
+    <Style TargetType="DataGridRow">
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+
+    <!-- Строка журнала: цвет текста по уровню, фон для предупреждений/ошибок -->
+    <Style x:Key="LogTextStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource LogInfoBrush}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding Level}" Value="Warning">
+                <Setter Property="Foreground" Value="{StaticResource LogWarningBrush}" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Level}" Value="Error">
+                <Setter Property="Foreground" Value="{StaticResource LogErrorBrush}" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style TargetType="Label">
+        <Setter Property="Foreground" Value="#1E1E1E" />
+    </Style>
+
+</ResourceDictionary>

@@ -1,0 +1,30 @@
+<Window x:Class="IO_PJT.Views.CreateTableDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Создание таблицы" Width="480" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize" ShowInTaskbar="False">
+
+    <!-- Стиль экрана Screen forma1.JPG: подпись, поле, [Note], OK/Cancel справа внизу -->
+    <StackPanel Margin="14">
+        <TextBlock Text="Введите имя новой таблицы (по умолчанию — IO_LIST):"
+                   TextWrapping="Wrap" Margin="0,0,0,8" />
+
+        <DockPanel Margin="0,0,0,10">
+            <Button DockPanel.Dock="Right" Content="Сброс" MinWidth="70" Margin="6,0,0,0"
+                    Click="Default_Click" />
+            <TextBox x:Name="txtName" Height="26" />
+        </DockPanel>
+
+        <Border Background="{StaticResource BlueSoft}" BorderBrush="#A9C6DF" BorderThickness="1" Padding="8,6" Margin="0,0,0,12">
+            <TextBlock TextWrapping="Wrap">
+                <Run FontWeight="Bold" Text="[Note]:" />
+                <Run Text=" Таблица создаётся по структуре IOclass (раздел Б8 IOclass.md): 96 колонок, TEXT(255) (ParsedTag — TEXT(50)), уникальный индекс UX_ИМЯ_Tag по полю Tag." />
+            </TextBlock>
+        </Border>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="OK" Width="90" Margin="0,0,8,0" IsDefault="True" Click="Ok_Click" />
+            <Button Content="Cancel" Width="90" IsCancel="True" />
+        </StackPanel>
+    </StackPanel>
+</Window>

@@ -1,0 +1,149 @@
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Data.OleDb;
+using System.IO;
+using IO_PJT.Data;
+
+namespace IO_PJT.Services
+{
+    /// <summary>
+    /// Создание базы Access и таблиц по DDL из раздела Б8 IOclass.md (ТЗ F1).
+    /// Имя таблицы данных может быть любым, по умолчанию — IO_LIST.
+    /// </summary>
+    public sealed class TableCreator : ITableCreator
+    {
+        private readonly string _dbPath;
+
+        public TableCreator(string dbPath) => _dbPath = dbPath;
+
+        private string ConnStr => $"Provider=Microsoft.ACE.OLEDB.12.0;Data Source={_dbPath};";
+
+        /// <summary>Файл базы существует.</summary>
+        public bool DatabaseExists() => File.Exists(_dbPath);
+
+        /// <summary>Создать базу с нуля + служебные таблицы (аудит и шаблоны маппинга).</summary>
+        public void CreateDatabase()
+        {
+            if (DatabaseExists()) return;
+
+            // Способ создания .accdb — ADOX (Microsoft Access Database Engine)
+            Type? catalogType = Type.GetTypeFromProgID("ADOX.Catalog")
+                ?? throw new InvalidOperationException(
+                    "Провайдер ADOX недоступен. Установите Microsoft Access Database Engine (ACE OLEDB).");
+
+            object? catalog = Activator.CreateInstance(catalogType);
+            try
+            {
+                dynamic cat = catalog!;
+                cat.Create(ConnStr);
+            }
+            finally
+            {
+                if (catalog != null) System.Runtime.InteropServices.Marshal.ReleaseComObject(catalog);
+            }
+
+            // Служебные таблицы: история изменений и шаблоны маппинга
+            Execute(Schema.CreateAuditTable);
+            Execute(Schema.CreateMappingTemplatesTable);
+        }
+
+        /// <summary>Список пользовательских таблиц базы (без системных MSys*).</summary>
+        public IReadOnlyList<string> GetTableNames()
+        {
+            var result = new List<string>();
+            using var cn = Open();
+            var dt = cn.GetSchema("Tables", new[] { null, null, null, "TABLE" });
+            foreach (DataRow row in dt.Rows)
+            {
+                string name = row["TABLE_NAME"]?.ToString() ?? "";
+                if (!name.StartsWith("~") && !name.StartsWith("MSys"))
+                    result.Add(name);
+            }
+            return result;
+        }
+
+        /// <summary>Проверка существования таблицы.</summary>
+        public bool TableExists(string tableName)
+        {
+            using var cn = Open();
+            var dt = cn.GetSchema("Tables", new[] { null, null, tableName, "TABLE" });
+            return dt.Rows.Count > 0;
+        }
+
+        /// <summary>Создать таблицу данных с нуля (F1.3): структура + уникальный индекс Tag.</summary>
+        public void CreateDataTable(string tableName)
+        {
+            if (TableExists(tableName))
+                throw new InvalidOperationException($"Таблица [{tableName}] уже существует — укажите другое имя.");
+
+            Execute(Schema.CreateTable(tableName));
+            Execute(Schema.CreateTagIndex(tableName)); // ключевое поле Tag (F4.3)
+        }
+
+        /// <summary>Колонки таблицы в порядке следования.</summary>
+        public IReadOnlyList<string> GetColumns(string tableName)
+        {
+            var result = new List<string>();
+            using var cn = Open();
+            var dt = cn.GetSchema("Columns", new[] { null, null, tableName, null });
+            var rows = dt.Select(null, "ORDINAL_POSITION");
+            foreach (DataRow row in rows)
+                result.Add(row["COLUMN_NAME"]?.ToString() ?? "");
+            return result;
+        }
+
+        /// <summary>
+        /// Гарантия служебных таблиц: создаёт IO_LIST_Audit и MappingTemplates,
+        /// если их нет (идемпотентно). Вызывается ServiceSchema перед записью.
+        /// Существующие таблицы аудита дополняются контекстными колонками (F7.6, ALTER TABLE ADD).
+        /// </summary>
+        public void EnsureServiceTables()
+        {
+            if (!DatabaseExists()) return;
+            if (!TableExists("IO_LIST_Audit"))
+            {
+                Execute(Schema.CreateAuditTable);
+            }
+            else
+            {
+                // F7.6: миграция старых таблиц аудита — добавить REV_FileName/System при отсутствии
+                var auditCols = new HashSet<string>(GetColumns("IO_LIST_Audit"), StringComparer.OrdinalIgnoreCase);
+                foreach (var col in Schema.AuditContextColumns)
+                    if (!auditCols.Contains(col))
+                        Execute($"ALTER TABLE [IO_LIST_Audit] ADD COLUMN [{col}] TEXT(255)");
+            }
+            if (!TableExists("MappingTemplates"))
+                Execute(Schema.CreateMappingTemplatesTable);
+        }
+
+        /// <summary>
+        /// Автодополнение структуры существующей таблицы: недостающие колонки
+        /// добавляются через ALTER TABLE ADD по типам из Б8 (Schema.SqlTypeFor).
+        /// </summary>
+        public void EnsureColumns(string tableName)
+        {
+            if (!TableExists(tableName)) return;
+            var existing = new HashSet<string>(GetColumns(tableName), StringComparer.OrdinalIgnoreCase);
+            foreach (var col in Schema.DataColumns)
+            {
+                if (!existing.Contains(col))
+                    Execute($"ALTER TABLE [{tableName}] ADD COLUMN [{col}] {Schema.SqlTypeFor(col)}");
+            }
+        }
+
+        private OleDbConnection Open()
+        {
+            var cn = new OleDbConnection(ConnStr);
+            cn.Open();
+            return cn;
+        }
+
+        private void Execute(string sql)
+        {
+            using var cn = Open();
+            using var cmd = new OleDbCommand(sql, cn);
+            cmd.ExecuteNonQuery();
+        }
+    }
+}

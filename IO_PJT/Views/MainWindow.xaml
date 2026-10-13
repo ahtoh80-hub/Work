@@ -1,0 +1,113 @@
+<Window x:Class="IO_PJT.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="IO_PJT — управление списком IO List"
+        Width="1280" Height="820" WindowStartupLocation="CenterScreen">
+
+    <DockPanel>
+
+        <!-- ===== Меню (стиль Screen всплывающее меню.JPG) ===== -->
+        <Menu DockPanel.Dock="Top">
+            <MenuItem Header="_Файл">
+                <MenuItem Header="Открыть базу данных..." Click="OpenDatabase_Click" />
+                <MenuItem Header="Выгрузить данные в Excel..." Command="{Binding ExportExcelCommand}" />
+                <Separator />
+                <MenuItem Header="Выход" Click="Exit_Click" />
+            </MenuItem>
+            <MenuItem Header="_Импорт">
+                <MenuItem Header="Импорт из Excel..." Command="{Binding ImportCommand}" />
+                <Separator />
+                <MenuItem Header="История изменений..." Command="{Binding HistoryCommand}" />
+            </MenuItem>
+            <MenuItem Header="_Таблица">
+                <MenuItem Header="Создать таблицу с нуля..." Command="{Binding CreateTableCommand}" />
+                <MenuItem Header="Резервная копия таблицы" Command="{Binding BackupCommand}" />
+                <MenuItem Header="Очистить таблицу..." Command="{Binding ClearTableCommand}" />
+                <Separator />
+                <MenuItem Header="Обновить" Command="{Binding RefreshCommand}" />
+            </MenuItem>
+            <MenuItem Header="_Справка">
+                <MenuItem Header="О программе" Click="About_Click" />
+            </MenuItem>
+        </Menu>
+
+        <!-- ===== Тулбар (иконки — стиль Screen forma.JPG) ===== -->
+        <ToolBarTray DockPanel.Dock="Top">
+            <ToolBar>
+                <Button Content="➕ Новый" Command="{Binding NewPointCommand}" ToolTip="Добавить сигнал" />
+                <Button Content="✏️ Изменить" Command="{Binding EditPointCommand}" ToolTip="Карточка выбранного сигнала" />
+                <Button Content="🗑 Удалить" Command="{Binding DeletePointCommand}" ToolTip="Удалить выбранный сигнал" />
+                <Separator />
+                <Button Content="📥 Импорт Excel" Command="{Binding ImportCommand}" />
+                <Button Content="🕘 История" Command="{Binding HistoryCommand}" />
+                <Separator />
+                <Button Content="🔄 Обновить" Command="{Binding RefreshCommand}" />
+                <Button Content="📤 Выгрузить" Command="{Binding ExportExcelCommand}" />
+            </ToolBar>
+        </ToolBarTray>
+
+        <!-- ===== Инфо-строка (светло-голубая) ===== -->
+        <Border DockPanel.Dock="Top" Background="{StaticResource BluePanel}" Padding="8,4">
+            <TextBlock Text="{Binding InfoText}" FontWeight="SemiBold" />
+        </Border>
+
+        <!-- ===== Панель фильтров ===== -->
+        <Border DockPanel.Dock="Top" Background="{StaticResource WindowBackground}" Padding="6,4">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Поиск:" VerticalAlignment="Center" Margin="0,0,4,0" />
+                <TextBox Width="260" Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}" />
+                <Button Content="Найти" Command="{Binding SearchCommand}" Margin="6,2" MinWidth="70" />
+                <TextBlock Text="Система:" VerticalAlignment="Center" Margin="16,0,4,0" />
+                <ComboBox Width="90" ItemsSource="{Binding Systems}" SelectedItem="{Binding SelectedSystem}" />
+                <TextBlock Text="Таблица:" VerticalAlignment="Center" Margin="16,0,4,0" />
+                <ComboBox Width="180" ItemsSource="{Binding Tables}" SelectedItem="{Binding SelectedTable}" />
+            </StackPanel>
+        </Border>
+
+        <!-- ===== Журнал событий снизу (Задание п.8) ===== -->
+        <GroupBox DockPanel.Dock="Bottom"
+                  Header="Журнал событий (белый — норма, жёлтый — предупреждение, красный — ошибка)"
+                  Height="150" Margin="6,2,6,4">
+            <ListBox ItemsSource="{Binding LogEntries}" Background="White"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Style="{StaticResource LogTextStyle}">
+                            <TextBlock.Text>
+                                <MultiBinding StringFormat="[{0:HH:mm:ss}] {1}">
+                                    <Binding Path="Time" />
+                                    <Binding Path="Message" />
+                                </MultiBinding>
+                            </TextBlock.Text>
+                        </TextBlock>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </GroupBox>
+
+        <!-- ===== Основной грид репозитория ===== -->
+        <DataGrid ItemsSource="{Binding Points}" SelectedItem="{Binding SelectedPoint}"
+                  Margin="6,4" IsReadOnly="True">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="50" />
+                <DataGridTextColumn Header="Tag" Binding="{Binding Tag}" Width="170" />
+                <DataGridTextColumn Header="Код" Binding="{Binding Identification.Code}" Width="50" />
+                <DataGridTextColumn Header="Area" Binding="{Binding Identification.Area}" Width="60" />
+                <DataGridTextColumn Header="Plant" Binding="{Binding Identification.Plant}" Width="70" />
+                <DataGridTextColumn Header="Loop" Binding="{Binding Identification.Loop}" Width="130" />
+                <DataGridTextColumn Header="Logic" Binding="{Binding Identification.Logic}" Width="170" />
+                <DataGridTextColumn Header="System" Binding="{Binding Identification.System}" Width="70" />
+                <DataGridTextColumn Header="I/O Type" Binding="{Binding Identification.IoType}" Width="80" />
+                <DataGridTextColumn Header="SignalType" Binding="{Binding Signal.SignalType}" Width="110" />
+                <DataGridTextColumn Header="Service" Binding="{Binding Signal.Service}" Width="240" />
+                <DataGridTextColumn Header="Instrument" Binding="{Binding Signal.InstrumentType}" Width="150" />
+                <DataGridTextColumn Header="Напряжение" Binding="{Binding Signal.VoltageLevel}" Width="90" />
+                <DataGridTextColumn Header="Мощность" Binding="{Binding Signal.PowerConsumption}" Width="85" />
+                <DataGridTextColumn Header="Location" Binding="{Binding Identification.Location}" Width="80" />
+                <DataGridTextColumn Header="Controller" Binding="{Binding Identification.Controller}" Width="130" />
+                <DataGridTextColumn Header="Author" Binding="{Binding Revision.Author}" Width="140" />
+                <DataGridTextColumn Header="Изменено" Binding="{Binding Revision.DateModified}" Width="130" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</Window>
