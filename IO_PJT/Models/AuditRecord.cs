@@ -18,7 +18,19 @@ namespace IO_PJT.Models
         MarkedDelete,
         /// <summary>F2.15: из значения Tag удалены пробельные символы (нормализация при импорте/сохранении
         /// карточки). Отображается красным.</summary>
-        TagCleaned
+        TagCleaned,
+        /// <summary>F9.1: задвоение тега между документами — тег уже существует в БД из другого
+        /// документа (файл + вкладка), а импортируется из текущего. Равноправная запись аудита
+        /// (как Insert/Update): OldValue/NewValue — прежний/текущий документ. Отображается жёлтым.</summary>
+        Duplicate,
+        /// <summary>F9.8: предупреждение связывания с картой Modbus — «Не связано: …» либо тег из
+        /// DcsTag не найден в IO_LIST. NewValue — текст сообщения (как в журнале событий);
+        /// System = «Modbus», FieldName = «Modbus». Отображается жёлтым.</summary>
+        ModbusWarning,
+        /// <summary>F9.8: ошибка связывания/обновления адресации Modbus — связь отклонена
+        /// (не Modbus-сигнал), DCSTAG не Modbus сигнала. NewValue — текст сообщения
+        /// (как в журнале событий). Отображается красным.</summary>
+        ModbusError
     }
 
     /// <summary>
@@ -58,7 +70,7 @@ namespace IO_PJT.Models
         /// NULL для старых записей/ручных операций/вкладки, неизвестной на момент изменения.</summary>
         public string? Sheet { get; set; }
 
-        /// <summary>F7.6: система (System: DCS/SIS/GDS), к которой относится изменение.</summary>
+        /// <summary>F7.6: система (System — произвольное значение: DCS, РСУ, ПСБ и т.п.), к которой относится изменение.</summary>
         public string? System { get; set; }
 
         /// <summary>Момент изменения (системные часы).</summary>
@@ -71,6 +83,9 @@ namespace IO_PJT.Models
             AuditAction.Delete => $"удалено: {FieldName} = {OldValue ?? "NULL"}",
             AuditAction.MarkedDelete => $"помечен к удалению: {NewValue ?? "NULL"} (необходимо удалить из БД)",
             AuditAction.TagCleaned => $"очищен от пробелов: «{OldValue ?? "NULL"}» → «{NewValue ?? "NULL"}» (F2.15)",
+            AuditAction.Duplicate => $"задвоение тега: документ «{OldValue ?? "NULL"}» → «{NewValue ?? "NULL"}» (F9.1)",
+            AuditAction.ModbusWarning => $"предупреждение связывания Modbus: {NewValue ?? "NULL"} (F9.8)",
+            AuditAction.ModbusError => $"ошибка связывания Modbus: {NewValue ?? "NULL"} (F9.8)",
             _ => $"{OldValue ?? "NULL"} → {NewValue ?? "NULL"}"
         };
     }
@@ -116,6 +131,12 @@ namespace IO_PJT.Models
         public int CriticalErrorCount { get; set; }
         public int MarkedDeleteCount { get; set; }
         public int TagCleanedCount { get; set; }
+        /// <summary>F9.1: задвоения тега между документами (Duplicate).</summary>
+        public int DuplicateCount { get; set; }
+        /// <summary>F9.8: предупреждения связывания с картой Modbus (ModbusWarning).</summary>
+        public int ModbusWarningCount { get; set; }
+        /// <summary>F9.8: ошибки связывания/обновления адресации Modbus (ModbusError).</summary>
+        public int ModbusErrorCount { get; set; }
 
         /// <summary>Суммарное количество изменений по строке.</summary>
         public int Total { get; set; }

@@ -32,5 +32,12 @@ namespace IO_PJT.Models
         /// проверка идентичности пропущена (предупреждение W003).
         /// </summary>
         public bool IdentityNotChecked { get; init; }
+
+        /// <summary>F9.1: документ существующей записи в БД (REV_FileName) — для определения
+        /// задвоения тега между документами. null — документ неизвестен (старые записи).</summary>
+        public string? ExistingFileName { get; init; }
+
+        /// <summary>F9.1: вкладка существующей записи в БД (REV_Sheet).</summary>
+        public string? ExistingSheet { get; init; }
     }
 }

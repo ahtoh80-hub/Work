@@ -78,8 +78,11 @@ namespace IO_PJT.Services
         /// <summary>Подстрочный поиск (F3.3).</summary>
         List<IoPoint> Search(string term);
 
-        /// <summary>Фильтр по системе DCS/SIS/GDS (F3.4).</summary>
+        /// <summary>Фильтр по системе (F3.4; значение System произвольное — DCS, РСУ, ПСБ и т.п.; точное совпадение без учёта регистра).</summary>
         List<IoPoint> GetBySystem(string system);
+
+        /// <summary>Уникальные непустые значения System в таблице — для списка фильтра главного окна (F3.4).</summary>
+        List<string> GetSystems();
 
         /// <summary>Количество записей.</summary>
         int Count();
@@ -87,8 +90,9 @@ namespace IO_PJT.Services
         /// <summary>Вставка новой записи (возвращает ID). Аудит: INSERT.</summary>
         long Insert(IoPoint p);
 
-        /// <summary>Обновление по ID. Аудит: UPDATE «старое → новое».</summary>
-        void Update(IoPoint p);
+        /// <summary>Обновление по ID. Аудит: UPDATE «старое → новое». Возвращает число изменённых полей
+        /// (0 — без изменений; вызывающий может игнорировать).</summary>
+        int Update(IoPoint p);
 
         /// <summary>Удаление по ID. Аудит: DELETE.</summary>
         void Delete(long id);
@@ -108,19 +112,31 @@ namespace IO_PJT.Services
         /// REV_FileName (+ REV_Sheet) — для диалога «взамен какого». Документ = файл + вкладка.</summary>
         List<(string FileName, string? Sheet)> GetDocuments();
 
-        /// <summary>F2.11/F2.16: замена документа = пара (файл + вкладка). Теги документа
-        /// (replacedFileName + replacedSheet), отсутствующие в tagsInFile (новая вкладка файла),
+        /// <summary>F2.11/F2.16/F2.17: замена документов (мультивыбор — ревизии/вкладки). Теги каждого
+        /// документа replacedDocs (пары файл + вкладка), отсутствующие в tagsInFile (новая вкладка файла),
         /// помечаются к удалению: REV_Description = «Удаляются, отсутствуют в последней версии файла …»
-        /// + аудит MarkedDelete; физически строки НЕ удаляются. Выжившие теги документа (есть в новом файле)
-        /// переносятся на новый документ (REV_FileName = newFileName, REV_Sheet = newSheet) + аудит Update.
-        /// replacedSheet/newSheet: null/пусто — документ без вкладки (старые записи, REV_Sheet IS NULL).
+        /// + аудит MarkedDelete; физически строки НЕ удаляются. Выжившие теги (есть в новом файле)
+        /// переносятся на новый документ (REV_FileName = newFileName, REV_Sheet = newSheet) + аудит Update
+        /// с реальным прежним документом записи в OldValue. Записи, уже принадлежащие новому документу,
+        /// не переносятся (идемпотентность повторного импорта). Sheet: null — документ без вкладки.
         /// Возвращает список помеченных к удалению тегов. Работает внутри сессии импорта (F2.9).</summary>
         List<string> MarkMissingTagsForDeletion(IReadOnlySet<string> tagsInFile,
-            string replacedFileName, string? replacedSheet, string newFileName, string? newSheet);
+            IReadOnlyList<(string FileName, string? Sheet)> replacedDocs, string newFileName, string? newSheet);
+
+        /// <summary>F2.17: копия строки в IO_LIST_DublicateTag (структура = IO_LIST, без уникального индекса
+        /// Tag — таблица хранит все копии повторяющихся тегов). Аудит не пишется (архив копий).
+        /// Работает внутри сессии импорта (F2.9).</summary>
+        void InsertDuplicate(IoPoint p);
 
         /// <summary>F2.15: запись аудита TagCleaned (из значения Tag удалены пробельные символы) —
         /// действие отображается красным в окне истории. Контекст: документ (файл + вкладка) и система.</summary>
         void RecordTagCleanedAudit(string? oldTag, string? newTag, string? fileName, string? sheet, string? system);
+
+        /// <summary>F9.1: запись аудита Duplicate — задвоение тега между документами (тег уже в БД из другого
+        /// документа). Равноправная запись истории (как Insert/Update), отображается жёлтым.
+        /// oldFileName/oldSheet — прежний документ записи, newFileName/newSheet — инициирующий документ.</summary>
+        void RecordDuplicateTagAudit(string? tag, string? oldFileName, string? oldSheet,
+            string? newFileName, string? newSheet, string? system);
 
         /// <summary>Начать сессию массовой записи: одно соединение + одна транзакция + батч аудита (F2.9). Для импорта.</summary>
         void BeginSession();
@@ -135,6 +151,11 @@ namespace IO_PJT.Services
     /// <summary>История изменений (ТЗ F7).</summary>
     public interface IAuditService
     {
+        /// <summary>F9.9: глобальный переключатель аудита. При выключении записи в IO_LIST_Audit
+        /// не выполняются — изменения фиксируются в журнале событий минимально (только имена
+        /// затронутых Tag). По умолчанию включён.</summary>
+        bool Enabled { get; set; }
+
         /// <summary>Записать одно изменение. fileName/sheet (REV_FileName/REV_Sheet) и system (System) —
         /// F7.6/F7.7: контекст изменения (из какого документа — файл+вкладка, по какой системе);
         /// null — контекст неизвестен.</summary>

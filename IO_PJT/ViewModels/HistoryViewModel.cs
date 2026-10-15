@@ -31,7 +31,7 @@ namespace IO_PJT.ViewModels
         public string FilterSheet { get => _filterSheet; set => Set(ref _filterSheet, value, nameof(FilterSheet)); }
 
         private string _filterSystem = "";
-        /// <summary>F7.6: фильтр по системе (System: DCS/SIS/GDS, подстрока).</summary>
+        /// <summary>F7.6: фильтр по системе (System — произвольное значение, подстрока; напр. DCS, РСУ, ПСБ).</summary>
         public string FilterSystem { get => _filterSystem; set => Set(ref _filterSystem, value, nameof(FilterSystem)); }
 
         private DateTime? _from;

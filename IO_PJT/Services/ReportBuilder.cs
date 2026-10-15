@@ -42,6 +42,9 @@ namespace IO_PJT.Services
                             case AuditAction.CriticalError: row.CriticalErrorCount += a.Count; break;
                             case AuditAction.MarkedDelete: row.MarkedDeleteCount += a.Count; break;
                             case AuditAction.TagCleaned: row.TagCleanedCount += a.Count; break;
+                            case AuditAction.Duplicate: row.DuplicateCount += a.Count; break;
+                            case AuditAction.ModbusWarning: row.ModbusWarningCount += a.Count; break;
+                            case AuditAction.ModbusError: row.ModbusErrorCount += a.Count; break;
                         }
                     }
                     fieldRows.Add(row);
@@ -68,6 +71,9 @@ namespace IO_PJT.Services
                     sub.CriticalErrorCount += r.CriticalErrorCount;
                     sub.MarkedDeleteCount += r.MarkedDeleteCount;
                     sub.TagCleanedCount += r.TagCleanedCount;
+                    sub.DuplicateCount += r.DuplicateCount;
+                    sub.ModbusWarningCount += r.ModbusWarningCount;
+                    sub.ModbusErrorCount += r.ModbusErrorCount;
                 }
                 rows.Add(sub);
             }
@@ -90,6 +96,9 @@ namespace IO_PJT.Services
                     total.CriticalErrorCount += sub.CriticalErrorCount;
                     total.MarkedDeleteCount += sub.MarkedDeleteCount;
                     total.TagCleanedCount += sub.TagCleanedCount;
+                    total.DuplicateCount += sub.DuplicateCount;
+                    total.ModbusWarningCount += sub.ModbusWarningCount;
+                    total.ModbusErrorCount += sub.ModbusErrorCount;
                 }
                 rows.Add(total);
             }

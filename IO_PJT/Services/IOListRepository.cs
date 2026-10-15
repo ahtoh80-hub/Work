@@ -28,7 +28,7 @@ namespace IO_PJT.Services
             _log = log;
         }
 
-        private string ConnStr => $"Provider=Microsoft.ACE.OLEDB.12.0;Data Source={_dbPath};";
+        private string ConnStr => DbProbe.ConnStrWithTimeout(_dbPath);
 
         /// <summary>Список колонок в квадратных скобках (защита от зарезервированных имён: Loop, System, L...).</summary>
         private static string ColList =>
@@ -64,9 +64,14 @@ namespace IO_PJT.Services
 
         private CnScope Scope() => new CnScope(_sessionCn ?? Open(), _sessionCn == null);
 
-        /// <summary>Команда на соединении: в сессии (F2.9) привязывается к сессионной транзакции.</summary>
-        private OleDbCommand Cmd(string sql, OleDbConnection cn) =>
-            _sessionTr == null ? new OleDbCommand(sql, cn) : new OleDbCommand(sql, cn, _sessionTr);
+        /// <summary>Команда на соединении: в сессии (F2.9) привязывается к сессионной транзакции.
+        /// CommandTimeout (часть C): занятая база даёт ошибку быстро, а не через 30 с ожидания.</summary>
+        private OleDbCommand Cmd(string sql, OleDbConnection cn)
+        {
+            var cmd = _sessionTr == null ? new OleDbCommand(sql, cn) : new OleDbCommand(sql, cn, _sessionTr);
+            cmd.CommandTimeout = DbProbe.TimeoutSeconds;
+            return cmd;
+        }
 
         /// <summary>Начать сессию импорта: одно соединение + одна транзакция + пакет аудита. Идемпотентно.</summary>
         public void BeginSession()
@@ -178,7 +183,7 @@ namespace IO_PJT.Services
             return list;
         }
 
-        /// <summary>Фильтр по системе DCS/SIS/GDS (F3.4).</summary>
+        /// <summary>Фильтр по системе (F3.4; значение System произвольное — DCS, РСУ, ПСБ и т.п.; точное совпадение).</summary>
         public List<IoPoint> GetBySystem(string system)
         {
             var list = new List<IoPoint>();
@@ -188,6 +193,23 @@ namespace IO_PJT.Services
             cmd.Parameters.AddWithValue("?", system);
             using var rd = cmd.ExecuteReader();
             while (rd.Read()) list.Add(ReadPoint(rd));
+            return list;
+        }
+
+        /// <summary>Уникальные непустые значения System (F3.4): список фильтра главного окна; System произвольный (DCS, РСУ, ПСБ и т.п.).</summary>
+        public List<string> GetSystems()
+        {
+            var list = new List<string>();
+            using var scope = Scope(); var cn = scope.Cn;
+            string sql = $"SELECT DISTINCT [System] FROM [{TableName}] " +
+                         "WHERE [System] IS NOT NULL AND TRIM([System]) <> '' ORDER BY [System]";
+            using var cmd = Cmd(sql, cn);
+            using var rd = cmd.ExecuteReader();
+            while (rd.Read() && !rd.IsDBNull(0))
+            {
+                string s = rd.GetString(0).Trim();
+                if (s.Length > 0) list.Add(s);
+            }
             return list;
         }
 
@@ -339,8 +361,9 @@ namespace IO_PJT.Services
             return id;
         }
 
-        /// <summary>Обновление по ID: только изменённые поля (F2.8); без изменений — без записи и аудита.</summary>
-        public void Update(IoPoint p)
+        /// <summary>Обновление по ID: только изменённые поля (F2.8); без изменений — без записи и аудита.
+        /// Возвращает число изменённых полей (0 — без изменений).</summary>
+        public int Update(IoPoint p)
         {
             IoPoint? old;
             using (var sc = Scope()) old = GetById(sc.Cn, p.Id);
@@ -350,7 +373,7 @@ namespace IO_PJT.Services
             if (changes.Count == 0)
             {
                 LogRowInfo($"Без изменений (редактирование): ID={p.Id}");
-                return;
+                return 0;
             }
 
             UpdatePartial(old, p, changes);
@@ -362,6 +385,7 @@ namespace IO_PJT.Services
                         p.Identification.System ?? old.Identification.System,
                         p.Revision?.Sheet ?? old.Revision?.Sheet); // F7.6/F7.7: документ (файл+вкладка) + система
             LogRowInfo($"Изменена запись Tag={p.Tag} (ID={p.Id}), полей: {changes.Count}");
+            return changes.Count;
         }
 
         /// <summary>Удаление по ID. Аудит: DELETE (старые значения, новые — NULL).</summary>
@@ -447,7 +471,9 @@ namespace IO_PJT.Services
                     ConflictField = conflict,
                     OldIdentity = oldId,
                     NewIdentity = newId,
-                    IdentityNotChecked = notChecked
+                    IdentityNotChecked = notChecked,
+                    ExistingFileName = existing.Revision?.FileName, // F9.1: документ записи в БД
+                    ExistingSheet = existing.Revision?.Sheet
                 };
             }
 
@@ -461,7 +487,9 @@ namespace IO_PJT.Services
                 return new UpsertResult
                 {
                     Outcome = UpsertOutcome.Unchanged,
-                    IdentityNotChecked = notChecked
+                    IdentityNotChecked = notChecked,
+                    ExistingFileName = existing.Revision?.FileName, // F9.1
+                    ExistingSheet = existing.Revision?.Sheet
                 };
             }
 
@@ -476,7 +504,9 @@ namespace IO_PJT.Services
             return new UpsertResult
             {
                 Outcome = UpsertOutcome.Updated,
-                IdentityNotChecked = notChecked
+                IdentityNotChecked = notChecked,
+                ExistingFileName = existing.Revision?.FileName, // F9.1
+                ExistingSheet = existing.Revision?.Sheet
             };
         }
 
@@ -516,20 +546,36 @@ namespace IO_PJT.Services
             return list;
         }
 
-        /// <summary>F2.11/F2.16: замена документа = пара (replacedFileName + replacedSheet): теги документа,
-        /// отсутствующие в tagsInFile (новая вкладка), помечаются в REV_Description (MarkedDelete, красным
-        /// в аудите), физически НЕ удаляются; выжившие переносятся на новый документ (file + sheet).
+        /// <summary>F2.11/F2.16/F2.17: замена документов (мультивыбор — ревизии/вкладки): теги каждого
+        /// документа из replacedDocs, отсутствующие в tagsInFile (новая вкладка), помечаются в
+        /// REV_Description (MarkedDelete, красным в аудите), физически НЕ удаляются; выжившие
+        /// переносятся на новый документ (file + sheet) с OldValue = реальный прежний документ записи.
+        /// Записи, уже принадлежащие новому документу, не переносятся (идемпотентность).
         /// См. IIOListRepository.</summary>
         public List<string> MarkMissingTagsForDeletion(IReadOnlySet<string> tagsInFile,
-            string replacedFileName, string? replacedSheet, string newFileName, string? newSheet)
+            IReadOnlyList<(string FileName, string? Sheet)> replacedDocs, string newFileName, string? newSheet)
         {
             var marked = new List<string>();
+            if (replacedDocs.Count == 0) return marked;
+
             string marker = $"Удаляются, отсутствуют в последней версии файла {newFileName}";
-            string? oldSheet = string.IsNullOrWhiteSpace(replacedSheet) ? null : replacedSheet!.Trim();
             string? destSheet = string.IsNullOrWhiteSpace(newSheet) ? null : newSheet!.Trim();
-            // сравнение версии с самим собой (повторный импорт) — служебные строки не переносим
-            bool sameDoc = string.Equals(replacedFileName, newFileName, StringComparison.OrdinalIgnoreCase) &&
-                           string.Equals(oldSheet ?? "", destSheet ?? "", StringComparison.OrdinalIgnoreCase);
+
+            static string? NormSheet(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+            // Нормализация списка документов-заменителей (F2.17): дедупликация пар «файл + вкладка»
+            var docs = replacedDocs
+                .Select(d => (FileName: d.FileName.Trim(), Sheet: NormSheet(d.Sheet)))
+                .Where(d => d.FileName.Length > 0)
+                .Distinct()
+                .ToList();
+            if (docs.Count == 0) return marked;
+
+            // WHERE по всем выбранным парам: OR-условия с параметрами OleDb (F2.17);
+            // документ без вкладки (старые записи) матчится с NULL/пустым REV_Sheet
+            string where = string.Join(" OR ", docs.Select(d => d.Sheet == null
+                ? "([REV_FileName] = ? AND ([REV_Sheet] IS NULL OR [REV_Sheet] = ''))"
+                : "([REV_FileName] = ? AND [REV_Sheet] = ?)"));
 
             using var scope = Scope(); var cn = scope.Cn;
             bool ownTr = _sessionTr == null;
@@ -538,19 +584,20 @@ namespace IO_PJT.Services
 
             try
             {
-                // Строки заменяемого документа: WHERE по паре «файл + вкладка» (F2.16);
-                // документ без вкладки (старые записи) матчится с NULL/пустым REV_Sheet
-                var missing = new List<(long Id, string Tag, string? OldDesc, string? System)>();
-                var survivors = new List<(long Id, string Tag, string? System)>();
-                string sheetCond = oldSheet == null
-                    ? " AND ([REV_Sheet] IS NULL OR [REV_Sheet] = '')"
-                    : " AND [REV_Sheet] = ?";
+                // Строки документов-заменителей: SELECT по OR-парам (F2.17); в выборку входит
+                // и прежний документ каждой записи (REV_FileName/REV_Sheet) — для аудита OldValue
+                var missing = new List<(long Id, string Tag, string? OldDesc, string? System, string? OwnFile, string? OwnSheet)>();
+                var survivors = new List<(long Id, string Tag, string? System, string? OwnFile, string? OwnSheet)>();
                 using (var cmd = new OleDbCommand(
-                    $@"SELECT [ID], [Tag], [REV_Description], [System] FROM [{TableName}]
-                        WHERE [REV_FileName] = ?{sheetCond}", cn, tr))
+                    $@"SELECT [ID], [Tag], [REV_Description], [System], [REV_FileName], [REV_Sheet] FROM [{TableName}]
+                        WHERE {where}", cn, tr))
                 {
-                    OleDbArgs.Add(cmd, replacedFileName);
-                    if (oldSheet != null) OleDbArgs.Add(cmd, oldSheet);
+                    cmd.CommandTimeout = DbProbe.TimeoutSeconds;
+                    foreach (var d in docs)
+                    {
+                        OleDbArgs.Add(cmd, d.FileName);
+                        if (d.Sheet != null) OleDbArgs.Add(cmd, d.Sheet);
+                    }
                     using var rd = cmd.ExecuteReader();
                     while (rd.Read())
                     {
@@ -558,8 +605,10 @@ namespace IO_PJT.Services
                         string tag = rd[1]?.ToString() ?? "";
                         string? oldDesc = rd.IsDBNull(2) ? null : rd[2]?.ToString();
                         string? sys = rd.IsDBNull(3) ? null : rd[3]?.ToString(); // F7.6: система записи
-                        if (tagsInFile.Contains(tag)) survivors.Add((id, tag, sys));
-                        else missing.Add((id, tag, oldDesc, sys));
+                        string? ownFile = rd.IsDBNull(4) ? null : rd[4]?.ToString(); // прежний документ записи (F2.17)
+                        string? ownSheet = rd.IsDBNull(5) ? null : rd[5]?.ToString();
+                        if (tagsInFile.Contains(tag)) survivors.Add((id, tag, sys, ownFile, ownSheet));
+                        else missing.Add((id, tag, oldDesc, sys, ownFile, ownSheet));
                     }
                 }
 
@@ -567,12 +616,13 @@ namespace IO_PJT.Services
 
                 // Отсутствуют в новой версии — пометка к удалению (без физического DELETE);
                 // уже помеченный ранее тег не трогаем (идемпотентность повторной замены)
-                foreach (var (id, tag, oldDesc, sys) in missing)
+                foreach (var (id, tag, oldDesc, sys, _, _) in missing)
                 {
                     if (string.Equals(oldDesc?.Trim(), marker, StringComparison.Ordinal)) continue;
                     using (var cmd = new OleDbCommand(
                         $"UPDATE [{TableName}] SET [REV_Description] = ?, [REV_DateModified] = ? WHERE [ID] = ?", cn, tr))
                     {
+                        cmd.CommandTimeout = DbProbe.TimeoutSeconds;
                         OleDbArgs.Add(cmd, marker);
                         OleDbArgs.Add(cmd, now);
                         OleDbArgs.Add(cmd, id);
@@ -584,43 +634,83 @@ namespace IO_PJT.Services
                     marked.Add(tag);
                 }
 
-                // Выжившие теги документа переносятся на новый документ (корректная линовка версий)
-                if (!sameDoc)
-                    foreach (var (id, tag, sys) in survivors)
+                // Выжившие теги документов переносятся на новый документ (корректная линовка версий);
+                // записи уже нового документа не трогаются — повторный импорт идемпотентен (F2.16)
+                foreach (var (id, tag, sys, ownFile, ownSheet) in survivors)
+                {
+                    bool alreadyNewDoc = string.Equals(ownFile ?? "", newFileName, StringComparison.OrdinalIgnoreCase) &&
+                                         string.Equals(ownSheet ?? "", destSheet ?? "", StringComparison.OrdinalIgnoreCase);
+                    if (alreadyNewDoc) continue;
+
+                    using (var cmd = new OleDbCommand(
+                        $"UPDATE [{TableName}] SET [REV_FileName] = ?, [REV_Sheet] = ?, [REV_DateModified] = ? WHERE [ID] = ?", cn, tr))
                     {
-                        using (var cmd = new OleDbCommand(
-                            $"UPDATE [{TableName}] SET [REV_FileName] = ?, [REV_Sheet] = ?, [REV_DateModified] = ? WHERE [ID] = ?", cn, tr))
-                        {
-                            OleDbArgs.Add(cmd, newFileName);
-                            OleDbArgs.Add(cmd, destSheet);
-                            OleDbArgs.Add(cmd, now);
-                            OleDbArgs.Add(cmd, id);
-                            cmd.ExecuteNonQuery();
-                        }
-                        if (WriteAudit)
-                        {
-                            _audit.Record(TableName, tag, AuditAction.Update, "REV_FileName", replacedFileName, newFileName,
-                                newFileName, sys, destSheet); // F7.6/F7.7: инициирующий документ — новый файл+вкладка
-                            // F2.16: смена вкладки документа у выжившей записи — отдельная строка аудита
-                            if (!string.Equals(oldSheet ?? "", destSheet ?? "", StringComparison.OrdinalIgnoreCase))
-                                _audit.Record(TableName, tag, AuditAction.Update, "REV_Sheet", oldSheet, destSheet,
-                                    newFileName, sys, destSheet);
-                        }
+                        cmd.CommandTimeout = DbProbe.TimeoutSeconds;
+                        OleDbArgs.Add(cmd, newFileName);
+                        OleDbArgs.Add(cmd, destSheet);
+                        OleDbArgs.Add(cmd, now);
+                        OleDbArgs.Add(cmd, id);
+                        cmd.ExecuteNonQuery();
                     }
+                    if (WriteAudit)
+                    {
+                        // F2.17: OldValue — реальный прежний документ записи (в мульти-замене записи
+                        // приходят из разных документов, а не из одного «replacedFileName»)
+                        _audit.Record(TableName, tag, AuditAction.Update, "REV_FileName", ownFile, newFileName,
+                            newFileName, sys, destSheet); // F7.6/F7.7: инициирующий документ — новый файл+вкладка
+                        // F2.16: смена вкладки документа у выжившей записи — отдельная строка аудита
+                        if (!string.Equals(ownSheet ?? "", destSheet ?? "", StringComparison.OrdinalIgnoreCase))
+                            _audit.Record(TableName, tag, AuditAction.Update, "REV_Sheet", ownSheet, destSheet,
+                                newFileName, sys, destSheet);
+                    }
+                }
 
                 if (ownTr) tr.Commit();
             }
             catch (Exception ex)
             {
                 if (ownTr) tr.Rollback();
-                _log.Error($"Ошибка пометки на удаление (замена «{replacedFileName}»{(oldSheet != null ? $" :: {oldSheet}" : "")}): {ex.Message}");
+                _log.Error($"Ошибка пометки на удаление (замена документов {DescribeDocs(docs)}): {ex.Message}");
                 throw;
             }
 
-            string docDesc = oldSheet == null ? $"«{replacedFileName}» (без вкладки)" : $"«{replacedFileName}» :: «{oldSheet}»";
             if (marked.Count > 0)
-                _log.Warn($"Замена документа {docDesc}: помечено к удалению — {marked.Count} (аудит MarkedDelete, красным)");
+                _log.Warn($"Замена документов ({docs.Count}): {DescribeDocs(docs)} — помечено к удалению: {marked.Count} (аудит MarkedDelete, красным)");
             return marked;
+
+            static string DescribeDocs(List<(string FileName, string? Sheet)> docs) =>
+                string.Join(", ", docs.Select(d => d.Sheet == null ? $"«{d.FileName}» (без вкладки)" : $"«{d.FileName}» :: «{d.Sheet}»"));
+        }
+
+        /// <summary>F2.17: копия строки в IO_LIST_DublicateTag (все копии повторяющихся тегов — включая первую;
+        /// без аудита, без уникального индекса). Внутри сессии импорта пишется в её транзакции.</summary>
+        public void InsertDuplicate(IoPoint p)
+        {
+            using var scope = Scope(); var cn = scope.Cn;
+            bool ownTr = _sessionTr == null;
+            using var trOwn = ownTr ? cn.BeginTransaction() : null;
+            var tr = trOwn ?? _sessionTr!;
+            try
+            {
+                // даты для копии: если upsert был Unchanged — проставляем явно (копия = фиксация события)
+                p.Revision ??= new Revision();
+                p.Revision.DateEntered ??= DateTime.Now;
+                p.Revision.DateModified ??= DateTime.Now;
+
+                string cols = string.Join(", ", FieldRegistry.Columns.Select(c => $"[{c}]"));
+                string sql = $"INSERT INTO [{Schema.DuplicateTable}] ({cols}) VALUES ({ParamList})";
+                using var cmd = new OleDbCommand(sql, cn, tr);
+                cmd.CommandTimeout = DbProbe.TimeoutSeconds;
+                AddFieldParameters(cmd, p);
+                cmd.ExecuteNonQuery();
+                if (ownTr) tr.Commit();
+            }
+            catch (Exception ex)
+            {
+                if (ownTr) tr.Rollback();
+                _log.Error($"Ошибка копии в [{Schema.DuplicateTable}] (Tag={p.Tag}): {ex.Message}");
+                throw;
+            }
         }
 
         /// <summary>F2.15: запись аудита TagCleaned — нормализация Tag (удаление пробелов) при импорте.</summary>
@@ -628,6 +718,27 @@ namespace IO_PJT.Services
         {
             if (!WriteAudit) return;
             _audit.Record(TableName, newTag, AuditAction.TagCleaned, "Tag", oldTag, newTag, fileName, system, sheet);
+        }
+
+        /// <summary>F9.1: запись аудита Duplicate — задвоение тега между документами: тег уже существует
+        /// в БД из другого документа (файл + вкладка), а импортируется из текущего. Равноправная
+        /// запись истории (как Insert/Update), отображается жёлтым. Старый/новый документ — в
+        /// OldValue/NewValue; FileName/Sheet аудита — инициирующий документ.</summary>
+        public void RecordDuplicateTagAudit(string? tag, string? oldFileName, string? oldSheet,
+            string? newFileName, string? newSheet, string? system)
+        {
+            if (!WriteAudit) return;
+            string oldDoc = FormatDocument(oldFileName, oldSheet);
+            string newDoc = FormatDocument(newFileName, newSheet);
+            _audit.Record(TableName, tag, AuditAction.Duplicate, "Tag", oldDoc, newDoc,
+                newFileName, system, newSheet);
+        }
+
+        /// <summary>Формат документа «файл :: вкладка» (как в диалоге замены F2.16).</summary>
+        private static string FormatDocument(string? fileName, string? sheet)
+        {
+            string file = string.IsNullOrWhiteSpace(fileName) ? "(без файла)" : fileName!;
+            return string.IsNullOrWhiteSpace(sheet) ? $"{file} (без вкладки)" : $"{file} :: {sheet}";
         }
     }
 }

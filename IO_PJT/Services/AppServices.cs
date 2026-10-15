@@ -19,6 +19,15 @@ namespace IO_PJT.Services
         public IIOListRepository Repo { get; private set; }
         public ImportService Import { get; private set; }
 
+        /// <summary>F9: разбор карты адресации Modbus + хранилище MODBUS_MAP.</summary>
+        public ModbusMapService ModbusMaps { get; private set; }
+
+        /// <summary>F9: связывание IO_LIST с картой Modbus (M_-поля).</summary>
+        public ModbusLinkService ModbusLink { get; private set; }
+
+        /// <summary>F9.11: ручные правила связывания IO_LIST ↔ MODBUS_MAP (MODBUS_LINK_RULES).</summary>
+        public ModbusLinkRuleService ModbusLinkRules { get; private set; }
+
         /// <summary>Текущая целевая таблица (по умолчанию IO_LIST).</summary>
         public string CurrentTable { get; private set; }
 
@@ -26,12 +35,15 @@ namespace IO_PJT.Services
         {
             DbPath = dbPath;
             Creator = new TableCreator(dbPath);
-            Audit = new AuditService(dbPath);
+            Audit = new AuditService(dbPath, Log);
             Mapping = new MappingService(dbPath);
             Backup = new BackupService(dbPath);
             CurrentTable = Schema.DefaultTable;
             Repo = new IOListRepository(dbPath, CurrentTable, Audit, Log);
             Import = new ImportService(Repo, Validator, Log);
+            ModbusMaps = new ModbusMapService(dbPath);
+            ModbusLinkRules = new ModbusLinkRuleService(dbPath);
+            ModbusLink = new ModbusLinkService(Repo, ModbusMaps, Log, Audit, ModbusLinkRules);
             Log.Info($"База данных: {dbPath}");
             // Гарантия служебных таблиц (IO_LIST_Audit, MappingTemplates) при открытии базы
             ServiceSchema.EnsureServiceTables(dbPath);
@@ -57,12 +69,15 @@ namespace IO_PJT.Services
                 Creator.CreateDatabase();
             }
             Creator = new TableCreator(dbPath);
-            Audit = new AuditService(dbPath);
+            Audit = new AuditService(dbPath, Log);
             Mapping = new MappingService(dbPath);
             Backup = new BackupService(dbPath);
             CurrentTable = Schema.DefaultTable;
             Repo = new IOListRepository(dbPath, CurrentTable, Audit, Log);
             Import = new ImportService(Repo, Validator, Log);
+            ModbusMaps = new ModbusMapService(dbPath);
+            ModbusLinkRules = new ModbusLinkRuleService(dbPath);
+            ModbusLink = new ModbusLinkService(Repo, ModbusMaps, Log, Audit, ModbusLinkRules);
             Log.Info($"Открыта база данных: {dbPath}");
             ServiceSchema.EnsureServiceTables(dbPath);
         }

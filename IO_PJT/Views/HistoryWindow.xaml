@@ -4,31 +4,39 @@
         Title="История изменений — IO_LIST_Audit" Width="1100" Height="650"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
 
-    <!-- Окно истории (F7): «что на что менялось» + выгрузка в Excel -->
+    <!-- Окно истории (F7): «что на что менялось» + выгрузка в Excel; A2 — кнопки слева,
+         фильтры в ScrollViewer, внешний ползунок горизонтальной прокрутки под DataGrid -->
     <DockPanel Margin="8">
 
-        <!-- Фильтры -->
+        <!-- Верхняя строка: команды слева + фильтры (прокрутка при нехватке ширины) -->
         <Border DockPanel.Dock="Top" Padding="4" Margin="0,0,0,6">
-            <StackPanel Orientation="Horizontal">
-                <TextBlock Text="Tag:" VerticalAlignment="Center" Margin="0,0,4,0" />
-                <TextBox Width="160" Text="{Binding FilterTag, UpdateSourceTrigger=PropertyChanged}" />
-                <TextBlock Text="Поле:" VerticalAlignment="Center" Margin="12,0,4,0" />
-                <TextBox Width="140" Text="{Binding FilterField, UpdateSourceTrigger=PropertyChanged}" />
-                <TextBlock Text="Файл:" VerticalAlignment="Center" Margin="12,0,4,0" ToolTip="Фильтр по документу-источнику (REV_FileName, подстрока) — F7.6" />
-                <TextBox Width="130" Text="{Binding FilterFileName, UpdateSourceTrigger=PropertyChanged}" />
-                <TextBlock Text="Вкладка:" VerticalAlignment="Center" Margin="8,0,4,0" ToolTip="Фильтр по вкладке-источнику (REV_Sheet, подстрока) — документ = файл + вкладка (F2.16/F7.7)" />
-                <TextBox Width="90" Text="{Binding FilterSheet, UpdateSourceTrigger=PropertyChanged}" />
-                <TextBlock Text="Система:" VerticalAlignment="Center" Margin="12,0,4,0" ToolTip="Фильтр по системе (DCS/SIS/GDS, подстрока) — F7.6" />
-                <TextBox Width="80" Text="{Binding FilterSystem, UpdateSourceTrigger=PropertyChanged}" />
-                <TextBlock Text="С:" VerticalAlignment="Center" Margin="12,0,4,0" />
-                <DatePicker Width="120" SelectedDate="{Binding From}" />
-                <TextBlock Text="По:" VerticalAlignment="Center" Margin="12,0,4,0" />
-                <DatePicker Width="120" SelectedDate="{Binding To}" />
-                <Button Content="Показать" Command="{Binding RefreshCommand}" Margin="10,0,0,0" />
-                <Button Content="Выгрузить в Excel..." Command="{Binding ExportCommand}" Margin="6,0,0,0" />
-                <Button Content="Формирование отчёта..." Command="{Binding ReportCommand}" Margin="6,0,0,0"
-                        ToolTip="Сводка по документам (файл + вкладка): количество изменений по каждой ячейке с итогами — F7.8" />
-            </StackPanel>
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+                    <Button Content="Показать" Command="{Binding RefreshCommand}" Margin="0,0,6,0" MinWidth="90" />
+                    <Button Content="Выгрузить в Excel..." Command="{Binding ExportCommand}" Margin="0,0,6,0" />
+                    <Button Content="Формирование отчёта..." Command="{Binding ReportCommand}" Margin="0,0,10,0"
+                            ToolTip="Сводка по документам (файл + вкладка): количество изменений по каждой ячейке с итогами — F7.8" />
+                </StackPanel>
+                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                              ToolTip="При нехватке ширины окна фильтры прокручиваются по горизонтали">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Tag:" VerticalAlignment="Center" Margin="0,0,4,0" />
+                        <TextBox Width="160" Text="{Binding FilterTag, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Text="Поле:" VerticalAlignment="Center" Margin="12,0,4,0" />
+                        <TextBox Width="140" Text="{Binding FilterField, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Text="Файл:" VerticalAlignment="Center" Margin="12,0,4,0" ToolTip="Фильтр по документу-источнику (REV_FileName, подстрока) — F7.6" />
+                        <TextBox Width="130" Text="{Binding FilterFileName, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Text="Вкладка:" VerticalAlignment="Center" Margin="8,0,4,0" ToolTip="Фильтр по вкладке-источнику (REV_Sheet, подстрока) — документ = файл + вкладка (F2.16/F7.7)" />
+                        <TextBox Width="90" Text="{Binding FilterSheet, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Text="Система:" VerticalAlignment="Center" Margin="12,0,4,0" ToolTip="Фильтр по системе (DCS/SIS/GDS, подстрока) — F7.6" />
+                        <TextBox Width="80" Text="{Binding FilterSystem, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Text="С:" VerticalAlignment="Center" Margin="12,0,4,0" />
+                        <DatePicker Width="120" SelectedDate="{Binding From}" />
+                        <TextBlock Text="По:" VerticalAlignment="Center" Margin="12,0,4,0" />
+                        <DatePicker Width="120" SelectedDate="{Binding To}" />
+                    </StackPanel>
+                </ScrollViewer>
+            </DockPanel>
         </Border>
 
         <!-- Статус -->
@@ -36,7 +44,16 @@
             <TextBlock Text="{Binding StatusText}" FontWeight="SemiBold" />
         </Border>
 
-        <DataGrid ItemsSource="{Binding Records}" IsReadOnly="True">
+        <!-- A2: внешний ползунок горизонтальной прокрутки (синхронизируется с внутренним
+             ScrollViewer DataGrid в code-behind — см. HistoryWindow.xaml.cs) -->
+        <DockPanel DockPanel.Dock="Bottom">
+            <Slider x:Name="hSlider" Height="18" Margin="4,0,4,2"
+                    TickPlacement="BottomRight" AutoToolTipPlacement="BottomRight"
+                    ValueChanged="HSlider_ValueChanged"
+                    ToolTip="Горизонтальная прокрутка таблицы (внешний ползунок)" />
+        </DockPanel>
+
+        <DataGrid x:Name="grid" ItemsSource="{Binding Records}" IsReadOnly="True">
             <DataGrid.RowStyle>
                 <!-- Критические ошибки идентичности (CriticalError) — красным (F7.5) -->
                 <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
@@ -54,6 +71,24 @@
                         </DataTrigger>
                         <!-- F2.15: очистка Tag от пробелов (TagCleaned) — красным -->
                         <DataTrigger Binding="{Binding Action}" Value="TagCleaned">
+                            <Setter Property="Background" Value="#FDE7E9" />
+                            <Setter Property="Foreground" Value="#C42B1C" />
+                            <Setter Property="FontWeight" Value="SemiBold" />
+                        </DataTrigger>
+                        <!-- F9.1: задвоение тега между документами (Duplicate) — жёлтым -->
+                        <DataTrigger Binding="{Binding Action}" Value="Duplicate">
+                            <Setter Property="Background" Value="#FFF4CE" />
+                            <Setter Property="Foreground" Value="#9C6500" />
+                            <Setter Property="FontWeight" Value="SemiBold" />
+                        </DataTrigger>
+                        <!-- F9.8: предупреждения связывания Modbus (ModbusWarning) — жёлтым -->
+                        <DataTrigger Binding="{Binding Action}" Value="ModbusWarning">
+                            <Setter Property="Background" Value="#FFF4CE" />
+                            <Setter Property="Foreground" Value="#9C6500" />
+                            <Setter Property="FontWeight" Value="SemiBold" />
+                        </DataTrigger>
+                        <!-- F9.8: ошибки связывания/адресации Modbus (ModbusError) — красным -->
+                        <DataTrigger Binding="{Binding Action}" Value="ModbusError">
                             <Setter Property="Background" Value="#FDE7E9" />
                             <Setter Property="Foreground" Value="#C42B1C" />
                             <Setter Property="FontWeight" Value="SemiBold" />

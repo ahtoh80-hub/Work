@@ -29,6 +29,10 @@ namespace IO_PJT.Models
         /// <summary>Привязка к оборудованию контроллера.</summary>
         public Equipment? Equipment { get; set; }
 
+        /// <summary>F9: данные карты адресации Modbus (Register Table Function 02/03/06).
+        /// Заполняются сервисом связывания ModbusLinkService; колонки M_* перед CBL_*.</summary>
+        public Modbus? Modbus { get; set; }
+
         /// <summary>Метаданные версии/аудита записи.</summary>
         public Revision? Revision { get; set; }
 
@@ -53,7 +57,7 @@ namespace IO_PJT.Models
         public string? Tag { get; set; }            // ОБЯЗАТЕЛЬНОЕ поле
         public InstrumentTag? ParsedTag { get; set; } // вычисляется из Tag
         public string? ProcessTag { get; set; }
-        public string? System { get; set; }         // DCS / SIS / GDS (строка)
+        public string? System { get; set; }         // произвольная строка: DCS / SIS / GDS / РСУ / ПСБ / …
         public string? IoType { get; set; }
         public string? Controller { get; set; }
         public string? Location { get; set; }
@@ -121,6 +125,70 @@ namespace IO_PJT.Models
             public string? HH { get; set; }
             public string? HH2 { get; set; }
         }
+    }
+
+    /// <summary>F9: данные карты адресации Modbus (ветвь Modbus, колонки M_* перед CBL_*).
+    /// Источник: файлы «IMCS TO DCS Register Table Modbus» (Interface parameters + Register Table
+    /// Function 02/03/06). Заполняется автоматическим связыванием ModbusLinkService, не Excel-импортом.</summary>
+    public class Modbus
+    {
+        // —— Interface parameters (станция) ——
+        /// <summary>Имя файла карты адресации (напр. «IMCS TO DCS Register Table Modbus - EBSM102.xlsx»).</summary>
+        public string? MapFile { get; set; }
+        /// <summary>Slave-станция (Slave Station, напр. IMCS EBSM102).</summary>
+        public string? SlaveStation { get; set; }
+        /// <summary>Slave ID основной (IP main: адрес/маска/порт).</summary>
+        public string? SlaveIdMain { get; set; }
+        /// <summary>Slave ID резервный (IP backup).</summary>
+        public string? SlaveIdBackup { get; set; }
+        /// <summary>Скорость обмена (speed; для TCP — 100Mbps).</summary>
+        public string? Speed { get; set; }
+        /// <summary>Таймаут ответа устройства (timeout, мс).</summary>
+        public string? Timeout { get; set; }
+
+        // —— Register Table (строка карты) ——
+        /// <summary>Project Functional Designation — функциональное обозначение объекта ПЛК.</summary>
+        public string? PrfDesignation { get; set; }
+        /// <summary>PLC Tag/Variable Name — полное имя переменной ПЛК (напр. 1115-PM-101A_STA.MCU).</summary>
+        public string? PlcTag { get; set; }
+        /// <summary>Базовый тег объекта (PLC Tag до первого «_») — ключ связи с тегом РСУ.</summary>
+        public string? ObjectTag { get; set; }
+        /// <summary>Description of the variable — описание переменной.</summary>
+        public string? Description { get; set; }
+        /// <summary>Units of measurement — единицы измерения.</summary>
+        public string? Units { get; set; }
+        /// <summary>Scale — шкала.</summary>
+        public string? Scale { get; set; }
+        /// <summary>Low Low alarm value.</summary>
+        public string? LL { get; set; }
+        /// <summary>Low alarm value.</summary>
+        public string? LA { get; set; }
+        /// <summary>High alarm value.</summary>
+        public string? HA { get; set; }
+        /// <summary>High High alarm value.</summary>
+        public string? HH { get; set; }
+        /// <summary>Scaling factors — коэффициенты масштабирования.</summary>
+        public string? Scaling { get; set; }
+        /// <summary>Signal type (Impulse/Permanent).</summary>
+        public string? SigType { get; set; }
+        /// <summary>Register type — тип регистра (1/4/6).</summary>
+        public string? RegType { get; set; }
+        /// <summary>Address/Bit — адрес регистра или бит.</summary>
+        public string? Address { get; set; }
+        /// <summary>Access type (Read/Write).</summary>
+        public string? AccessType { get; set; }
+        /// <summary>Data type (BOOL / 16-Bit Unsigned / 32-Bit Float…).</summary>
+        public string? DataType { get; set; }
+        /// <summary>Function code Modbus (02/03/06).</summary>
+        public string? FuncCode { get; set; }
+        /// <summary>DCS channel — канал РСУ.</summary>
+        public string? DcsChannel { get; set; }
+        /// <summary>DCS Tag/Name variable — тег РСУ в карте («Tег РСУ»).</summary>
+        public string? DcsTag { get; set; }
+        /// <summary>DCS functions — функции РСУ.</summary>
+        public string? DcsFunctions { get; set; }
+        /// <summary>Примечание (note).</summary>
+        public string? Note { get; set; }
     }
 
     /// <summary>Кабельное хозяйство (ветвь Cable, префикс CBL_).</summary>

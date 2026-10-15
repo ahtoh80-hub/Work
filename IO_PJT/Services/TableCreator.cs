@@ -17,7 +17,11 @@ namespace IO_PJT.Services
 
         public TableCreator(string dbPath) => _dbPath = dbPath;
 
-        private string ConnStr => $"Provider=Microsoft.ACE.OLEDB.12.0;Data Source={_dbPath};";
+        private string ConnStr => DbProbe.ConnStrWithTimeout(_dbPath);
+
+        /// <summary>Строка соединения без таймаутов — для ADOX (Catalog.Create не принимает
+        /// дополнительные ключи OLE DB вроде Connect Timeout).</summary>
+        private string ConnStrRaw => $"Provider=Microsoft.ACE.OLEDB.12.0;Data Source={_dbPath};";
 
         /// <summary>Файл базы существует.</summary>
         public bool DatabaseExists() => File.Exists(_dbPath);
@@ -36,7 +40,7 @@ namespace IO_PJT.Services
             try
             {
                 dynamic cat = catalog!;
-                cat.Create(ConnStr);
+                cat.Create(ConnStrRaw);
             }
             finally
             {
@@ -81,6 +85,18 @@ namespace IO_PJT.Services
             Execute(Schema.CreateTagIndex(tableName)); // ключевое поле Tag (F4.3)
         }
 
+        /// <summary>F2.17: гарантия таблицы копий IO_LIST_DublicateTag — структура = IO_LIST,
+        /// но без уникального индекса Tag (все копии повторяющихся тегов). Идемпотентно;
+        /// вызывается перед импортом, чтобы копии писались без сбоев.</summary>
+        public void EnsureDuplicateTagTable()
+        {
+            if (!DatabaseExists()) return;
+            if (!TableExists(Schema.DuplicateTable))
+                Execute(Schema.CreateTable(Schema.DuplicateTable)); // без CreateTagIndex — копии без ограничения
+            else
+                EnsureColumns(Schema.DuplicateTable); // миграция: недостающие колонки (как у IO_LIST)
+        }
+
         /// <summary>Колонки таблицы в порядке следования.</summary>
         public IReadOnlyList<string> GetColumns(string tableName)
         {
@@ -115,6 +131,22 @@ namespace IO_PJT.Services
             }
             if (!TableExists("MappingTemplates"))
                 Execute(Schema.CreateMappingTemplatesTable);
+            if (!TableExists(Schema.ModbusMapTable))
+            {
+                Execute(Schema.CreateModbusMapTable);
+            }
+            else
+            {
+                // F9.3: миграция старых MODBUS_MAP — добавить LinkTag/LinkState при отсутствии
+                var mapCols = new HashSet<string>(GetColumns(Schema.ModbusMapTable), StringComparer.OrdinalIgnoreCase);
+                if (!mapCols.Contains("LinkTag"))
+                    Execute($"ALTER TABLE [{Schema.ModbusMapTable}] ADD COLUMN [LinkTag] TEXT(255)");
+                if (!mapCols.Contains("LinkState"))
+                    Execute($"ALTER TABLE [{Schema.ModbusMapTable}] ADD COLUMN [LinkState] TEXT(255)");
+            }
+            // F9.11: ручные правила связывания IO_LIST ↔ MODBUS_MAP (окно «Правила связывания Modbus…»)
+            if (!TableExists(Schema.ModbusLinkRulesTable))
+                Execute(Schema.CreateModbusLinkRulesTable);
         }
 
         /// <summary>

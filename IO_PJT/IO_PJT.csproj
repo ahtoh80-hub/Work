@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <RootNamespace>IO_PJT</RootNamespace>
     <AssemblyName>IO_PJT</AssemblyName>
-    <ApplicationIcon />
+    <ApplicationIcon>Resources\app.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>

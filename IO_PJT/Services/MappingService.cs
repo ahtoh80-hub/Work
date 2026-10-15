@@ -20,7 +20,7 @@ namespace IO_PJT.Services
 
         public MappingService(string dbPath) => _dbPath = dbPath;
 
-        private string ConnStr => $"Provider=Microsoft.ACE.OLEDB.12.0;Data Source={_dbPath};";
+        private string ConnStr => DbProbe.ConnStrWithTimeout(_dbPath);
 
         /// <summary>Колонки, доступные для привязки к Excel (автозаполняемые PTag_*/REV_* исключены).</summary>
         public static IReadOnlyList<string> AvailableColumns =>

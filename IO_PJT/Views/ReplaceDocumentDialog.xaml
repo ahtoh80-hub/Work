@@ -1,20 +1,31 @@
 <Window x:Class="IO_PJT.Views.ReplaceDocumentDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Взамен какого документа?" Width="560" SizeToContent="Height"
+        Title="Взамен каких документов?" Width="560" SizeToContent="Height"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize" ShowInTaskbar="False">
 
-    <!-- F2.11/F2.16: выбор заменяемого документа = пара «файл + вкладка» (REV_FileName + REV_Sheet) -->
+    <!-- F2.11/F2.16/F2.17: множественный выбор заменяемых документов (документ = файл + вкладка).
+         Нужно для документов, делящихся по ревизиям/вкладкам: можно отметить несколько сразу. -->
     <StackPanel Margin="14">
-        <TextBlock Text="Выберите документ (файл и вкладку-источник), взамен которого импортируется новый файл:"
-                   TextWrapping="Wrap" Margin="0,0,0,8" />
+        <TextBlock TextWrapping="Wrap" Margin="0,0,0,8">
+            <Run Text="Выберите документы" FontWeight="Bold" />
+            <Run Text="(файл и вкладку-источник), взамен которых импортируется новый файл. Документов может быть несколько — ревизии одного документа или разные вкладки." />
+        </TextBlock>
 
-        <ComboBox x:Name="cboDocs" Height="26" />
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+            <Button Content="Выбрать все" Padding="8,2" Margin="0,0,6,0" Click="SelectAll_Click" />
+            <Button Content="Снять всё" Padding="8,2" Margin="0,0,6,0" Click="SelectNone_Click" />
+            <TextBlock x:Name="tbSelected" VerticalAlignment="Center" FontWeight="SemiBold" />
+        </StackPanel>
+
+        <!-- Ctrl/Shift — стандартный множественный выбор WPF -->
+        <ListBox x:Name="lstDocs" Height="230" SelectionMode="Extended"
+                 SelectionChanged="List_SelectionChanged" />
 
         <Border Background="{StaticResource BlueSoft}" BorderBrush="#A9C6DF" BorderThickness="1" Padding="8,6" Margin="0,10,0,12">
             <TextBlock TextWrapping="Wrap">
                 <Run FontWeight="Bold" Text="[Note]:" />
-                <Run Text=" Теги выбранного документа (только его вкладки), отсутствующие в новом файле, будут помечены в REV_Description («Удаляются, отсутствуют в последней версии файла …») и попадут в аудит красным (MarkedDelete). Строки других вкладок того же файла не затрагиваются. Физически строки НЕ удаляются — удаляйте вручную после проверки." />
+                <Run Text=" Теги выбранных документов, отсутствующие в новом файле, будут помечены в REV_Description («Удаляются, отсутствуют в последней версии файла …») и попадут в аудит красным (MarkedDelete). Теги, которые есть в новом файле, переносятся на новый документ (корректная линовка версий). Физически строки НЕ удаляются — удаляйте вручную после проверки." />
             </TextBlock>
         </Border>
 

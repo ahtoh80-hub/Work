@@ -16,6 +16,14 @@
             </MenuItem>
             <MenuItem Header="_Импорт">
                 <MenuItem Header="Импорт из Excel..." Command="{Binding ImportCommand}" />
+                <MenuItem Header="Карта Modbus..." Command="{Binding ImportModbusCommand}"
+                          ToolTip="Импорт карты адресации Modbus (Register Table Function 02/03/06) и связывание строк карты с IO_LIST (LinkTag/DcsTag) — F9" />
+                <MenuItem Header="Обновить связи Modbus (DcsTag)" Command="{Binding UpdateModbusLinksCommand}"
+                          ToolTip="Повторное связывание текущей таблицы с уже сохранённой картой MODBUS_MAP без импорта файлов (для ручных правок сигналов в Access) — F9.9" />
+                <MenuItem Header="Обновить адресацию Modbus" Command="{Binding UpdateModbusAddressCommand}"
+                          ToolTip="Записать M_-поля IO_LIST по парам MODBUS_MAP.DcsTag ↔ IO_LIST.Tag (только Modbus-сигналы) — F9.4" />
+                <MenuItem Header="Правила связывания Modbus..." Command="{Binding ModbusLinkRulesCommand}"
+                          ToolTip="Ручные правила «поле IO по шаблону → поле карты по шаблону» (MODBUS_LINK_RULES) — применяются в связывании ПЕРЕД встроенными ролями — F9.11" />
                 <Separator />
                 <MenuItem Header="История изменений..." Command="{Binding HistoryCommand}" />
             </MenuItem>
@@ -27,6 +35,8 @@
                 <MenuItem Header="Обновить" Command="{Binding RefreshCommand}" />
             </MenuItem>
             <MenuItem Header="_Справка">
+                <MenuItem Header="Руководство пользователя..." Click="Help_Click" />
+                <Separator />
                 <MenuItem Header="О программе" Click="About_Click" />
             </MenuItem>
         </Menu>
@@ -39,6 +49,10 @@
                 <Button Content="🗑 Удалить" Command="{Binding DeletePointCommand}" ToolTip="Удалить выбранный сигнал" />
                 <Separator />
                 <Button Content="📥 Импорт Excel" Command="{Binding ImportCommand}" />
+                <Button Content="🔗 Modbus связи" Command="{Binding UpdateModbusLinksCommand}"
+                        ToolTip="Обновить связи Modbus (DcsTag): повторно связать текущую таблицу с картой MODBUS_MAP без импорта файлов (F9.9)" />
+                <Button Content="📡 Modbus адресация" Command="{Binding UpdateModbusAddressCommand}"
+                        ToolTip="Обновить M_-поля IO_LIST по DcsTag ↔ Tag (F9.4)" />
                 <Button Content="🕘 История" Command="{Binding HistoryCommand}" />
                 <Separator />
                 <Button Content="🔄 Обновить" Command="{Binding RefreshCommand}" />
@@ -58,31 +72,41 @@
                 <TextBox Width="260" Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}" />
                 <Button Content="Найти" Command="{Binding SearchCommand}" Margin="6,2" MinWidth="70" />
                 <TextBlock Text="Система:" VerticalAlignment="Center" Margin="16,0,4,0" />
-                <ComboBox Width="90" ItemsSource="{Binding Systems}" SelectedItem="{Binding SelectedSystem}" />
+                <ComboBox Width="120" IsEditable="True" ItemsSource="{Binding Systems}"
+                          Text="{Binding SelectedSystem, UpdateSourceTrigger=LostFocus}"
+                          ToolTip="Фильтр по системе: список берётся из БД (System произвольный — DCS, РСУ, ПСБ и т.п.); значение можно ввести вручную" />
                 <TextBlock Text="Таблица:" VerticalAlignment="Center" Margin="16,0,4,0" />
                 <ComboBox Width="180" ItemsSource="{Binding Tables}" SelectedItem="{Binding SelectedTable}" />
             </StackPanel>
         </Border>
 
-        <!-- ===== Журнал событий снизу (Задание п.8) ===== -->
+        <!-- ===== Журнал событий снизу (Задание п.8); A1: последнее событие сверху ===== -->
         <GroupBox DockPanel.Dock="Bottom"
-                  Header="Журнал событий (белый — норма, жёлтый — предупреждение, красный — ошибка)"
+                  Header="Журнал событий (сверху — последнее; белый — норма, жёлтый — предупреждение, красный — ошибка)"
                   Height="150" Margin="6,2,6,4">
-            <ListBox ItemsSource="{Binding LogEntries}" Background="White"
-                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                <ListBox.ItemTemplate>
-                    <DataTemplate>
-                        <TextBlock Style="{StaticResource LogTextStyle}">
-                            <TextBlock.Text>
-                                <MultiBinding StringFormat="[{0:HH:mm:ss}] {1}">
-                                    <Binding Path="Time" />
-                                    <Binding Path="Message" />
-                                </MultiBinding>
-                            </TextBlock.Text>
-                        </TextBlock>
-                    </DataTemplate>
-                </ListBox.ItemTemplate>
-            </ListBox>
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
+                    <Button Content="Копировать" Command="{Binding CopyLogCommand}" Padding="8,2" Margin="0,0,6,0"
+                            ToolTip="Копировать журнал в буфер обмена (время, уровень, текст)" />
+                    <Button Content="Очистить" Command="{Binding ClearLogCommand}" Padding="8,2" Margin="0,0,6,0"
+                            ToolTip="Очистить журнал на экране (история сессии в EventLogger не затрагивается)" />
+                </StackPanel>
+                <ListBox ItemsSource="{Binding LogEntries}" Background="White"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Style="{StaticResource LogTextStyle}">
+                                <TextBlock.Text>
+                                    <MultiBinding StringFormat="[{0:HH:mm:ss}] {1}">
+                                        <Binding Path="Time" />
+                                        <Binding Path="Message" />
+                                    </MultiBinding>
+                                </TextBlock.Text>
+                            </TextBlock>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
         </GroupBox>
 
         <!-- ===== Основной грид репозитория ===== -->

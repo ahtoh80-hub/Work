@@ -145,6 +145,7 @@ namespace IO_PJT.ViewModels
                 {
                     System.Windows.Input.CommandManager.InvalidateRequerySuggested();
                     Raise(nameof(ApplyCommand));
+                    Raise(nameof(RefreshSheetCommand));
                 }
             }
         }
@@ -192,15 +193,18 @@ namespace IO_PJT.ViewModels
 
             foreach (var t in _s.Creator.GetTableNames().Where(t =>
                          !t.Equals("MappingTemplates", StringComparison.OrdinalIgnoreCase) &&
-                         !t.Equals("IO_LIST_Audit", StringComparison.OrdinalIgnoreCase)))
+                         !t.Equals("IO_LIST_Audit", StringComparison.OrdinalIgnoreCase) &&
+                         // MODBUS_MAP — не цель импорта Excel (не IO_LIST-структура)
+                         !t.Equals(Data.Schema.ModbusMapTable, StringComparison.OrdinalIgnoreCase)))
                 Tables.Add(t);
             if (Tables.Count > 0) SelectedTable ??= Tables[0];
 
             ReloadTemplateNames();
-            RefreshSheetCommand = new RelayCommand(LoadSheetData);
+            RefreshSheetCommand = new RelayCommand(() => { _ = LoadSheetDataAsync(); }, () => !IsBusy);
         }
 
-        /// <summary>Команда «Считать»: заголовки вкладки, авто-маппинг, предпросмотр (F2.1/F2.2).</summary>
+        /// <summary>Команда «Считать»: заголовки вкладки, авто-маппинг, предпросмотр (F2.1/F2.2).
+        /// Чтение Excel идёт в фоне (часть C): окно не замораживается на файлах 8 МБ+.</summary>
         public RelayCommand RefreshSheetCommand { get; private set; } = null!;
 
         /// <summary>Выбор файла Excel; загружаются вкладки (лист).</summary>
@@ -208,14 +212,20 @@ namespace IO_PJT.ViewModels
         {
             var dlg = new Microsoft.Win32.OpenFileDialog { Filter = "Excel (*.xlsx)|*.xlsx" };
             if (dlg.ShowDialog() != true) return;
-            ExcelPath = dlg.FileName;
+            OpenFile(dlg.FileName);
+        }
+
+        /// <summary>A4: открытие файла — кнопка «Обзор...» и drag&drop в окно импорта.</summary>
+        public void OpenFile(string path)
+        {
+            ExcelPath = path;
             try
             {
                 using var reader = new ExcelReader(ExcelPath);
                 Sheets.Clear();
                 foreach (var s in reader.GetSheetNames()) Sheets.Add(s);
                 if (Sheets.Count > 0) SelectedSheet = Sheets[0];
-                LoadSheetData();
+                _ = LoadSheetDataAsync();
             }
             catch (Exception ex)
             {
@@ -224,9 +234,11 @@ namespace IO_PJT.ViewModels
             }
         }
 
-        /// <summary>Считать заголовки, авто-определить маппинг, построить предпросмотр.</summary>
-        public void LoadSheetData()
+        /// <summary>Считать заголовки, авто-определить маппинг, построить предпросмотр.
+        /// Чтение XLWorkbook — в фоне (часть C): 8 МБ+ файлы больше не замораживают окно.</summary>
+        public async Task LoadSheetDataAsync()
         {
+            if (IsBusy) return;
             if (string.IsNullOrWhiteSpace(ExcelPath) || SelectedSheet == null)
             {
                 ReportText = "Сначала выберите файл Excel.";
@@ -238,10 +250,21 @@ namespace IO_PJT.ViewModels
                 return;
             }
 
+            IsBusy = true;
+            ProgressText = "Чтение Excel-файла…";
             try
             {
-                using var reader = new ExcelReader(ExcelPath);
-                var headers = reader.GetHeaders(SelectedSheet, headerRow);
+                string sheet = SelectedSheet;
+                string path = ExcelPath;
+                // Тяжёлый I/O и разбор книги — в отдельном потоке (окно отзывчиво)
+                var (headers, rows) = await Task.Run(() =>
+                {
+                    using var reader = new ExcelReader(path);
+                    return (reader.GetHeaders(sheet, headerRow), reader.ReadRows(sheet, headerRow));
+                });
+                _lastHeaders = headers;
+                _lastHeaderRow = headerRow;
+                _lastRows = rows;
 
                 // Авто-определение маппинга; дальнейшая привязка — вручную (Bind в окне)
                 var maps = _s.Mapping.AutoDetect(headers);
@@ -265,11 +288,12 @@ namespace IO_PJT.ViewModels
                 _suppressChanged = false;
 
                 UpdateTagStatus();
-                BuildPreview(reader, headers, headerRow);
+                BuildPreviewCore();
 
                 ReportText = $"Файл: {System.IO.Path.GetFileName(ExcelPath)} | вкладка: {SelectedSheet} | " +
-                             $"строка заголовка: {headerRow} | колонок: {headers.Count} | " +
-                             $"привязано: {Mappings.Count(m => m.IsBound)}" +
+                             $"строка заголовка: {headerRow} | колонок: {headers.Count} | строк данных: {rows.Count}" +
+                             (rows.Count > 50 ? " (предпросмотр — первые 50 строк)" : "") +
+                             $" | привязано: {Mappings.Count(m => m.IsBound)}" +
                              (total > 0
                                  ? $" | шаблон «{_appliedTemplate?.Name}»: {applied} из {total}" +
                                    (missing.Count > 0
@@ -281,6 +305,11 @@ namespace IO_PJT.ViewModels
             {
                 _s.Log.Error($"Ошибка чтения листа: {ex.Message}");
                 ReportText = "Ошибка: " + ex.Message;
+            }
+            finally
+            {
+                ProgressText = "";
+                IsBusy = false;
             }
         }
 
@@ -378,15 +407,6 @@ namespace IO_PJT.ViewModels
             catch (Exception ex) { _s.Log.Warn($"Шаблоны недоступны: {ex.Message}"); }
         }
 
-
-        /// <summary>Чтение листа в кэш + построение предпросмотра.</summary>
-        private void BuildPreview(ExcelReader reader, IReadOnlyList<string> headers, int headerRow)
-        {
-            _lastHeaders = headers;
-            _lastHeaderRow = headerRow;
-            _lastRows = reader.ReadRows(SelectedSheet!, headerRow);
-            BuildPreviewCore();
-        }
 
         /// <summary>Ядро предпросмотра: работает из кэша (перестройка без повторного чтения файла).</summary>
         private void BuildPreviewCore()
@@ -507,7 +527,7 @@ namespace IO_PJT.ViewModels
             try
             {
                 _s.Creator.CreateDataTable(name);
-                _s.Log.Info($"Создана таблица [{name}]: 100 колонок + уникальный индекс UX_{name}_Tag");
+                _s.Log.Info($"Создана таблица [{name}]: {Data.Schema.DataColumns.Length + 1} колонок + уникальный индекс UX_{name}_Tag");
                 if (!Tables.Contains(name)) Tables.Add(name);
                 SelectedTable = name;
                 ReportText = $"Таблица [{name}] создана и выбрана для записи.";
@@ -563,7 +583,7 @@ namespace IO_PJT.ViewModels
                 if (!string.IsNullOrWhiteSpace(ExcelPath) && SelectedSheet != null)
                 {
                     // Файл уже выбран — перечитать лист: авто-маппинг + наложение шаблона + предпросмотр
-                    LoadSheetData();
+                    _ = LoadSheetDataAsync();
                 }
                 else
                 {
@@ -670,7 +690,7 @@ namespace IO_PJT.ViewModels
                 var answer = MessageBox.Show(
                     "Импортируется новый документ?\n\n" +
                     "«Да» — новый документ (штатный импорт upsert).\n" +
-                    "«Нет» — замена существующего документа: отсутствующие в новом файле теги будут помечены к удалению (без физического удаления).\n" +
+                    "«Нет» — замена существующих документов (можно выбрать несколько — ревизии/вкладки): отсутствующие в новом файле теги будут помечены к удалению (без физического удаления).\n" +
                     "«Отмена» — не импортировать.",
                     "Импорт: новый документ или замена (F2.11)",
                     MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
@@ -688,20 +708,20 @@ namespace IO_PJT.ViewModels
                     if (docs.Count == 0)
                     {
                         ReportText = "Замена невозможна: в таблице нет документов (REV_FileName пусто).";
-                        _s.Log.Warn("Замена документа отменена: в таблице нет документов (REV_FileName пусто).");
+                        _s.Log.Warn("Замена документов отменена: в таблице нет документов (REV_FileName пусто).");
                         return;
                     }
                     var dlg = new ReplaceDocumentDialog(docs) { Owner = Application.Current?.MainWindow };
                     if (dlg.ShowDialog() != true)
                     {
-                        ReportText = "Импорт отменён: не выбран заменяемый документ.";
+                        ReportText = "Импорт отменён: не выбраны заменяемые документы.";
                         return;
                     }
-                    options.ReplacedFileName = dlg.SelectedDocument!.Value.FileName;
-                    options.ReplacedSheet = dlg.SelectedDocument!.Value.Sheet;
-                    _s.Log.Info(options.ReplacedSheet == null
-                        ? $"Замена документа: взамен «{options.ReplacedFileName}» (без вкладки)"
-                        : $"Замена документа: взамен «{options.ReplacedFileName}» :: вкладка «{options.ReplacedSheet}»");
+                    // F2.17: мультивыбор — документы делятся по ревизиям/вкладкам
+                    options.ReplacedDocuments = new List<(string FileName, string? Sheet)>(dlg.SelectedDocuments);
+                    _s.Log.Info($"Замена документов ({options.ReplacedDocuments.Count}): " +
+                        string.Join(", ", options.ReplacedDocuments.Select(d =>
+                            d.Sheet == null ? $"«{d.FileName}» (без вкладки)" : $"«{d.FileName}» :: «{d.Sheet}»")));
                 }
             }
 
@@ -734,6 +754,7 @@ namespace IO_PJT.ViewModels
                 var report = await Task.Run(() =>
                 {
                     _s.UseTable(options.TableName);
+                    _s.Creator.EnsureDuplicateTagTable(); // F2.17: гарантия таблицы копий перед записью
                     return _s.Import.Import(options, maps, progress);
                 });
 
@@ -749,6 +770,9 @@ namespace IO_PJT.ViewModels
                 _s.Log.Error($"Импорт прерван: {ex.Message}");
                 ReportText = "Ошибка импорта: " + ex.Message;
                 ProgressText = "Ошибка: " + ex.Message;
+                // Часть C: критическая ошибка импорта — не только текст отчёта, но и явное окно
+                MessageBox.Show("Импорт прерван:\n" + ex.Message,
+                    "Импорт — ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {

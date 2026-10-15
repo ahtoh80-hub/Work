@@ -24,7 +24,7 @@ IOPoint - Точка ввода-вывода в системе автомати�
 │   │   ├── FullTag : string? - Исходный тег в полном виде
 │   │   └── Separator : char? - Определенный разделитель компонентов (если отсутствовал - null)
 │   ├── ProcessTag : string? - Технологический тег устройства (для технологических схем)
-│   ├── System : string? - Тип системы управления (DCS/SIS/GDS)
+│   ├── System : string? - Система управления — произвольная строка (напр. DCS/SIS/GDS/РСУ/ПСБ)
 │   ├── IoType : string? - Тип сигнала ввода-вывода (DO - дискретный выход, AI - аналоговый вход и т.п)
 │   ├── Controller : string? - Имя контроллера (FCS, SIS, GDS) в системе управления (Например, 2000-S-SC-B01)
 │   └── Location : string? - Место установки оборудования (датчика, системы управления, подсистемы и т.п.): LCP, Field, DCS, SIS, GDS, ITCC, MMS, MCC, AUX и т.д.
@@ -59,6 +59,35 @@ IOPoint - Точка ввода-вывода в системе автомати�
 │   │   ├── H : string? - Предупреждение "Верхний" (внимание оператора, высокий уровень)
 │   │   ├── HH : string? - Авария "Верхний-Верхний" (критичный высокий уровень, остановка процесса)
 │   │   └── HH2 : string? - Второй "Верхний-Верхний" (дополнительный критичный уровень)
+│
+├── Modbus : Modbus? - F9: данные карты адресации Modbus (колонки M_* перед CBL_*)
+│   ├── MapFile : string? - Имя файла карты адресации (напр. "…Register Table Modbus - EBSM102.xlsx")
+│   ├── SlaveStation : string? - Slave-станция Modbus (Interface parameters, напр. IMCS EBSM102)
+│   ├── SlaveIdMain : string? - Slave ID основной (IP main: адрес/маска/порт)
+│   ├── SlaveIdBackup : string? - Slave ID резервный (IP backup)
+│   ├── Speed : string? - Скорость обмена интерфейса (speed; для TCP — 100Mbps)
+│   ├── Timeout : string? - Таймаут ответа устройства (timeout, мс)
+│   ├── PrfDesignation : string? - Project Functional Designation — функциональное обозначение объекта ПЛК
+│   ├── PlcTag : string? - PLC Tag/Variable Name — полное имя переменной ПЛК (напр. 1115-PM-101A_STA.MCU)
+│   ├── ObjectTag : string? - Базовый тег объекта (PLC Tag до "_") — ключ связи с тегом РСУ
+│   ├── Description : string? - Description of the variable — описание переменной в карте
+│   ├── Units : string? - Units of measurement — единицы измерения
+│   ├── Scale : string? - Scale — шкала
+│   ├── LL : string? - Low Low alarm value (карта Modbus)
+│   ├── LA : string? - Low alarm value (карта Modbus)
+│   ├── HA : string? - High alarm value (карта Modbus)
+│   ├── HH : string? - High High alarm value (карта Modbus)
+│   ├── Scaling : string? - Scaling factors — коэффициенты масштабирования
+│   ├── SigType : string? - Signal type (Impulse/Permanent)
+│   ├── RegType : string? - Register type — тип регистра (1/4/6)
+│   ├── Address : string? - Address/Bit — адрес регистра или бит (колонка БД: M_Address)
+│   ├── AccessType : string? - Access type (Read/Write)
+│   ├── DataType : string? - Data type (BOOL / 16-Bit Unsigned / 32-Bit Float…)
+│   ├── FuncCode : string? - Function code Modbus (02/03/06)
+│   ├── DcsChannel : string? - DCS channel — канал РСУ
+│   ├── DcsTag : string? - DCS Tag/Name variable — тег РСУ в карте адресации
+│   ├── DcsFunctions : string? - DCS functions — функции РСУ
+│   └── Note : string? - Примечание строки карты Modbus (note)
 │
 ├── Cable : Cable? - Кабельное хозяйство (физическое подключение сигнала)
 │   ├── Id : string? - Уникальный идентификатор кабеля (по проектной документации)
@@ -168,7 +197,7 @@ IOPoint - Точка ввода-вывода в системе автомати�
 | `Tag` | `string?` | Уникальный тег устройства (главный идентификатор) | `"2701-XZY-10101A"` | - |
 | `ParsedTag` | `InstrumentTag?` | Распарсенный тег (структурированные компоненты) | См. InstrumentTag | - |
 | `ProcessTag` | `string?` | Технологический тег устройства (для технологических схем) | `"2701-XZY-10101A"` | - |
-| `System` | `string?` | Тип системы управления (DCS/SIS/GDS) | `SIS` | - |
+| `System` | `string?` | Система управления — произвольная строка (напр. DCS/SIS/GDS/РСУ/ПСБ) | `SIS` | - |
 | `IoType` | `string?` | Тип сигнала ввода-вывода | `"DO"` | - |
 | `Controller` | `string?` | Имя контроллера в системе управления | `"2000-S-SC-B01"` | - |
 | `Location` | `string?` | Место установки оборудования | `Field` | - |
@@ -453,13 +482,14 @@ LL2 ← LL ← L ←─── НОРМА ───→ H → HH → HH2
 
 | Класс | Свойства | Количество |
 |:---|:---|:---|
-| **IOPoint** | Identification, Signal, Ranges, Cable, Equipment, Revision, Extra | 7 |
+| **IOPoint** | Identification, Signal, Ranges, **Modbus (F9)**, Cable, Equipment, Revision, Extra | 8 |
 | **Identification** | Code, Area, Plant, Title, Loop, SubLoop, ProcessLoop, Logic, Tag, ParsedTag, ProcessTag, System, IoType, Controller, Location | 15 |
 | **InstrumentTag** | TagArea, DeviceClass, LoopNumber, TagNumber, Suffix, FullTag, Separator | 7 |
 | **Signal** | Service, ServiceEnglish, InstrumentType, InstrumentTypeEnglish, PID, SignalType, ExType, Subsystem, Auxiliary, VoltageLevel, PowerConsumption | 11 |
 | **Ranges** | Primary, Secondary, Alarms | 3 |
 | **Range** | Min, Max, Unit | 3 |
 | **Alarms** | LL, LL2, L, H, HH, HH2 | 6 |
+| **Modbus (F9)** | MapFile, SlaveStation, SlaveIdMain, SlaveIdBackup, Speed, Timeout, PrfDesignation, PlcTag, ObjectTag, Description, Units, Scale, LL, LA, HA, HH, Scaling, SigType, RegType, Address, AccessType, DataType, FuncCode, DcsChannel, DcsTag, DcsFunctions, Note | 27 |
 | **Cable** | Id, Description, Type, Designation, From, To, Length, Color, Pair, Note, VendorDesignation, Drum, Voltage | 13 |
 | **Equipment** | CableTecon, Mcc, ControlCabinet, MarshallingCabinet, CPU, Chassis, Module | 7 |
 | **Chassis** | Main, Redundant | 2 |
@@ -467,8 +497,8 @@ LL2 ← LL ← L ←─── НОРМА ───→ H → HH → HH2
 | **Revision** | Number, Description, Package, VendorField1, VendorField2, Document, AkerRevision, FileName, Author, DateEntered, DateModified, RowNumber, Type, Count | 14 |
 | **Extra** | column1, column2, column3, column4, column5, column6, column7, column8, column9, column10 | 10 |
 
-**Всего классов:** 13  
-**Всего свойств:** 108 (без enum, Alarms без Unit, +Extra, +DateModified, +Logic, +Signal: VoltageLevel/PowerConsumption, +Plant)
+**Всего классов:** 14  
+**Всего свойств:** 135 (без enum, Alarms без Unit, +Extra, +DateModified, +Logic, +Signal: VoltageLevel/PowerConsumption, +Plant, +Modbus/F9)
 
 ---
 
@@ -620,7 +650,7 @@ IOPoint:
 3. **TagNumber — только цифры (1-3)** — строгое правило парсинга; `LoopNumber` = цифровая часть `Loop`
 4. **Двойные аварийные уровни** — `LL2` и `HH2` для дополнительной критической сигнализации (без единиц измерения)
 5. **Полная иерархия** — от общего `IOPoint` до детальных подклассов
-6. **Поддержка DCS/SIS/GDS** — типы систем управления задаются строками (без enum)
+6. **Поддержка любых систем** — `System` — произвольная строка (DCS, SIS, GDS, РСУ, ПСБ и т.п., без enum и без жёсткого списка)
 7. **Метаданные источника** — `FileName`, `Author`, `DateEntered`, `DateModified`, `RowNumber` для аудита
 8. **Многоязычная поддержка** — описания на русском и английском языках
 9. **Технологический тег** — `ProcessTag` для технологических схем
@@ -630,15 +660,15 @@ IOPoint:
 13. **Квадрирование модулей** — `ModuleRedundant` и `Module2Redundant` — разное оборудование при квадрировании сигнала
 14. **ИД из Excel** — `Revision.Count` (TEXT) хранит идентификатор записи источника
 15. **Шкалы и уставки — TEXT** — нечисловое содержимое не теряется; конвертация в число выполняется при валидации (без единиц измерения)
-16. **История изменений** — служебная таблица `IO_LIST_Audit` («что на что менялось», автор, время) с выгрузкой в Excel
+16. **История изменений** — служебная таблица `IO_LIST_Audit` («что на что менялось», автор, время) с выгрузкой в Excel; действия: INSERT/UPDATE/DELETE, CriticalError, MarkedDelete (F2.11), TagCleaned (F2.15), Duplicate (F9.1, жёлтый), ModbusWarning/ModbusError (F9.8 — сообщения связывания с картой Modbus, жёлтый/красный). Аудит имеет глобальный переключатель `AuditService.Enabled` (F9.9, чекбокс окна импорта карт): при выключении история не пополняется — в журнале событий остаётся минимизация (только имена затронутых Tag)
 
 ---
 
 ## 🗂 Маппинг дерева → таблица Access `IO_LIST` (производный раздел)
 
-БД Access повторяет структуру дерева 1:1 в виде **одной плоской таблицы**. **Итого 100 колонок** = `ID` + Identification 14 + ParsedTag 7 + Signal 11 + Ranges 6 + Alarms 6 + Cable 13 + Equipment 17 + Revision 15 + `column1`…`column10`. (Колонка `REV_Sheet` — вкладка-источник документа, добавлена по ТЗ F2.16: документ в БД = файл + вкладка.)
+БД Access повторяет структуру дерева 1:1 в виде **одной плоской таблицы**. **Итого 127 колонок** = `ID` + Identification 14 + ParsedTag 7 + Signal 11 + Ranges 6 + Alarms 6 + **Modbus 27 (F9, колонки `M_*` перед `CBL_*`)** + Cable 13 + Equipment 17 + Revision 15 + `column1`…`column10`. (Колонка `REV_Sheet` — вкладка-источник документа, добавлена по ТЗ F2.16: документ в БД = файл + вкладка.)
 
-**Имя таблицы может быть любым (по умолчанию `IO_LIST`)** — структура берётся из настоящего раздела. Служебная таблица **`IO_LIST_Audit`** (история изменений «старое → новое», см. ТЗ, F7) в 100 колонок не входит.
+**Имя таблицы может быть любым (по умолчанию `IO_LIST`)** — структура берётся из настоящего раздела. Служебная таблица **`IO_LIST_Audit`** (история изменений «старое → новое», см. ТЗ, F7) в 127 колонок не входит; служебная таблица **`MODBUS_MAP`** (F9: карта адресации Modbus) — тоже.
 
 **Типы полей:** все текстовые — `TEXT(255)`; **исключение — `PTag_*`: `TEXT(50)`**; числовые служебные — `LONG`; даты — `DATETIME`; ключ — `COUNTER`. Шкалы (`Range_*`) и уставки (`LL`…`HH2`) — тоже `TEXT(255)`: нечисловое содержимое не теряется, конвертация в число выполняется при валидации.
 
@@ -651,6 +681,7 @@ IOPoint:
 | Ranges.Primary | — | `Range_MIN`, `Range_MAX`, `Eng_Unit` — TEXT(255) (шкала TEXT) |
 | Ranges.Secondary | — | `Range_MIN2`, `Range_MAX2`, `Eng_Unit2` — TEXT(255) (шкала TEXT) |
 | Alarms | **без префикса** | `LL`, `LL2`, `L`, `H`, `HH`, `HH2` — TEXT(255) (**уставки TEXT, без единиц измерения**) |
+| **Modbus (F9)** | **`M_`** | `M_MapFile`, `M_SlaveStation`, `M_SlaveIdMain`, `M_SlaveIdBackup`, `M_Speed`, `M_Timeout`, `M_PrfDesignation`, `M_PlcTag`, `M_ObjectTag`, `M_Description`, `M_Units`, `M_Scale`, `M_LL`, `M_LA`, `M_HA`, `M_HH`, `M_Scaling`, `M_SigType`, `M_RegType`, `M_Address`, `M_AccessType`, `M_DataType`, `M_FuncCode`, `M_DcsChannel`, `M_DcsTag`, `M_DcsFunctions`, `M_Note` — TEXT(255); заполняется кнопкой «Обновить адресацию Modbus» по парам `MODBUS_MAP.DcsTag ↔ IO_LIST.Tag` (F9.4) — не при импорте карты и не Excel-импортом |
 | Cable | `CBL_` | `CBL_Id`, `CBL_Description`, `CBL_Type`, `CBL_Designation`, `CBL_From`, `CBL_To`, `CBL_Color`, `CBL_Note`, `CBL_VendorDesignation`, `CBL_Drum`, `CBL_Voltage` — TEXT(255); `CBL_Length`, `CBL_Pair` — LONG |
 | Equipment | `EQP_` | `EQP_CableTecon` … `EQP_Type` — TEXT(255); `EQP_Channel` — LONG |
 | Revision | `REV_` | `REV_Description`, `REV_Package`, `REV_VendorField1`, `REV_VendorField2`, `REV_Document`, `REV_AkerRevision`, `REV_FileName`, `REV_Sheet` (вкладка-источник, F2.16), `REV_Author`, `REV_Type`, `REV_Count` (ИД из Excel) — TEXT(255); `REV_Number`, `REV_RowNumber` — LONG; `REV_DateEntered`, `REV_DateModified` — DATETIME |
@@ -676,6 +707,13 @@ CREATE TABLE IO_LIST (
   Range_MIN2 TEXT(255), Range_MAX2 TEXT(255), Eng_Unit2 TEXT(255),
   LL TEXT(255), LL2 TEXT(255), L TEXT(255),
   H TEXT(255), HH TEXT(255), HH2 TEXT(255),
+  M_MapFile TEXT(255), M_SlaveStation TEXT(255), M_SlaveIdMain TEXT(255), M_SlaveIdBackup TEXT(255),
+  M_Speed TEXT(255), M_Timeout TEXT(255),
+  M_PrfDesignation TEXT(255), M_PlcTag TEXT(255), M_ObjectTag TEXT(255), M_Description TEXT(255),
+  M_Units TEXT(255), M_Scale TEXT(255), M_LL TEXT(255), M_LA TEXT(255), M_HA TEXT(255), M_HH TEXT(255),
+  M_Scaling TEXT(255), M_SigType TEXT(255), M_RegType TEXT(255), M_Address TEXT(255),
+  M_AccessType TEXT(255), M_DataType TEXT(255), M_FuncCode TEXT(255),
+  M_DcsChannel TEXT(255), M_DcsTag TEXT(255), M_DcsFunctions TEXT(255), M_Note TEXT(255),
   CBL_Id TEXT(255), CBL_Description TEXT(255), CBL_Type TEXT(255), CBL_Designation TEXT(255),
   CBL_From TEXT(255), CBL_To TEXT(255), CBL_Length LONG, CBL_Color TEXT(255), CBL_Pair LONG,
   CBL_Note TEXT(255), CBL_VendorDesignation TEXT(255), CBL_Drum TEXT(255), CBL_Voltage TEXT(255),
@@ -694,6 +732,86 @@ CREATE TABLE IO_LIST (
   column6 TEXT(255), column7 TEXT(255), column8 TEXT(255), column9 TEXT(255), column10 TEXT(255)
 );
 CREATE UNIQUE INDEX UX_IO_LIST_Tag ON IO_LIST (Tag);
+```
+
+### DDL служебной таблицы карты Modbus (`MODBUS_MAP`, F9)
+
+Структура строк `Register Table Function 02/03/06` + `Interface parameters` из файлов
+«IMCS TO DCS Register Table Modbus»; `LinkTag` — сопоставленный тег РСУ (`IO_LIST.Tag`;
+несколько команд, делящих один Control word, перечисляются через запятую), строки без привязки
+хранятся с пустым `LinkTag`. `DcsTag` — ключ связи с `IO_LIST` для кнопки «Обновить адресацию
+Modbus» (F9.4): список тегов через запятую; при связывании (F9.3) сюда накопительно дописывается
+`Tag` связанной точки (ручной ввод в колонке не затирается, дубли не добавляются), повторные
+прогоны не растят список; при импорте M_-поля `IO_LIST` не записываются — их заполняет кнопка
+по парам `DcsTag ↔ Tag` (только Modbus-сигналы `IO Type`: `M…`/`COM`, иначе ошибка).
+`LinkState` — состояние привязки после связывания (F9.3):
+«привязано» / «не привязано» / null (связывание не выполнялось); перед каждым прогоном
+`LinkState` и `LinkTag` сбрасываются, после прогона строки без результата помечаются
+«не привязано». Повторный импорт того же файла заменяет его строки (идемпотентно).
+Сопоставление кандидата со строками карты — гибкое: класс объекта перебирается по шагам
+F9.6 (точное написание → таблица эквивалентов `{PM↔M, EM↔E, AGM↔AG, BLM↔BL}` → итеративное удаление
+букв класса, минимум 1 буква остаётся; титул и номер — строго), теги сравниваются
+в канонизированном виде F9.7 (ведущие нули номера срезаются: `003A` ↔ `3A`); сообщения
+связывания («Не связано», ошибки) пишутся в `IO_LIST_Audit` как `ModbusWarning`/`ModbusError`
+(F9.8, поле `Modbus`, `System` = «Modbus»).
+Роль сигнала F9.10: Service «run signal»/«Run» → `STA.MCU` (наравне с «running»); `MSC`
+(`AO-COM`/«speed control») → Function 06 «Frequency Setting» (один сигнал на регистр), `MSI`
+(«speed signal») → Function 03 `_OP_F` «Operating Frequency» — ветка проверяется раньше
+общей ветки тока `AI-COM → I_A`; если Service без ключевых слов — роль по суффиксу тега
+(`MXA…A/B/C` → fault/run/ready, `MII` → ток, `MHS` → команда). У VFD с двумя строками
+Function 06 команда привязывается к «Control word … Value:1=Stop,…», к «Frequency Setting» —
+только `MSC`.
+Все имена в квадратных скобках: `Address`/`Note` — зарезервированные слова JET (колонка
+адреса названа `AddrBit`). Существующие таблицы мигрируют через `ALTER TABLE ADD`
+(`TableCreator.EnsureServiceTables`).
+
+```sql
+CREATE TABLE MODBUS_MAP (
+  [ID] COUNTER PRIMARY KEY,
+  [MapFile] TEXT(255), [MapSheet] TEXT(255), [MapRow] LONG,
+  [SlaveStation] TEXT(255), [SlaveIdMain] TEXT(255), [SlaveIdBackup] TEXT(255),
+  [Speed] TEXT(255), [Timeout] TEXT(255),
+  [PrfDesignation] TEXT(255), [PlcTag] TEXT(255), [ObjectTag] TEXT(255), [Description] TEXT(255),
+  [Units] TEXT(255), [Scale] TEXT(255), [LL] TEXT(255), [LA] TEXT(255), [HA] TEXT(255), [HH] TEXT(255),
+  [Scaling] TEXT(255), [SigType] TEXT(255), [RegType] TEXT(255), [AddrBit] TEXT(255),
+  [AccessType] TEXT(255), [DataType] TEXT(255), [FuncCode] TEXT(255),
+  [DcsChannel] TEXT(255), [DcsTag] TEXT(255), [DcsFunctions] TEXT(255), [Note] TEXT(255),
+  [LinkTag] TEXT(255), [LinkState] TEXT(255)
+);
+```
+
+### DDL служебной таблицы ручных правил связывания (`MODBUS_LINK_RULES`, F9.11)
+
+Пользовательские зависимости «поле IO_LIST ↔ поле `MODBUS_MAP`», применяются в
+`ModbusLinkService.Link()` **ПЕРЕД** встроенными ролями `DetectRole` (первое сработавшее
+правило с меньшим `Priority` выигрывает; без срабатывания — обычная логика ролей).
+`Name` — подпись правила (обязательна; имя попадает в журнал/статистику `RuleHits`);
+`IOField` — поле IO-стороны: `Tag` (по умолчанию) / `Service` / `ServiceEnglish` / `IoType` /
+`Loop` / `SignalType`; `TagPattern` — шаблон по его значению; `MapField` — любое строковое
+поле `ModbusMapEntry` (`Description`, `Scale`, `PlcTag`, `FuncCode`, `Units`, `DcsFunctions`, …);
+`ValuePattern` — шаблон по значению этого поля; `FuncCode` — опциональный фильтр Function Code
+строки карты (пусто — без фильтра); `Priority` — порядок применения (меньше — раньше, по
+умолчанию 100); `Enabled` — вкл/выкл (выключенное хранится в БД, в `Link()` не применяется).
+
+Шаблоны (`TagPattern`/`ValuePattern`, `IgnoreCase`, `ModbusLinkRuleService.Compile`):
+(1) начинается с `*`/`?` либо содержит только wildcard-метки → wildcard (анкорный: `*` — любые
+символы, `?` — один; пример `*Fault*`); (2) содержит метасимволы regex (`. + ^ $ ( ) [ ] { } | \`)
+→ регулярное выражение (примеры `MXA.*A`, `MXA+A`); невалидный шаблон → правило пропускается
+с предупреждением в журнале, связывание не прерывается.
+
+Редактирование — окно «Импорт → Правила связывания Modbus...» (валидация перед записью,
+`SaveAll` = `DELETE` + `INSERT` одной транзакцией, повтор при блокировке БД); чтение для
+связывания — `LoadEnabled` (`WHERE [Enabled] <> 0 ORDER BY [Priority], [ID]`). Таблица
+создаётся идемпотентно в `TableCreator.EnsureServiceTables`. Ограничение F9.4 сохраняется:
+связь записывается только для Modbus-сигналов (`IO Type` `M…`/`COM`).
+
+```sql
+CREATE TABLE MODBUS_LINK_RULES (
+  [ID] COUNTER PRIMARY KEY,
+  [Name] TEXT(255), [IOField] TEXT(50), [TagPattern] TEXT(255),
+  [MapField] TEXT(50), [ValuePattern] TEXT(255), [FuncCode] TEXT(50),
+  [Priority] LONG, [Enabled] YESNO
+);
 ```
 
 ### Пример таблицы `IO_LIST` (значения — строка 2 листа `OSBL_IO_List_SCS_v4`, файл «пример данных.xlsx»)
@@ -860,4 +978,4 @@ CREATE UNIQUE INDEX UX_IO_LIST_Tag ON IO_LIST (Tag);
 8. **`Tag` — обязательное поле маппинга**; без привязки `Tag` запись не выполняется.
 9. Автозаполнение (не из Excel): `REV_FileName` — имя файла; `REV_Sheet` — имя вкладки (листа)-источника (F2.16); **`REV_RowNumber` — номер строки Excel, в которой находится `Tag`** (маппингом не переопределяется); `REV_Author` — Windows-логин (`домен\логин`); `Code` = `REV_RowNumber − 1`, если колонка `Code` Excel не сопоставлена.
 10. Шкалы (`Range_*`) и уставки (`LL`…`HH2`) — TEXT: нечисловое содержимое сохраняется без потерь; при импорте/валидации выполняется конвертация в число (пробелы удаляются, запятая → точка); не конвертируется — значение сохраняется, выдаётся предупреждение.
-11. Каждое добавление/изменение каждого поля фиксируется в служебной таблице **`IO_LIST_Audit`** (действие, поле, старое → новое, автор, время); выгрузка истории — в Excel (см. ТЗ, F7).
+11. Каждое добавление/изменение каждого поля фиксируется в служебной таблице **`IO_LIST_Audit`** (действие, поле, старое → новое, автор, время); выгрузка истории — в Excel (см. ТЗ, F7). Помимо полевых изменений туда же попадают служебные записи: задвоение тега между документами `Duplicate` (F9.1) и сообщения связывания с картой Modbus `ModbusWarning`/`ModbusError` (F9.8 — «Не связано», «связь отклонена … не Modbus-сигнал», «DCSTAG не Modbus сигнала», «тег из DcsTag не найден»).

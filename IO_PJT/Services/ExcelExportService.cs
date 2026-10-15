@@ -38,9 +38,15 @@ namespace IO_PJT.Services
                 ws.Cell(r, 10).Value = a.System ?? "";   // F7.6: система
                 ws.Cell(r, 11).Value = a.ChangedBy;
                 ws.Cell(r, 12).Value = a.ChangeDescription;
-                // F2.11/F2.15: пометка на удаление и очистка Tag — красным шрифтом
-                if (a.Action == AuditAction.MarkedDelete || a.Action == AuditAction.TagCleaned)
+                // F2.11/F2.15: пометка на удаление и очистка Tag — красным шрифтом;
+                // F9.8: ошибки связывания Modbus — также красным
+                if (a.Action == AuditAction.MarkedDelete || a.Action == AuditAction.TagCleaned ||
+                    a.Action == AuditAction.ModbusError)
                     ws.Row(r).Style.Font.FontColor = XLColor.FromHtml("#C42B1C");
+                // F9.1: задвоение тега между документами — жёлтым (предупреждение);
+                // F9.8: предупреждения связывания Modbus — также жёлтым
+                else if (a.Action == AuditAction.Duplicate || a.Action == AuditAction.ModbusWarning)
+                    ws.Row(r).Style.Font.FontColor = XLColor.FromHtml("#9C6500");
                 r++;
             }
             ws.Columns().AdjustToContents();
@@ -59,7 +65,8 @@ namespace IO_PJT.Services
             ws.Cell(2, 1).Value = filterText;
 
             string[] headers = { "Документ (файл :: вкладка)", "Ячейка (поле)", "Insert", "Update", "Delete",
-                                 "CriticalError", "MarkedDelete", "TagCleaned", "Всего" };
+                                 "CriticalError", "MarkedDelete", "TagCleaned", "Duplicate",
+                                 "ModbusWarning", "ModbusError", "Всего" };
             for (int i = 0; i < headers.Length; i++)
                 ws.Cell(4, i + 1).Value = headers[i];
             ws.Row(4).Style.Font.Bold = true;
@@ -75,7 +82,10 @@ namespace IO_PJT.Services
                 ws.Cell(r, 6).Value = row.CriticalErrorCount;
                 ws.Cell(r, 7).Value = row.MarkedDeleteCount;
                 ws.Cell(r, 8).Value = row.TagCleanedCount;
-                ws.Cell(r, 9).Value = row.Total;
+                ws.Cell(r, 9).Value = row.DuplicateCount;
+                ws.Cell(r, 10).Value = row.ModbusWarningCount; // F9.8
+                ws.Cell(r, 11).Value = row.ModbusErrorCount;   // F9.8
+                ws.Cell(r, 12).Value = row.Total;
                 if (row.IsSubtotal || row.IsTotal)
                 {
                     // Итоги — полужирным с заливкой (как в окне отчёта)
@@ -131,7 +141,7 @@ namespace IO_PJT.Services
 
         public BackupService(string dbPath) => _dbPath = dbPath;
 
-        private string ConnStr => $"Provider=Microsoft.ACE.OLEDB.12.0;Data Source={_dbPath};";
+        private string ConnStr => DbProbe.ConnStrWithTimeout(_dbPath);
 
         /// <summary>SELECT * INTO [имя_копии] FROM [таблица]. Возвращает имя таблицы-копии.</summary>
         public string BackupTable(string tableName)
@@ -141,6 +151,7 @@ namespace IO_PJT.Services
             using var cn = new System.Data.OleDb.OleDbConnection(ConnStr);
             cn.Open();
             using var cmd = new System.Data.OleDb.OleDbCommand(sql, cn);
+            cmd.CommandTimeout = DbProbe.TimeoutSeconds;
             cmd.ExecuteNonQuery();
             return copyName;
         }

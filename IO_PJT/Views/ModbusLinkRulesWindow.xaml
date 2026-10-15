@@ -1,0 +1,64 @@
+<Window x:Class="IO_PJT.Views.ModbusLinkRulesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Правила связывания Modbus (MODBUS_LINK_RULES, F9.11)" Width="980" Height="560"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+
+    <!-- F9.11: ручные правила «поле IO по шаблону → поле карты по шаблону» — применяются
+         в Link() ПЕРЕД встроенными ролями DetectRole. Правила хранятся в Access
+         (MODBUS_LINK_RULES) и переживают импорт карты/повторное связывание. -->
+    <DockPanel Margin="8">
+
+        <!-- Верх: подсказка + команды -->
+        <Border DockPanel.Dock="Top" Padding="4" Margin="0,0,0,6">
+            <StackPanel>
+                <TextBlock Text="{Binding FieldsHint}" TextWrapping="Wrap" Foreground="#444444" Margin="0,0,0,6" />
+                <StackPanel Orientation="Horizontal">
+                    <Button Content="Добавить" Command="{Binding AddCommand}" Width="90" Margin="0,0,6,0"
+                            ToolTip="Новое правило (шаблон по умолчанию — пример Tag MXA+A → Description *Fault*)" />
+                    <Button x:Name="deleteButton" Content="Удалить" Command="{Binding DeleteCommand}" Width="90" Margin="0,0,6,0"
+                            ToolTip="Удалить выбранное правило" />
+                    <Button Content="Проверить" Command="{Binding ValidateCommand}" Width="100" Margin="0,0,6,0"
+                            ToolTip="Проверить шаблоны и поля всех правил без записи" />
+                    <Button Content="Сохранить" Command="{Binding SaveCommand}" Width="100" FontWeight="SemiBold"
+                            ToolTip="Записать все правила в MODBUS_LINK_RULES (полная замена)" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- Низ: статус -->
+        <Border DockPanel.Dock="Bottom" Padding="4,6">
+            <TextBlock Text="{Binding StatusText}" FontWeight="SemiBold" TextWrapping="Wrap" />
+        </Border>
+
+        <DataGrid ItemsSource="{Binding Rules}" SelectedItem="{Binding SelectedRule}"
+                  AutoGenerateColumns="False" CanUserAddRows="True" EnableRowVirtualization="True"
+                  HeadersVisibility="Column" Margin="0">
+            <DataGrid.Columns>
+                <DataGridCheckBoxColumn Header="Вкл" Binding="{Binding Enabled, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="45"
+                                        ToolTipService.ToolTip="Выключенное правило хранится в БД, но в Link() не применяется" />
+                <DataGridTextColumn Header="Название" Binding="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
+                                    Width="170" />
+                <DataGridTextColumn Header="Поле IO" Binding="{Binding IOField, UpdateSourceTrigger=PropertyChanged}"
+                                    Width="110"
+                                    ToolTipService.ToolTip="Поле IO_LIST: Tag / Service / ServiceEnglish / IoType / Loop / SignalType" />
+                <DataGridTextColumn Header="Шаблон тега (TagPattern)" Binding="{Binding TagPattern, UpdateSourceTrigger=PropertyChanged}"
+                                    Width="150"
+                                    ToolTipService.ToolTip="Шаблон по значению поля IO: с «*»/«?» — wildcard, иначе regex (напр. MXA+A)" />
+                <DataGridTextColumn Header="Поле карты" Binding="{Binding MapField, UpdateSourceTrigger=PropertyChanged}"
+                                    Width="110"
+                                    ToolTipService.ToolTip="Поле строки MODBUS_MAP: Description / Scale / PlcTag / FuncCode / …" />
+                <DataGridTextColumn Header="Шаблон значения (ValuePattern)" Binding="{Binding ValuePattern, UpdateSourceTrigger=PropertyChanged}"
+                                    Width="160"
+                                    ToolTipService.ToolTip="Шаблон по значению поля карты (напр. *Fault*)" />
+                <DataGridTextColumn Header="FuncCode" Binding="{Binding FuncCode, UpdateSourceTrigger=PropertyChanged}"
+                                    Width="75"
+                                    ToolTipService.ToolTip="Фильтр Function Code строки карты (02/03/06); пусто — без фильтра" />
+                <DataGridTextColumn Header="Приоритет" Binding="{Binding Priority, UpdateSourceTrigger=PropertyChanged}"
+                                    Width="75"
+                                    ToolTipService.ToolTip="Меньше значение — правило применяется раньше" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</Window>

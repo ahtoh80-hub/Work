@@ -92,25 +92,25 @@ namespace IO_PJT.Services
                 var seenTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 var result = ProcessRows(options, mappings, active, rows, report, seenTags, progress);
 
-                // ===== F2.11: замена документа — пометка отсутствующих в новой версии тегов =====
-                if (options.Mode == ImportMode.Upsert && !string.IsNullOrWhiteSpace(options.ReplacedFileName))
+                // ===== F2.11/F2.17: замена документов (мультивыбор — ревизии/вкладки) =====
+                if (options.Mode == ImportMode.Upsert && options.ReplacedDocuments.Count > 0)
                 {
                     progress?.Report(new ImportProgress
                     {
-                        Phase = "Замена документа: пометка отсутствующих тегов",
+                        Phase = "Замена документов: пометка отсутствующих тегов",
                         Processed = rows.Count, Total = rows.Count
                     });
                     string newFile = Path.GetFileName(options.ExcelPath);
                     var marked = _repo.MarkMissingTagsForDeletion(seenTags,
-                        options.ReplacedFileName!, options.ReplacedSheet, newFile, options.SheetName);
+                        options.ReplacedDocuments, newFile, options.SheetName);
                     report.MarkedForDeletion = marked.Count;
-                    string docOld = string.IsNullOrWhiteSpace(options.ReplacedSheet)
-                        ? $"«{options.ReplacedFileName}»" : $"«{options.ReplacedFileName}» (вкладка «{options.ReplacedSheet}»)";
+                    string docsOld = string.Join(", ", options.ReplacedDocuments.Select(d =>
+                        d.Sheet == null ? $"«{d.FileName}» (без вкладки)" : $"«{d.FileName}» (вкладка «{d.Sheet}»)"));
                     foreach (var tag in marked)
                     {
                         _log.Error($"Tag {tag}: отсутствует в новой версии файла {newFile} — помечен к удалению (необходимо удалить из БД)");
                         report.Validation.Add(ErrCode.W004_MarkedForDeletion,
-                            $"Тег документа {docOld} отсутствует в новой версии файла {newFile} — помечен к удалению (REV_Description); физическое удаление не выполняется",
+                            $"Тег документов [{docsOld}] отсутствует в новой версии файла {newFile} — помечен к удалению (REV_Description); физическое удаление не выполняется",
                             tag, "REV_Description");
                     }
                 }
@@ -194,6 +194,29 @@ namespace IO_PJT.Services
             // F2.12: итоговый перечень зачёркнутых тегов — в журнал по завершении
             var struckTags = new List<string>();
 
+            // ===== F2.17: первый проход — частота тегов в файле =====
+            // Массовый маркер (повтор ≥ MassMarkerThreshold раз) — служебная заглушка: строка не пишется
+            // ни в IO_LIST, ни в IO_LIST_DublicateTag. Обычный повтор — строка пишется (upsert, не
+            // пропускается), а все копии тега (включая первую) копируются в IO_LIST_DublicateTag.
+            const int MassMarkerThreshold = 10;
+            var tagFreq = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            if (tagIndex >= 0)
+            {
+                foreach (var row in rows)
+                {
+                    if (IsSeparatorRow(row.Cells)) continue;
+                    if (row.IsStruck(tagIndex)) continue; // зачёркнутая строка в импорт не идёт (F2.12)
+                    string? key = TagParser.CleanWhitespace(row.Cell(tagIndex)); // нормализация как в цикле (F2.15)
+                    if (string.IsNullOrWhiteSpace(key)) continue;
+                    tagFreq[key] = tagFreq.TryGetValue(key, out int n) ? n + 1 : 1;
+                }
+            }
+            var dupReported = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // F9.1: теги, для которых в этой сессии импорта уже записано задвоение между документами
+            // (один тег — одна запись Duplicate, даже если встречается несколько раз)
+            var dupOtherDocReported = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
             for (int d = 0; d < rows.Count; d++)
             {
                 var row = rows[d];
@@ -269,15 +292,32 @@ namespace IO_PJT.Services
                     continue;
                 }
 
-                // Повтор тега внутри одного файла (F2.7)
-                if (!seenTags.Add(point.Tag!))
+                // ===== F2.17: повторы тегов внутри файла (E005 больше не блокирует строку) =====
+                string tagKey = point.Tag!.Trim();
+                tagFreq.TryGetValue(tagKey, out int freq);
+                if (freq >= MassMarkerThreshold)
                 {
+                    // Массовый маркер/заглушка — не записывается вовсе (ни в IO_LIST, ни в копии)
                     report.Errors++;
+                    report.MassMarkersSkipped++;
                     report.Validation.Add(ErrCode.E005_DuplicateTagInFile,
-                        $"Повтор тега в файле: {point.Tag}", point.Tag, "Tag", excelRow);
-                    _log.Error($"Строка {excelRow}: повтор тега {point.Tag} — строка пропущена");
+                        $"Массовый маркер: тег повторяется в файле {freq} раз (≥{MassMarkerThreshold}) — служебная заглушка, строка не записана",
+                        point.Tag, "Tag", excelRow);
+                    _log.Error($"Строка {excelRow}: тег {point.Tag} встречается в файле {freq} раз — массовый маркер, строка пропущена");
                     ReportProgress(d + 1, point.Tag);
                     continue;
+                }
+
+                // Все уникальные теги файла — для замены документов (F2.11); повтор НЕ пропускает строку
+                seenTags.Add(point.Tag!);
+                bool duplicateInFile = freq >= 2;
+                if (duplicateInFile && dupReported.Add(point.Tag!))
+                {
+                    // F2.17: строка с повтором пишется (upsert), все копии тега → IO_LIST_DublicateTag
+                    report.Validation.Add(ErrCode.W007_DuplicateTagRecorded,
+                        $"Повтор тега в файле ({freq} раз): строка записана, все копии продублированы в {Schema.DuplicateTable}",
+                        point.Tag, "Tag", excelRow);
+                    _log.Warn($"Строка {excelRow}: повтор тега {point.Tag} ({freq} раз) — строка записана, копии → {Schema.DuplicateTable} (F2.17)");
                 }
 
                 // Валидация F5: предупреждения и E003 (иерархия уставок) НЕ блокируют — строка пишется;
@@ -299,6 +339,32 @@ namespace IO_PJT.Services
 
                 // Upsert по Tag (F2.7/F2.8): вставка / частичное обновление / без изменений / конфликт
                 var result = _repo.Upsert(point, mappedCols);
+
+                // ===== F9.1: задвоение тега между документами =====
+                // Тег уже существует в БД из другого документа (файл + вкладка), а импортируется
+                // из текущего — равноправная запись аудита Duplicate (жёлтым) + W008 + журнал.
+                // Замена документов (F2.11/F2.16) — штатное перенесение, не задвоение.
+                if ((result.Outcome is UpsertOutcome.Updated or UpsertOutcome.Unchanged) &&
+                    !string.IsNullOrWhiteSpace(result.ExistingFileName) &&
+                    !IsSameDocument(result.ExistingFileName, result.ExistingSheet,
+                        point.Revision?.FileName, point.Revision?.Sheet) &&
+                    !IsReplacedDocument(options, result.ExistingFileName, result.ExistingSheet) &&
+                    dupOtherDocReported.Add(point.Tag!))
+                {
+                    report.DuplicatesOtherDoc++;
+                    _repo.RecordDuplicateTagAudit(point.Tag,
+                        result.ExistingFileName, result.ExistingSheet,
+                        point.Revision?.FileName, point.Revision?.Sheet,
+                        point.Identification.System);
+                    report.Validation.Add(ErrCode.W008_DuplicateTagOtherDoc,
+                        $"Тег уже существует в БД из другого документа «{result.ExistingFileName}»" +
+                        (string.IsNullOrWhiteSpace(result.ExistingSheet) ? "" : $" :: «{result.ExistingSheet}»") +
+                        " — задвоение записано в историю (Duplicate)",
+                        point.Tag, "Tag", excelRow);
+                    _log.Warn($"Строка {excelRow}: Tag {point.Tag} — задвоение между документами " +
+                              $"(БД: «{result.ExistingFileName}»; импорт: «{point.Revision?.FileName}») — аудит Duplicate (F9.1)");
+                }
+
                 switch (result.Outcome)
                 {
                     case UpsertOutcome.Inserted:
@@ -324,6 +390,14 @@ namespace IO_PJT.Services
                     report.Validation.Add(ErrCode.W003_IdentityNotChecked,
                         "System/Plant не задан в импортируемых данных — проверка идентичности пропущена",
                         point.Tag, "System/Plant", excelRow);
+
+                // F2.17: каждая строка с повторяющимся тегом (включая первую) копируется в
+                // IO_LIST_DublicateTag — кроме конфликтов E009 (строка не записана в IO_LIST)
+                if (duplicateInFile && result.Outcome != UpsertOutcome.Conflict)
+                {
+                    _repo.InsertDuplicate(point);
+                    report.DuplicateCopies++;
+                }
                 ReportProgress(d + 1, point.Tag);
             }
 
@@ -338,5 +412,17 @@ namespace IO_PJT.Services
         private static bool IsSeparatorRow(IReadOnlyList<string?> cells) =>
             cells.All(c => string.IsNullOrWhiteSpace(c) || c.Trim() == "-") &&
             cells.Any(c => !string.IsNullOrWhiteSpace(c));
+
+        /// <summary>F9.1: один и тот же документ (файл + вкладка, без учёта регистра).</summary>
+        private static bool IsSameDocument(string? file1, string? sheet1, string? file2, string? sheet2) =>
+            string.Equals(file1 ?? "", file2 ?? "", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(sheet1 ?? "", sheet2 ?? "", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>F9.1: документ записи входит в список заменяемых (F2.11) — при замене документов
+        /// перенос записей штатный, задвоением не считается.</summary>
+        private static bool IsReplacedDocument(ImportOptions options, string? fileName, string? sheet) =>
+            options.ReplacedDocuments.Any(d =>
+                string.Equals(d.FileName ?? "", fileName ?? "", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(d.Sheet ?? "", sheet ?? "", StringComparison.OrdinalIgnoreCase));
     }
 }

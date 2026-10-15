@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Data;
 using System.Data.OleDb;
 using System.Globalization;
+using System.Linq;
 using IO_PJT.Models;
 
 namespace IO_PJT.Services
@@ -15,13 +16,28 @@ namespace IO_PJT.Services
     public sealed class AuditService : IAuditService
     {
         private readonly string _dbPath;
+        private readonly IEventLogger? _log;
         private readonly object _sync = new();
         private readonly List<(string TableName, string? Tag, AuditAction Action, string Field, string? Old, string? New, string? FileName, string? Sheet, string? System)> _buffer = new();
         private bool _batch;
 
-        public AuditService(string dbPath) => _dbPath = dbPath;
+        /// <param name="dbPath">Путь к базе Access.</param>
+        /// <param name="log">Журнал событий (F9.9): при выключенном аудите сюда пишется
+        /// минимизированная информация — только имена Tag, в которых что-то изменилось.</param>
+        public AuditService(string dbPath, IEventLogger? log = null)
+        {
+            _dbPath = dbPath;
+            _log = log;
+        }
 
-        private string ConnStr => $"Provider=Microsoft.ACE.OLEDB.12.0;Data Source={_dbPath};";
+        /// <summary>F9.9: глобальный переключатель аудита (по умолчанию включён; переключается
+        /// чекбоксом окна импорта карты Modbus). При выключении записи в IO_LIST_Audit не
+        /// выполняются: единичные изменения фиксируются в журнале событий минимально
+        /// («изменён тег …» без значений), пакетные (импорт) — одной сводной строкой
+        /// со списком затронутых Tag.</summary>
+        public bool Enabled { get; set; } = true;
+
+        private string ConnStr => DbProbe.ConnStrWithTimeout(_dbPath);
 
         /// <summary>Windows-логин текущего пользователя (домен\логин).</summary>
         public static string CurrentUser =>
@@ -40,6 +56,14 @@ namespace IO_PJT.Services
                     _buffer.Add((tableName, tag, action, field, oldValue, newValue, fileName, sheet, system));
                     return;
                 }
+            }
+            // F9.9: аудит выключен — в IO_LIST_Audit ничего; в журнал событий минимальная запись
+            // (только затронутый Tag, без значений полей); пакетный режим пишет сводку в EndBatch
+            if (!Enabled)
+            {
+                if (!string.IsNullOrWhiteSpace(tag))
+                    _log?.Info($"Аудит выключен: изменён тег «{tag}» — в историю не записано");
+                return;
             }
             // Гарантия: служебные таблицы создаются автоматически при записи (решение п.3)
             ServiceSchema.EnsureServiceTables(_dbPath);
@@ -112,6 +136,25 @@ namespace IO_PJT.Services
                 _buffer.Clear();
             }
 
+            // F9.9: аудит выключен — пакет не пишется в IO_LIST_Audit; в журнал событий одна
+            // сводная строка: только имена затронутых Tag (минимизация, без значений полей)
+            if (!Enabled)
+            {
+                var tags = pending.Select(x => x.Tag)
+                    .Where(t => !string.IsNullOrWhiteSpace(t))
+                    .Select(t => t!.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                if (tags.Count > 0)
+                {
+                    const int shown = 20;
+                    string list = tags.Count <= shown
+                        ? string.Join(", ", tags)
+                        : string.Join(", ", tags.Take(shown)) + $", … (+{tags.Count - shown})";
+                    _log?.Info($"Аудит выключен: изменения в {tags.Count} тег(ах) не записаны в историю: {list}");
+                }
+                return;
+            }
             ServiceSchema.EnsureServiceTables(_dbPath);
             try
             {

@@ -41,7 +41,7 @@ namespace IO_PJT.ViewModels
             _isNew = isNew;
             Title = isNew ? "Новый сигнал" : $"Сигнал: {point.Tag ?? "(без тега)"} (ID={point.Id})";
 
-            // Все 99 колонок дерева — для просмотра и редактирования
+            // Все колонки дерева (FieldRegistry.Columns) — для просмотра и редактирования, включая M_* (F9)
             foreach (var col in FieldRegistry.Columns)
             {
                 Rows.Add(new FieldRow

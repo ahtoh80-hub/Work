@@ -38,7 +38,14 @@ namespace IO_PJT.Models
         W005_StruckThroughRow = 105,
         /// <summary>F2.15: из Tag удалены пробельные символы (включая NBSP) — значение нормализовано
         /// перед записью; в аудит пишется действие TagCleaned (предупреждение).</summary>
-        W006_TagCleaned = 106
+        W006_TagCleaned = 106,
+        /// <summary>F2.17: повтор тега внутри файла — строка записана (upsert), все копии тега
+        /// продублированы в IO_LIST_DublicateTag; E005 больше не блокирует строку (предупреждение).
+        /// Массовый повтор (≥10 раз — служебный маркер) по-прежнему блокируется кодом E005.</summary>
+        W007_DuplicateTagRecorded = 107,
+        /// <summary>F9.1: задвоение тега между документами — тег уже существует в БД из другого
+        /// документа (файл + вкладка); в аудит записана равноправная запись Duplicate (жёлтым).</summary>
+        W008_DuplicateTagOtherDoc = 108
     }
 
     /// <summary>Одна ошибка/предупреждение валидации с указанием Tag и поля.</summary>
@@ -121,14 +128,28 @@ namespace IO_PJT.Models
         /// физически не удаляются — требуется ручное удаление).</summary>
         public int MarkedForDeletion { get; set; }
 
+        /// <summary>F2.17: записано копий повторяющихся тегов в IO_LIST_DublicateTag
+        /// (все строки с повторяющимся тегом, включая первую).</summary>
+        public int DuplicateCopies { get; set; }
+
+        /// <summary>F2.17: пропущено строк с массовым маркером-тегом (повтор ≥10 раз в файле).</summary>
+        public int MassMarkersSkipped { get; set; }
+
         /// <summary>F2.12: пропущено строк с зачёркнутой ячейкой Tag (вся строка не импортируется).</summary>
         public int StruckThroughSkipped { get; set; }
+
+        /// <summary>F9.1: задвоений тега между документами (тег уже существовал в БД из другого документа) —
+        /// каждое зафиксировано равноправной записью аудита Duplicate (жёлтым).</summary>
+        public int DuplicatesOtherDoc { get; set; }
 
         /// <summary>Итоговый текст отчёта.</summary>
         public string Summary =>
             $"Считано: {RowsRead}; добавлено: {Inserted}; обновлено: {Updated}; " +
             $"без изменений: {Unchanged}; конфликтов: {Conflicts}; " +
             (MarkedForDeletion > 0 ? $"помечено к удалению: {MarkedForDeletion}; " : "") +
+            (DuplicateCopies > 0 ? $"копий в {Data.Schema.DuplicateTable}: {DuplicateCopies}; " : "") +
+            (DuplicatesOtherDoc > 0 ? $"задвоений между документами: {DuplicatesOtherDoc}; " : "") +
+            (MassMarkersSkipped > 0 ? $"массовых маркеров пропущено: {MassMarkersSkipped}; " : "") +
             (StruckThroughSkipped > 0 ? $"зачёркнутых пропущено: {StruckThroughSkipped}; " : "") +
             $"разделителей пропущено: {SeparatorsSkipped}; ошибок: {Errors}";
     }

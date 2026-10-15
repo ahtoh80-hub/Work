@@ -1,0 +1,51 @@
+<Window x:Class="IO_PJT.Views.ModbusImportWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Импорт карты адресации Modbus (F9)" Width="900" Height="600"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+
+    <!-- F9: выбор файлов карты (Interface parameters + Register Table Function 02/03/06) →
+         MODBUS_MAP + связывание строк карты с IO_LIST (LinkTag/DcsTag).
+         F9.4: M_-поля в IO_LIST при импорте не пишутся — их записывает главное окно,
+         «Обновить адресацию Modbus»; файлы можно перетаскивать в окно (drag&drop). -->
+    <DockPanel Margin="8">
+
+        <!-- Верх: команды -->
+        <Border DockPanel.Dock="Top" Padding="4" Margin="0,0,0,6">
+            <StackPanel Orientation="Horizontal">
+                <Button Content="Добавить файлы..." Command="{Binding AddFilesCommand}" Margin="0,0,6,0"
+                        ToolTip="Выбрать файл(ы) карты адресации Modbus (*.xlsx), мультивыбор; либо перетащите файлы в окно" />
+                <Button Content="Импортировать и связать" Command="{Binding ImportCommand}" MinWidth="170"
+                        ToolTip="Записать карты в MODBUS_MAP (замена строк по имени файла) и заполнить LinkTag/DcsTag строк карты; M_-поля IO_LIST пишет кнопка «Обновить адресацию Modbus» (F9.4)" />
+                <!-- F9.9: глобальный переключатель аудита (AuditService.Enabled) -->
+                <CheckBox Content="Вести аудит (IO_LIST_Audit)" IsChecked="{Binding AuditEnabled}"
+                          Margin="12,0,0,0" VerticalAlignment="Center"
+                          ToolTip="Писать изменения и сообщения связывания в историю IO_LIST_Audit. При выключении в историю ничего не пишется — в журнале событий остаются сообщения и минимизированный список затронутых Tag (F9.9)" />
+            </StackPanel>
+        </Border>
+
+        <!-- Низ: статус -->
+        <Border DockPanel.Dock="Bottom" Padding="4,6">
+            <TextBlock Text="{Binding StatusText}" FontWeight="SemiBold" TextWrapping="Wrap" />
+        </Border>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="6" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Список файлов -->
+            <GroupBox Header="Файлы карты адресации">
+                <ListBox x:Name="filesList" ItemsSource="{Binding Files}" />
+            </GroupBox>
+
+            <!-- Итоги импорта/связывания -->
+            <GroupBox Grid.Column="2" Header="Итоги">
+                <ListBox ItemsSource="{Binding Results}" FontFamily="Consolas" FontSize="11"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+            </GroupBox>
+        </Grid>
+    </DockPanel>
+</Window>

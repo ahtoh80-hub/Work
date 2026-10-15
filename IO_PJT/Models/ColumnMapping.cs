@@ -89,13 +89,10 @@ namespace IO_PJT.Models
         /// <summary>Режим импорта.</summary>
         public ImportMode Mode { get; set; } = ImportMode.Upsert;
 
-        /// <summary>F2.11: null — импорт нового документа; иначе имя заменяемого документа (REV_FileName в БД).
-        /// Теги этого документа, отсутствующие в новом файле, помечаются к удалению (без физического DELETE).</summary>
-        public string? ReplacedFileName { get; set; }
-
-        /// <summary>F2.16: вкладка (лист) заменяемого документа (REV_Sheet в БД);
-        /// null/пусто — документ-источник без вкладки (старые записи, REV_Sheet IS NULL).</summary>
-        public string? ReplacedSheet { get; set; }
+        /// <summary>F2.11/F2.17: документы-заменители, взамен которых импортируется файл (мультивыбор —
+        /// документы делятся по ревизиям/вкладкам). Пустой список — импорт нового документа.
+        /// Теги этих документов, отсутствующие в новом файле, помечаются к удалению (без физического DELETE).</summary>
+        public List<(string FileName, string? Sheet)> ReplacedDocuments { get; set; } = new();
 
         /// <summary>Писать историю в IO_LIST_Audit при импорте (галочка F2.7; по умолчанию включено).</summary>
         public bool WithAudit { get; set; } = true;

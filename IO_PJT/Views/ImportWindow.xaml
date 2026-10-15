@@ -24,7 +24,18 @@
                     <TextBox Text="{Binding HeaderRow, UpdateSourceTrigger=PropertyChanged}"
                              Width="50" Height="26" Margin="0,0,10,0" />
                     <Button DockPanel.Dock="Right" Content="Считать" Width="100" Margin="6,0,0,0"
-                            Command="{Binding RefreshSheetCommand}" />
+                            Command="{Binding RefreshSheetCommand}">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Content" Value="Считать" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsBusy}" Value="True">
+                                        <Setter Property="Content" Value="Чтение…" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
                     <ComboBox ItemsSource="{Binding Sheets}" SelectedItem="{Binding SelectedSheet}"
                               Height="26" />
                 </DockPanel>

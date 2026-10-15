@@ -1,3 +1,4 @@
+using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -18,6 +19,31 @@ namespace IO_PJT.Views
             InitializeComponent();
             DataContextChanged += OnDataContextChanged;
             Loaded += (_, _) => BuildPreviewColumns();
+
+            // A4: перетаскивание .xlsx в окно — то же, что «Обзор...» (открытие + вкладки + «Считать»)
+            AllowDrop = true;
+            DragEnter += OnFileDragEnter;
+            Drop += OnFileDrop;
+        }
+
+        /// <summary>Перетащенный файл: принимаем только .xlsx.</summary>
+        private static bool IsExcelFile(DragEventArgs e) =>
+            e.Data.GetDataPresent(DataFormats.FileDrop) &&
+            e.Data.GetData(DataFormats.FileDrop) is string[] { Length: > 0 } files &&
+            files[0].EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase);
+
+        private void OnFileDragEnter(object sender, DragEventArgs e)
+        {
+            e.Effects = IsExcelFile(e) ? DragDropEffects.Copy : DragDropEffects.None;
+            e.Handled = true;
+        }
+
+        private void OnFileDrop(object sender, DragEventArgs e)
+        {
+            if (!IsExcelFile(e)) return;
+            var files = (string[])e.Data.GetData(DataFormats.FileDrop)!;
+            if (DataContext is ImportViewModel vm) vm.OpenFile(files[0]);
+            e.Handled = true;
         }
 
         private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)

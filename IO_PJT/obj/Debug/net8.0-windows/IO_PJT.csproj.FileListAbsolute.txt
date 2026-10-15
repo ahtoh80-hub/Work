@@ -43,3 +43,9 @@ c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\ReplaceDocumentDialog.baml
 c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\ReplaceDocumentDialog.g.cs
 C:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\ReportWindow.baml
 C:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\ReportWindow.g.cs
+c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\HelpWindow.baml
+c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\HelpWindow.g.cs
+c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\ModbusImportWindow.baml
+c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\ModbusImportWindow.g.cs
+c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\ModbusLinkRulesWindow.baml
+c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\ModbusLinkRulesWindow.g.cs

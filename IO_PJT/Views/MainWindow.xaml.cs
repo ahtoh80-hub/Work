@@ -21,6 +21,8 @@ namespace IO_PJT.Views
 
             // Хуки дочерних окон (MVVM без ссылок на Views внутри VM)
             _vm.OpenImportWindow = ShowImport;
+            _vm.OpenModbusImportWindow = ShowModbusImport;
+            _vm.OpenModbusLinkRulesWindow = ShowModbusLinkRules;
             _vm.OpenHistoryWindow = ShowHistory;
             _vm.OpenCardWindow = ShowCard;
             _vm.OpenCreateTableDialog = ShowCreateTable;
@@ -35,6 +37,25 @@ namespace IO_PJT.Views
             window.ShowDialog();
             _vm.ReloadTables();
             _vm.Refresh();
+        }
+
+        /// <summary>F9: окно импорта карты адресации Modbus + связывание IO_LIST.</summary>
+        private void ShowModbusImport()
+        {
+            var vm = new ModbusImportViewModel(_vm.Services);
+            var window = new ModbusImportWindow { DataContext = vm, Owner = this };
+            vm.CloseRequested = window.Close;
+            window.ShowDialog();
+            _vm.Refresh(); // M_-поля могли обновиться
+        }
+
+        /// <summary>F9.11: окно редактора ручных правил связывания MODBUS_LINK_RULES.</summary>
+        private void ShowModbusLinkRules()
+        {
+            var vm = new ModbusLinkRulesViewModel(_vm.Services);
+            var window = new ModbusLinkRulesWindow { DataContext = vm, Owner = this };
+            window.ShowDialog();
+            _vm.Refresh(); // связи не меняются, но правила влияют на следующий Link()
         }
 
         /// <summary>Окно истории изменений (F7) + окно «Формирование отчёта» (F7.8).</summary>
@@ -69,7 +90,7 @@ namespace IO_PJT.Views
             {
                 _vm.Services.Creator.CreateDataTable(dialog.TableName);
                 _vm.Services.Log.Info(
-                    $"Создана таблица [{dialog.TableName}]: 100 колонок + индекс UX_{dialog.TableName}_Tag");
+                    $"Создана таблица [{dialog.TableName}]: {Data.Schema.DataColumns.Length + 1} колонок + индекс UX_{dialog.TableName}_Tag");
                 _vm.ReloadTables();
                 _vm.Refresh();
             }
@@ -85,11 +106,19 @@ namespace IO_PJT.Views
 
         private void Exit_Click(object sender, RoutedEventArgs e) => Close();
 
+        /// <summary>A3: окно «Руководство пользователя».</summary>
+        private void Help_Click(object sender, RoutedEventArgs e)
+        {
+            var window = new HelpWindow { Owner = this };
+            window.ShowDialog();
+        }
+
         private void About_Click(object sender, RoutedEventArgs e) =>
             MessageBox.Show(
                 "IO_PJT — импорт IO List из Excel в Access.\n" +
-                "Модель данных: IOclass.md (100 колонок); ТЗ: IOLISTtoDB_v0.MD v2.0.\n" +
-                "Стек: WPF / .NET 8, ClosedXML, OleDb (ACE OLE DB).",
+                "Модель данных: IOclass.md (127 колонок); ТЗ: IOLISTtoDB_v0.MD v2.0 (F9 — карта Modbus).\n" +
+                "Стек: WPF / .NET 8, ClosedXML, OleDb (ACE OLE DB).\n" +
+                "Разработчик: Решетов Антон",
                 "О программе", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 }

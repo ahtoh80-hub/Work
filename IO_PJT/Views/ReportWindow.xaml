@@ -60,6 +60,12 @@
                                     ToolTipService.ToolTip="Помечен к удалению при замене документа (F2.11)" />
                 <DataGridTextColumn Header="TagCleaned" Binding="{Binding TagCleanedCount}" Width="90"
                                     ToolTipService.ToolTip="Tag очищен от пробелов (F2.15)" />
+                <DataGridTextColumn Header="Duplicate" Binding="{Binding DuplicateCount}" Width="90"
+                                    ToolTipService.ToolTip="Задвоение тега между документами (F9.1)" />
+                <DataGridTextColumn Header="ModbusWarn" Binding="{Binding ModbusWarningCount}" Width="95"
+                                    ToolTipService.ToolTip="Предупреждения связывания с картой Modbus (F9.8)" />
+                <DataGridTextColumn Header="ModbusErr" Binding="{Binding ModbusErrorCount}" Width="90"
+                                    ToolTipService.ToolTip="Ошибки связывания/адресации Modbus (F9.8)" />
                 <DataGridTextColumn Header="Всего" Binding="{Binding Total}" Width="70" />
             </DataGrid.Columns>
         </DataGrid>

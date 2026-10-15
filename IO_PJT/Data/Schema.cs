@@ -2,15 +2,48 @@ namespace IO_PJT.Data
 {
     /// <summary>
     /// Схема базы данных — производный раздел Б8 файла IOclass.md (источник истины).
-    /// Содержит DDL: таблица данных IO_LIST (100 колонок), служебные IO_LIST_Audit
-    /// и MappingTemplates.
+    /// Содержит DDL: таблица данных IO_LIST (126 колонок + ID = 127), служебные IO_LIST_Audit,
+    /// MappingTemplates и MODBUS_MAP (F9: карта адресации Modbus).
     /// </summary>
     public static class Schema
     {
         /// <summary>Имя таблицы по умолчанию (ТЗ F1.2).</summary>
         public const string DefaultTable = "IO_LIST";
 
-        /// <summary>DDL таблицы данных IO_LIST: 100 колонок (99 + ID), TEXT(255) везде, кроме PTag_* — TEXT(50).</summary>
+        /// <summary>F2.17: таблица копий повторяющихся тегов. Структура = IO_LIST (Schema.CreateTable),
+        /// но БЕЗ уникального индекса UX_..._Tag — хранит все копии тега, включая первую.</summary>
+        public const string DuplicateTable = "IO_LIST_DublicateTag";
+
+        /// <summary>F9: таблица карты адресации Modbus (Register Table Function 02/03/06 +
+        /// Interface parameters из файлов IMCS TO DCS Register Table Modbus).</summary>
+        public const string ModbusMapTable = "MODBUS_MAP";
+
+        /// <summary>F9.11: таблица ручных правил связывания IO_LIST ↔ MODBUS_MAP —
+        /// пользовательские зависимости «поле IO (Tag/Service/…) по шаблону → поле карты
+        /// (Description/Scale/PlcTag/…) по шаблону», применяются в Link() ПЕРЕД встроенными
+        /// ролями DetectRole. Создаётся TableCreator.EnsureServiceTables, редактируется
+        /// окном «Правила связывания Modbus...».</summary>
+        public const string ModbusLinkRulesTable = "MODBUS_LINK_RULES";
+
+        /// <summary>DDL таблицы ручных правил связывания (F9.11). Шаблоны (TagPattern/ValuePattern):
+        /// содержит «*»/«?» → wildcard (анкорный), иначе — регулярное выражение без якорей;
+        /// FuncCode пуст — фильтр не применяется; Priority меньше — правило раньше.</summary>
+        public static string CreateModbusLinkRulesTable => $@"
+CREATE TABLE [{ModbusLinkRulesTable}] (
+  ID COUNTER PRIMARY KEY,
+  [Name] TEXT(255),
+  [IOField] TEXT(50),
+  [TagPattern] TEXT(255),
+  [MapField] TEXT(50),
+  [ValuePattern] TEXT(255),
+  [FuncCode] TEXT(50),
+  [Priority] LONG,
+  [Enabled] YESNO
+)";
+
+
+        /// <summary>DDL таблицы данных IO_LIST: 126 колонок данных (+ ID = 127), TEXT(255) везде,
+        /// кроме PTag_* — TEXT(50). Блок M_* (F9, 27 колонок) — данные карты Modbus, перед CBL_*.</summary>
         public static string CreateTable(string tableName) => $@"
 CREATE TABLE [{tableName}] (
   ID COUNTER PRIMARY KEY,
@@ -27,6 +60,13 @@ CREATE TABLE [{tableName}] (
   Range_MIN2 TEXT(255), Range_MAX2 TEXT(255), Eng_Unit2 TEXT(255),
   LL TEXT(255), LL2 TEXT(255), L TEXT(255),
   H TEXT(255), HH TEXT(255), HH2 TEXT(255),
+  M_MapFile TEXT(255), M_SlaveStation TEXT(255), M_SlaveIdMain TEXT(255), M_SlaveIdBackup TEXT(255),
+  M_Speed TEXT(255), M_Timeout TEXT(255),
+  M_PrfDesignation TEXT(255), M_PlcTag TEXT(255), M_ObjectTag TEXT(255), M_Description TEXT(255),
+  M_Units TEXT(255), M_Scale TEXT(255), M_LL TEXT(255), M_LA TEXT(255), M_HA TEXT(255), M_HH TEXT(255),
+  M_Scaling TEXT(255), M_SigType TEXT(255), M_RegType TEXT(255), M_Address TEXT(255),
+  M_AccessType TEXT(255), M_DataType TEXT(255), M_FuncCode TEXT(255),
+  M_DcsChannel TEXT(255), M_DcsTag TEXT(255), M_DcsFunctions TEXT(255), M_Note TEXT(255),
   CBL_Id TEXT(255), CBL_Description TEXT(255), CBL_Type TEXT(255), CBL_Designation TEXT(255),
   CBL_From TEXT(255), CBL_To TEXT(255), CBL_Length LONG, CBL_Color TEXT(255), CBL_Pair LONG,
   CBL_Note TEXT(255), CBL_VendorDesignation TEXT(255), CBL_Drum TEXT(255), CBL_Voltage TEXT(255),
@@ -73,10 +113,29 @@ CREATE TABLE MappingTemplates (
   Mappings MEMO, Author TEXT(255), CreatedAt DATETIME, UpdatedAt DATETIME
 )";
 
+        /// <summary>DDL таблицы карты адресации Modbus (F9): полная копия Register Table Function 02/03/06
+        /// + параметры интерфейса станции (Interface parameters) + связь с IO_LIST (LinkTag — тег РСУ,
+        /// сопоставленный ModbusLinkService). Строки без привязки хранятся тоже (LinkTag пуст).
+        /// Все имена в квадратных скобках: Address — зарезервированное слово JET/Access.</summary>
+        public const string CreateModbusMapTable = @"
+CREATE TABLE MODBUS_MAP (
+  [ID] COUNTER PRIMARY KEY,
+  [MapFile] TEXT(255), [MapSheet] TEXT(255), [MapRow] LONG,
+  [SlaveStation] TEXT(255), [SlaveIdMain] TEXT(255), [SlaveIdBackup] TEXT(255),
+  [Speed] TEXT(255), [Timeout] TEXT(255),
+  [PrfDesignation] TEXT(255), [PlcTag] TEXT(255), [ObjectTag] TEXT(255), [Description] TEXT(255),
+  [Units] TEXT(255), [Scale] TEXT(255), [LL] TEXT(255), [LA] TEXT(255), [HA] TEXT(255), [HH] TEXT(255),
+  [Scaling] TEXT(255), [SigType] TEXT(255), [RegType] TEXT(255), [AddrBit] TEXT(255),
+  [AccessType] TEXT(255), [DataType] TEXT(255), [FuncCode] TEXT(255),
+  [DcsChannel] TEXT(255), [DcsTag] TEXT(255), [DcsFunctions] TEXT(255), [Note] TEXT(255),
+  [LinkTag] TEXT(255), [LinkState] TEXT(255)
+)";
+
         /// <summary>
-        /// Имена 99 колонок таблицы данных (в порядке DDL; вместе с ID — 100).
+        /// Имена 126 колонок таблицы данных (в порядке DDL; вместе с ID — 127).
         /// Используются для маппинга Excel↔Access, создания таблицы и подсветки.
         /// REV_Sheet (F2.16) — вкладка-источник, входит в идентификацию документа (файл+вкладка).
+        /// M_* (F9) — данные карты Modbus перед CBL_*.
         /// </summary>
         public static readonly string[] DataColumns =
         {
@@ -89,6 +148,11 @@ CREATE TABLE MappingTemplates (
             "VoltageLevel", "PowerConsumption",
             "Range_MIN", "Range_MAX", "Eng_Unit", "Range_MIN2", "Range_MAX2", "Eng_Unit2",
             "LL", "LL2", "L", "H", "HH", "HH2",
+            "M_MapFile", "M_SlaveStation", "M_SlaveIdMain", "M_SlaveIdBackup", "M_Speed", "M_Timeout",
+            "M_PrfDesignation", "M_PlcTag", "M_ObjectTag", "M_Description",
+            "M_Units", "M_Scale", "M_LL", "M_LA", "M_HA", "M_HH",
+            "M_Scaling", "M_SigType", "M_RegType", "M_Address", "M_AccessType", "M_DataType", "M_FuncCode",
+            "M_DcsChannel", "M_DcsTag", "M_DcsFunctions", "M_Note",
             "CBL_Id", "CBL_Description", "CBL_Type", "CBL_Designation", "CBL_From", "CBL_To",
             "CBL_Length", "CBL_Color", "CBL_Pair", "CBL_Note", "CBL_VendorDesignation",
             "CBL_Drum", "CBL_Voltage",
