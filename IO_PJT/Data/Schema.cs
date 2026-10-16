@@ -41,6 +41,45 @@ CREATE TABLE [{ModbusLinkRulesTable}] (
   [Enabled] YESNO
 )";
 
+        /// <summary>F12: таблица соответствия типов данных IO_LIST (M_DataType) ↔ SCADA
+        /// (BOOL/INT/WORD/UINT/UDINT/REAL) для колонки «Тип объекта» перечня Тех.объекты.</summary>
+        public const string ScadaTypeMapTable = "SCADA_TYPE_MAP";
+
+        /// <summary>F12: настройки окна «Генерация перечня Modbus (Тех.объекты)» —
+        /// поля-источники и константы (Name/Value), переживают перезапуск.</summary>
+        public const string ScadaSettingsTable = "SCADA_TEHOBJ_SETTINGS";
+
+        /// <summary>DDL F12: таблица маппинга типов IO List → SCADA (семантика Source → Target).</summary>
+        public static string CreateScadaTypeMapTable => $@"
+CREATE TABLE [{ScadaTypeMapTable}] (
+  ID COUNTER PRIMARY KEY,
+  [Source] TEXT(255),
+  [Target] TEXT(255)
+)";
+
+        /// <summary>DDL F12: настройки генерации перечня (значения параметров).</summary>
+        public static string CreateScadaSettingsTable => $@"
+CREATE TABLE [{ScadaSettingsTable}] (
+  ID COUNTER PRIMARY KEY,
+  [Name] TEXT(255),
+  [Value] TEXT(255)
+)";
+
+        /// <summary>F12: маппинг типов по умолчанию (раздел 2.5.4 спецификации;
+        /// сидируется в SCADA_TYPE_MAP при создании пустой таблицы).</summary>
+        public static readonly (string Source, string Target)[] DefaultScadaTypeMap =
+        {
+            ("BOOL", "BOOL"),
+            ("8-Bit Signed", "INT"),
+            ("8-Bit Unsigned", "WORD"),
+            ("16-Bit Signed", "INT"),
+            ("16-Bit Unsigned", "WORD"),
+            ("32-Bit Signed", "INT"),
+            ("32-Bit Unsigned", "UDINT"),
+            ("32-Bit Floating", "REAL"),
+            ("64-Bit Floating", "REAL")
+        };
+
 
         /// <summary>DDL таблицы данных IO_LIST: 126 колонок данных (+ ID = 127), TEXT(255) везде,
         /// кроме PTag_* — TEXT(50). Блок M_* (F9, 27 колонок) — данные карты Modbus, перед CBL_*.</summary>

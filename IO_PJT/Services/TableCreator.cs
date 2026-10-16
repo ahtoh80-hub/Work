@@ -147,6 +147,30 @@ namespace IO_PJT.Services
             // F9.11: ручные правила связывания IO_LIST ↔ MODBUS_MAP (окно «Правила связывания Modbus…»)
             if (!TableExists(Schema.ModbusLinkRulesTable))
                 Execute(Schema.CreateModbusLinkRulesTable);
+            // F12: таблицы генерации перечня «Тех.объекты» (SCADA → меню SCADA)
+            if (!TableExists(Schema.ScadaTypeMapTable))
+            {
+                Execute(Schema.CreateScadaTypeMapTable);
+                SeedScadaTypeMap();
+            }
+            if (!TableExists(Schema.ScadaSettingsTable))
+                Execute(Schema.CreateScadaSettingsTable);
+        }
+
+        /// <summary>F12: сидирование маппинга типов IO List → SCADA по умолчанию
+        /// (раздел 2.5.4 спецификации; выполняется только при создании таблицы).</summary>
+        private void SeedScadaTypeMap()
+        {
+            using var cn = Open();
+            using var ins = new OleDbCommand(
+                $"INSERT INTO [{Schema.ScadaTypeMapTable}] ([Source], [Target]) VALUES (?, ?)", cn);
+            foreach (var (source, target) in Schema.DefaultScadaTypeMap)
+            {
+                ins.Parameters.Clear();
+                OleDbArgs.Add(ins, source);
+                OleDbArgs.Add(ins, target);
+                ins.ExecuteNonQuery();
+            }
         }
 
         /// <summary>

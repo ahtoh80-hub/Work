@@ -23,6 +23,7 @@ namespace IO_PJT.Views
             _vm.OpenImportWindow = ShowImport;
             _vm.OpenModbusImportWindow = ShowModbusImport;
             _vm.OpenModbusLinkRulesWindow = ShowModbusLinkRules;
+            _vm.OpenScadaTechObjectsWindow = ShowScadaTechObjects;
             _vm.OpenHistoryWindow = ShowHistory;
             _vm.OpenCardWindow = ShowCard;
             _vm.OpenCreateTableDialog = ShowCreateTable;
@@ -56,6 +57,15 @@ namespace IO_PJT.Views
             var window = new ModbusLinkRulesWindow { DataContext = vm, Owner = this };
             window.ShowDialog();
             _vm.Refresh(); // связи не меняются, но правила влияют на следующий Link()
+        }
+
+        /// <summary>F12: окно «Генерация перечня Modbus (Тех.объекты)» (меню SCADA).</summary>
+        private void ShowScadaTechObjects()
+        {
+            var vm = new ScadaTechObjectsViewModel(_vm.Services);
+            var window = new ScadaTechObjectsWindow { DataContext = vm, Owner = this };
+            window.ShowDialog();
+            _vm.Refresh(); // данные не меняются — только выгрузка
         }
 
         /// <summary>Окно истории изменений (F7) + окно «Формирование отчёта» (F7.8).</summary>

@@ -1,0 +1,180 @@
+<Window x:Class="IO_PJT.Views.ScadaTechObjectsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Генерация перечня Modbus (Тех.объекты, F12)" Width="1200" Height="700"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+
+    <!-- F12: перечень технологических объектов для SCADA по образцу «ТехОбъекты_простой.xls»:
+         источник — строки текущей таблицы с адресацией Modbus (M_PlcTag), поля-источники
+         и константы редактируются вручную (SCADA_TEHOBJ_SETTINGS): поле IO List, текст-константа
+         или структура с подстановками {ИмяКолонки} (как у Доп.параметра);
+         маппинг типов — SCADA_TYPE_MAP. -->
+    <DockPanel Margin="8">
+
+        <!-- Верх: подсказка + команды -->
+        <Border DockPanel.Dock="Top" Padding="4" Margin="0,0,0,6">
+            <StackPanel>
+                <TextBlock Text="{Binding FieldsHint}" TextWrapping="Wrap" Foreground="#444444" Margin="0,0,0,6" />
+                <StackPanel Orientation="Horizontal">
+                    <Button Content="Построить превью" Command="{Binding BuildCommand}" Width="130" Margin="0,0,6,0"
+                            ToolTip="Собрать строки перечня из текущей таблицы (только точки с заполненной адресацией Modbus — M_PlcTag)" />
+                    <Button Content="Сформировать Excel..." Command="{Binding ExportCommand}" Width="140" Margin="0,0,6,0" FontWeight="SemiBold"
+                            ToolTip="Сохранить превью в Excel в формате образца «ТехОбъекты_простой.xls» (шапка 4 строки, данные с 5-й)" />
+                    <Button Content="Сохранить настройки" Command="{Binding SaveSettingsCommand}" Width="140" Margin="0,0,6,0"
+                            ToolTip="Записать поля-источники и константы в SCADA_TEHOBJ_SETTINGS (переживают перезапуск)" />
+                    <Button Content="Сохранить маппинг типов" Command="{Binding SaveMappingsCommand}" Width="165" Margin="0,0,6,0"
+                            ToolTip="Записать таблицу соответствия «тип IO List → тип SCADA» в SCADA_TYPE_MAP (полная замена)" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- Низ: статус -->
+        <Border DockPanel.Dock="Bottom" Padding="4,6">
+            <StackPanel>
+                <TextBlock Text="{Binding StatsText}" FontWeight="SemiBold" TextWrapping="Wrap" Foreground="#1F4E79" />
+                <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Margin="0,2,0,0" />
+            </StackPanel>
+        </Border>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="380" />
+                <ColumnDefinition Width="6" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Левая колонка: настройки -->
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+
+                    <!-- Поля-источники (поле IO List | структура {Колонка} | текст-константа) -->
+                    <GroupBox Header="Поля-источники (поле | структура {Колонка} | текст)" Margin="0,0,0,6">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition /><RowDefinition /><RowDefinition />
+                                <RowDefinition /><RowDefinition /><RowDefinition />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Text="Марка (MARKA):" VerticalAlignment="Center" Margin="4,2" />
+                            <TextBox Grid.Column="1" Text="{Binding Settings.MarkaField, UpdateSourceTrigger=PropertyChanged}"
+                                     Margin="4,2" ToolTip="Поле-источник Марки: Tag (по умолчанию) или Loop; тире заменяются на «_», ведётся с «_» (1115-MHS-00101A → _1115_MHS_00101A)" />
+                            <TextBlock Grid.Row="1" Text="Наименование (NAME):" VerticalAlignment="Center" Margin="4,2" />
+                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Settings.NameField, UpdateSourceTrigger=PropertyChanged}"
+                                     Margin="4,2" ToolTip="Поле-источник наименования (по умолчанию Service) или структура: напр. {Service} ({Loop})" />
+                            <TextBlock Grid.Row="2" Text="Описание (DISC):" VerticalAlignment="Center" Margin="4,2" />
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Settings.DiscField, UpdateSourceTrigger=PropertyChanged}"
+                                     Margin="4,2" ToolTip="Поле-источник описания (по умолчанию Loop) или структура: напр. {Loop} {M_SlaveStation}" />
+                            <TextBlock Grid.Row="3" Text="KKS:" VerticalAlignment="Center" Margin="4,2" />
+                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Settings.KksField, UpdateSourceTrigger=PropertyChanged}"
+                                     Margin="4,2" ToolTip="Поле-источник KKS (по умолчанию Tag) или структура: напр. {Tag}_{Loop}" />
+                            <TextBlock Grid.Row="4" Text="КОНТРОЛЛЕР (PLCNAME):" VerticalAlignment="Center" Margin="4,2" />
+                            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding Settings.ControllerField, UpdateSourceTrigger=PropertyChanged}"
+                                     Margin="4,2" ToolTip="Поле-источник контроллера (по умолчанию Controller / FCS) или структура из нескольких полей" />
+                            <TextBlock Grid.Row="5" Text="Доп.параметр (шаблон):" VerticalAlignment="Center" Margin="4,2" />
+                            <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding Settings.DParamTemplate, UpdateSourceTrigger=PropertyChanged}"
+                                     Margin="4,2" ToolTip="Шаблон с подстановками {ИмяКолонки} (напр. {M_FuncCode}/{M_Address}/{M_SlaveStation}); результат обрезается до 50 символов" />
+                        </Grid>
+                    </GroupBox>
+
+
+                    <!-- Константы (тот же принцип: текст или структура {Колонка}) -->
+                    <GroupBox Header="Константы (текст | структура {Колонка})" Margin="0,0,0,6">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition /><RowDefinition /><RowDefinition />
+                                <RowDefinition /><RowDefinition /><RowDefinition />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Text="Раздел (Mode):" VerticalAlignment="Center" Margin="4,2" />
+                            <TextBox Grid.Column="1" Text="{Binding Settings.Section, UpdateSourceTrigger=PropertyChanged}" Margin="4,2"
+                                     ToolTip="По умолчанию TEHOBJ" />
+                            <TextBlock Grid.Row="1" Text="Период архив:" VerticalAlignment="Center" Margin="4,2" />
+                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Settings.ArhPer, UpdateSourceTrigger=PropertyChanged}" Margin="4,2"
+                                     ToolTip="Всегда 0 (спецификация)" />
+                            <TextBlock Grid.Row="2" Text="Маска упр. в срезах:" VerticalAlignment="Center" Margin="4,2" />
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Settings.SrezControl, UpdateSourceTrigger=PropertyChanged}" Margin="4,2"
+                                     ToolTip="По умолчанию 1 (по образцу)" />
+                            <TextBlock Grid.Row="3" Text="Классификатор:" VerticalAlignment="Center" Margin="4,2" />
+                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Settings.UserGroup, UpdateSourceTrigger=PropertyChanged}" Margin="4,2"
+                                     ToolTip="Заполняется вручную; по умолчанию «[Все]\[Все технологические]» (спецификация)" />
+                            <TextBlock Grid.Row="4" Text="Группа событий:" VerticalAlignment="Center" Margin="4,2" />
+                            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding Settings.EvGroup, UpdateSourceTrigger=PropertyChanged}" Margin="4,2"
+                                     ToolTip="Заполняется вручную" />
+                            <TextBlock Grid.Row="5" Text="Адрес / ресурс / шаблон:" VerticalAlignment="Center" Margin="4,2" />
+                            <DockPanel Grid.Row="5" Grid.Column="1" Margin="4,2">
+                                <TextBox DockPanel.Dock="Left" Width="45" Text="{Binding Settings.PlcAdress, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="PLC_ADRESS: всегда 0 (спецификация)" />
+                                <TextBox DockPanel.Dock="Left" Width="45" Margin="6,0"
+                                         Text="{Binding Settings.PlcGr, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="PLC_GR (№ ресурса или группа): по умолчанию 1, можно менять" />
+                                <TextBox Text="{Binding Settings.Template, UpdateSourceTrigger=PropertyChanged}" Margin="6,0,0,0"
+                                         ToolTip="TEMPLATE: всегда «простой» (спецификация)" />
+                            </DockPanel>
+                        </Grid>
+                    </GroupBox>
+
+                    <!-- Маппинг типов данных IO List → SCADA -->
+                    <GroupBox Header="Типы данных IO List → SCADA (SCADA_TYPE_MAP)">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
+                                <Button Content="Добавить" Command="{Binding AddMappingCommand}" Width="80" Margin="0,0,6,0"
+                                        ToolTip="Новая строка соответствия «тип IO List → тип SCADA»" />
+                                <Button Content="Удалить" Command="{Binding DeleteMappingCommand}" Width="80"
+                                        ToolTip="Удалить выбранное соответствие" />
+                            </StackPanel>
+                            <DataGrid ItemsSource="{Binding TypeMappings}" SelectedItem="{Binding SelectedMapping}"
+                                      AutoGenerateColumns="False" CanUserAddRows="True" HeadersVisibility="Column"
+                                      Height="220">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Тип в IO List (M_DataType)"
+                                                        Binding="{Binding Source, UpdateSourceTrigger=PropertyChanged}" Width="*" />
+                                    <DataGridTextColumn Header="Тип в SCADA"
+                                                        Binding="{Binding Target, UpdateSourceTrigger=PropertyChanged}" Width="*"
+                                                        ToolTipService.ToolTip="Допустимые SCADA-типы: BOOL, WORD, INT, UINT, UDINT, REAL (раздел 2.5.1)" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </DockPanel>
+                    </GroupBox>
+
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Правая колонка: превью перечня (20 колонок образца) -->
+            <GroupBox Grid.Column="2" Header="Превью перечня (строки с 5-й — как в образце)">
+                <DataGrid ItemsSource="{Binding Preview}" AutoGenerateColumns="False" IsReadOnly="True"
+                          HeadersVisibility="Column" EnableRowVirtualization="True">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="№" Binding="{Binding No}" Width="35" />
+                        <DataGridTextColumn Header="Статус" Binding="{Binding Status}" Width="50" />
+                        <DataGridTextColumn Header="Раздел" Binding="{Binding Mode}" Width="65" />
+                        <DataGridTextColumn Header="Марка" Binding="{Binding Marka}" Width="130" />
+                        <DataGridTextColumn Header="Тип объекта" Binding="{Binding ObjType}" Width="75" />
+                        <DataGridTextColumn Header="Наименование" Binding="{Binding Name}" Width="170" />
+                        <DataGridTextColumn Header="Описание" Binding="{Binding Disc}" Width="120" />
+                        <DataGridTextColumn Header="Подпись" Binding="{Binding ObjSign}" Width="50" />
+                        <DataGridTextColumn Header="Номер" Binding="{Binding ObjNumber}" Width="50" />
+                        <DataGridTextColumn Header="PLC перем." Binding="{Binding PlcVarName}" Width="60" />
+                        <DataGridTextColumn Header="Период арх." Binding="{Binding ArhPer}" Width="55" />
+                        <DataGridTextColumn Header="KKS" Binding="{Binding Kks}" Width="120" />
+                        <DataGridTextColumn Header="Доп.параметр" Binding="{Binding ObjDParam}" Width="150" />
+                        <DataGridTextColumn Header="Маска срезов" Binding="{Binding SrezControl}" Width="60" />
+                        <DataGridTextColumn Header="Классификатор" Binding="{Binding UserGroup}" Width="150" />
+                        <DataGridTextColumn Header="Группа событий" Binding="{Binding EvGroup}" Width="170" />
+                        <DataGridTextColumn Header="КОНТРОЛЛЕР" Binding="{Binding PlcName}" Width="110" />
+                        <DataGridTextColumn Header="Адрес" Binding="{Binding PlcAdress}" Width="50" />
+                        <DataGridTextColumn Header="Ресурс/группа" Binding="{Binding PlcGr}" Width="60" />
+                        <DataGridTextColumn Header="Шаблон" Binding="{Binding Template}" Width="70" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </GroupBox>
+        </Grid>
+    </DockPanel>
+</Window>

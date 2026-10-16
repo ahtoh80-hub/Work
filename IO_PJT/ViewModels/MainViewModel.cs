@@ -86,10 +86,15 @@ namespace IO_PJT.ViewModels
         /// <summary>F9.11: редактор ручных правил связывания MODBUS_LINK_RULES.</summary>
         public RelayCommand ModbusLinkRulesCommand { get; }
 
+        /// <summary>F12: генерация перечня Modbus (Тех.объекты) для SCADA.</summary>
+        public RelayCommand ScadaTechObjectsCommand { get; }
+
         /// <summary>Хуки открытия дочерних окон (назначаются code-behind главного окна).</summary>
         public Action? OpenImportWindow { get; set; }
         public Action? OpenModbusImportWindow { get; set; }
         public Action? OpenModbusLinkRulesWindow { get; set; }
+        /// <summary>F12: окно генерации перечня «Тех.объекты» (меню SCADA).</summary>
+        public Action? OpenScadaTechObjectsWindow { get; set; }
         public Action? OpenHistoryWindow { get; set; }
         public Action<IoPoint, bool>? OpenCardWindow { get; set; }
         public Action<string>? OpenCreateTableDialog { get; set; }
@@ -114,6 +119,8 @@ namespace IO_PJT.ViewModels
                 () => _services.Creator.TableExists(_services.CurrentTable));
             // F9.11: редактор правил доступен всегда (таблица правил — служебная, создаётся сама)
             ModbusLinkRulesCommand = new RelayCommand(() => OpenModbusLinkRulesWindow?.Invoke());
+            // F12: генерация перечня всегда доступна (диалог предупредит, если нет строк)
+            ScadaTechObjectsCommand = new RelayCommand(() => OpenScadaTechObjectsWindow?.Invoke());
             HistoryCommand = new RelayCommand(() => OpenHistoryWindow?.Invoke());
             CreateTableCommand = new RelayCommand(() => OpenCreateTableDialog?.Invoke(_services.CurrentTable));
             NewPointCommand = new RelayCommand(

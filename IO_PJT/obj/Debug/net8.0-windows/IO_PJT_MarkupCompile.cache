@@ -4,17 +4,17 @@
 winexe
 C#
 .cs
-C:\VSCode\IO_PJT\obj\Debug\net8.0-windows\
+c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\
 IO_PJT
 none
 false
 TRACE;DEBUG;NET;NET8_0;NETCOREAPP;WINDOWS;WINDOWS7_0;NET5_0_OR_GREATER;NET6_0_OR_GREATER;NET7_0_OR_GREATER;NET8_0_OR_GREATER;NETCOREAPP3_0_OR_GREATER;NETCOREAPP3_1_OR_GREATER;WINDOWS7_0_OR_GREATER
-C:\VSCode\IO_PJT\App.xaml
-11-945513429
+c:\VSCode\IO_PJT\App.xaml
+12595808422
 
-511355004083
+551962685968
 2061018543388
-Resources\Styles.xaml;Views\CardWindow.xaml;Views\CreateTableDialog.xaml;Views\HelpWindow.xaml;Views\HistoryWindow.xaml;Views\ImportWindow.xaml;Views\MainWindow.xaml;Views\ModbusImportWindow.xaml;Views\ModbusLinkRulesWindow.xaml;Views\ReplaceDocumentDialog.xaml;Views\ReportWindow.xaml;
+Resources\Styles.xaml;Views\CardWindow.xaml;Views\CreateTableDialog.xaml;Views\HelpWindow.xaml;Views\HistoryWindow.xaml;Views\ImportWindow.xaml;Views\MainWindow.xaml;Views\ModbusImportWindow.xaml;Views\ModbusLinkRulesWindow.xaml;Views\ReplaceDocumentDialog.xaml;Views\ReportWindow.xaml;Views\ScadaTechObjectsWindow.xaml;
 
 False
 

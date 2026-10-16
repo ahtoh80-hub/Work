@@ -814,6 +814,39 @@ CREATE TABLE MODBUS_LINK_RULES (
 );
 ```
 
+### DDL служебных таблиц генерации перечня «Тех.объекты» (`SCADA_TYPE_MAP`, `SCADA_TEHOBJ_SETTINGS`, F12)
+
+Таблицы меню «SCADA → Генерация перечня Modbus (Тех.объекты)» (спецификация
+«Генерация технологических объектов Modbus.md», разделы 2.5.1/2.5.4).
+`SCADA_TYPE_MAP` — соответствие типа данных IO List (`M_DataType` карты Modbus) и типа
+SCADA (допустимые: BOOL, WORD, INT, UINT, UDINT, REAL); `Source` — тип IO List
+(сравнение IgnoreCase), `Target` — SCADA-тип; при создании таблицы сидируется 9 строк
+по умолчанию (BOOL→BOOL, 8-Bit Signed→INT, 8-Bit Unsigned→WORD, 16-Bit Signed→INT,
+16-Bit Unsigned→WORD, 32-Bit Signed→INT, 32-Bit Unsigned→UDINT, 32-Bit Floating→REAL,
+64-Bit Floating→REAL); немаппленный тип остаётся в колонке OBJTYPE исходным.
+`SCADA_TEHOBJ_SETTINGS` — настройки окна генерации (`Name` = ключ параметра:
+`MarkaField`, `NameField`, `DiscField`, `KksField`, `ControllerField`, `DParamTemplate`,
+`Section`, `ArhPer`, `SrezControl`, `UserGroup`, `EvGroup`, `PlcAdress`, `PlcGr`,
+`Template`; `Value` — строковое значение), `Name` уникален по смыслу (upsert при
+сохранении). Форма значения (все ключи): колонка IO List → значение точки, структура
+с подстановками `{ИмяКолонки}` (как у `DParamTemplate`, напр. `{Service} ({Loop})`) →
+составное значение (обрезка ≤50 — только у `DParamTemplate`), иначе — текст-константа. Обе таблицы создаются идемпотентно в `TableCreator.EnsureServiceTables`;
+повторная миграция существующие строки не трогает. Хранилище —
+`ScadaTechObjectService` (`LoadTypeMappings`/`SaveTypeMappings`,
+`LoadSettings`/`SaveSettings`).
+
+```sql
+CREATE TABLE SCADA_TYPE_MAP (
+  [ID] COUNTER PRIMARY KEY,
+  [Source] TEXT(255), [Target] TEXT(255)
+);
+
+CREATE TABLE SCADA_TEHOBJ_SETTINGS (
+  [ID] COUNTER PRIMARY KEY,
+  [Name] TEXT(255), [Value] TEXT(255)
+);
+```
+
 ### Пример таблицы `IO_LIST` (значения — строка 2 листа `OSBL_IO_List_SCS_v4`, файл «пример данных.xlsx»)
 
 **Служебное:**

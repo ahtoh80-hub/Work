@@ -49,3 +49,5 @@ c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\ModbusImportWindow.baml
 c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\ModbusImportWindow.g.cs
 c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\ModbusLinkRulesWindow.baml
 c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\ModbusLinkRulesWindow.g.cs
+c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\ScadaTechObjectsWindow.baml
+c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\ScadaTechObjectsWindow.g.cs

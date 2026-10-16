@@ -28,6 +28,9 @@ namespace IO_PJT.Services
         /// <summary>F9.11: ручные правила связывания IO_LIST ↔ MODBUS_MAP (MODBUS_LINK_RULES).</summary>
         public ModbusLinkRuleService ModbusLinkRules { get; private set; }
 
+        /// <summary>F12: генерация перечня «Тех.объекты» для SCADA (SCADA_TYPE_MAP + SCADA_TEHOBJ_SETTINGS).</summary>
+        public ScadaTechObjectService ScadaTechObjects { get; private set; }
+
         /// <summary>Текущая целевая таблица (по умолчанию IO_LIST).</summary>
         public string CurrentTable { get; private set; }
 
@@ -43,6 +46,7 @@ namespace IO_PJT.Services
             Import = new ImportService(Repo, Validator, Log);
             ModbusMaps = new ModbusMapService(dbPath);
             ModbusLinkRules = new ModbusLinkRuleService(dbPath);
+            ScadaTechObjects = new ScadaTechObjectService(dbPath);
             ModbusLink = new ModbusLinkService(Repo, ModbusMaps, Log, Audit, ModbusLinkRules);
             Log.Info($"База данных: {dbPath}");
             // Гарантия служебных таблиц (IO_LIST_Audit, MappingTemplates) при открытии базы
@@ -77,6 +81,7 @@ namespace IO_PJT.Services
             Import = new ImportService(Repo, Validator, Log);
             ModbusMaps = new ModbusMapService(dbPath);
             ModbusLinkRules = new ModbusLinkRuleService(dbPath);
+            ScadaTechObjects = new ScadaTechObjectService(dbPath);
             ModbusLink = new ModbusLinkService(Repo, ModbusMaps, Log, Audit, ModbusLinkRules);
             Log.Info($"Открыта база данных: {dbPath}");
             ServiceSchema.EnsureServiceTables(dbPath);

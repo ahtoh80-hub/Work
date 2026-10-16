@@ -34,6 +34,10 @@
                 <Separator />
                 <MenuItem Header="Обновить" Command="{Binding RefreshCommand}" />
             </MenuItem>
+            <MenuItem Header="SCADA">
+                <MenuItem Header="Генерация перечня Modbus (Тех.объекты)..." Command="{Binding ScadaTechObjectsCommand}"
+                          ToolTip="Формирование перечня технологических объектов для импорта в SCADA по образцу «ТехОбъекты_простой.xls»: строки с адресацией Modbus, редактируемые поля-источники/константы, таблица маппинга типов IO List → SCADA — F12" />
+            </MenuItem>
             <MenuItem Header="_Справка">
                 <MenuItem Header="Руководство пользователя..." Click="Help_Click" />
                 <Separator />
