@@ -89,12 +89,17 @@ namespace IO_PJT.ViewModels
         /// <summary>F12: генерация перечня Modbus (Тех.объекты) для SCADA.</summary>
         public RelayCommand ScadaTechObjectsCommand { get; }
 
+        /// <summary>F13: генерация блоков Modbus (BufScadaPOUS XML) для SCADA.</summary>
+        public RelayCommand ScadaModbusBlocksCommand { get; }
+
         /// <summary>Хуки открытия дочерних окон (назначаются code-behind главного окна).</summary>
         public Action? OpenImportWindow { get; set; }
         public Action? OpenModbusImportWindow { get; set; }
         public Action? OpenModbusLinkRulesWindow { get; set; }
         /// <summary>F12: окно генерации перечня «Тех.объекты» (меню SCADA).</summary>
         public Action? OpenScadaTechObjectsWindow { get; set; }
+        /// <summary>F13: окно генерации блоков Modbus (XML) (меню SCADA).</summary>
+        public Action? OpenScadaModbusBlocksWindow { get; set; }
         public Action? OpenHistoryWindow { get; set; }
         public Action<IoPoint, bool>? OpenCardWindow { get; set; }
         public Action<string>? OpenCreateTableDialog { get; set; }
@@ -121,6 +126,8 @@ namespace IO_PJT.ViewModels
             ModbusLinkRulesCommand = new RelayCommand(() => OpenModbusLinkRulesWindow?.Invoke());
             // F12: генерация перечня всегда доступна (диалог предупредит, если нет строк)
             ScadaTechObjectsCommand = new RelayCommand(() => OpenScadaTechObjectsWindow?.Invoke());
+            // F13: генерация блоков Modbus (XML) всегда доступна (предупредит, если нет пакетов)
+            ScadaModbusBlocksCommand = new RelayCommand(() => OpenScadaModbusBlocksWindow?.Invoke());
             HistoryCommand = new RelayCommand(() => OpenHistoryWindow?.Invoke());
             CreateTableCommand = new RelayCommand(() => OpenCreateTableDialog?.Invoke(_services.CurrentTable));
             NewPointCommand = new RelayCommand(

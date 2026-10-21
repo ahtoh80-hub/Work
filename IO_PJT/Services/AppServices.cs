@@ -31,6 +31,14 @@ namespace IO_PJT.Services
         /// <summary>F12: генерация перечня «Тех.объекты» для SCADA (SCADA_TYPE_MAP + SCADA_TEHOBJ_SETTINGS).</summary>
         public ScadaTechObjectService ScadaTechObjects { get; private set; }
 
+        /// <summary>F13: планировщик блоков Modbus для генерации XML SCADA
+        /// (SCADA_MB_SETTINGS + SCADA_MB_SLAVE_RULES).</summary>
+        public ModbusBlockPlannerService ModbusBlocks { get; private set; }
+
+        /// <summary>F13: генератор XML из шаблона (BufScadaPOUS + файл привязок DataOut).</summary>
+        public ScadaTemplateXmlService ModbusBlocksXml { get; } = new();
+
+
         /// <summary>Текущая целевая таблица (по умолчанию IO_LIST).</summary>
         public string CurrentTable { get; private set; }
 
@@ -47,6 +55,7 @@ namespace IO_PJT.Services
             ModbusMaps = new ModbusMapService(dbPath);
             ModbusLinkRules = new ModbusLinkRuleService(dbPath);
             ScadaTechObjects = new ScadaTechObjectService(dbPath);
+            ModbusBlocks = new ModbusBlockPlannerService(dbPath);
             ModbusLink = new ModbusLinkService(Repo, ModbusMaps, Log, Audit, ModbusLinkRules);
             Log.Info($"База данных: {dbPath}");
             // Гарантия служебных таблиц (IO_LIST_Audit, MappingTemplates) при открытии базы
@@ -82,6 +91,7 @@ namespace IO_PJT.Services
             ModbusMaps = new ModbusMapService(dbPath);
             ModbusLinkRules = new ModbusLinkRuleService(dbPath);
             ScadaTechObjects = new ScadaTechObjectService(dbPath);
+            ModbusBlocks = new ModbusBlockPlannerService(dbPath);
             ModbusLink = new ModbusLinkService(Repo, ModbusMaps, Log, Audit, ModbusLinkRules);
             Log.Info($"Открыта база данных: {dbPath}");
             ServiceSchema.EnsureServiceTables(dbPath);

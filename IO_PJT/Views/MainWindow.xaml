@@ -37,6 +37,8 @@
             <MenuItem Header="SCADA">
                 <MenuItem Header="Генерация перечня Modbus (Тех.объекты)..." Command="{Binding ScadaTechObjectsCommand}"
                           ToolTip="Формирование перечня технологических объектов для импорта в SCADA по образцу «ТехОбъекты_простой.xls»: строки с адресацией Modbus, редактируемые поля-источники/константы, таблица маппинга типов IO List → SCADA — F12" />
+                <MenuItem Header="Генерация блоков Modbus (XML)..." Command="{Binding ScadaModbusBlocksCommand}"
+                          ToolTip="Формирование BufScadaPOUS XML с блоками опроса MB_TCP_MASTER по точкам с адресацией Modbus: пакеты адресов по политике (непрерывные диапазоны/покрытие/фиксированные), IP/порт из M_SlaveIdMain, SlaveId по правилам «станция → SlaveId» — F13" />
             </MenuItem>
             <MenuItem Header="_Справка">
                 <MenuItem Header="Руководство пользователя..." Click="Help_Click" />

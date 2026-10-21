@@ -155,6 +155,51 @@ namespace IO_PJT.Services
             }
             if (!TableExists(Schema.ScadaSettingsTable))
                 Execute(Schema.CreateScadaSettingsTable);
+            // F13: таблицы генерации блоков Modbus (XML) (окно «Генерация блоков Modbus (XML)…»)
+            if (!TableExists(Schema.ScadaMbSettingsTable))
+                Execute(Schema.CreateScadaMbSettingsTable);
+            if (!TableExists(Schema.ScadaMbSlaveRulesTable))
+                Execute(Schema.CreateScadaMbSlaveRulesTable);
+            else
+            {
+                // F21: миграция — параметры станции (IP main/reserve, протокол, скорость,
+                // UART, таймаут, макс. длина) в старых базах (Station/SlaveId)
+                var srCols = new HashSet<string>(GetColumns(Schema.ScadaMbSlaveRulesTable),
+                    StringComparer.OrdinalIgnoreCase);
+                foreach (var (col, type) in new (string, string)[]
+                {
+                    ("IpMain", "TEXT(255)"), ("IpReserve", "TEXT(255)"), ("Protocol", "TEXT(10)"),
+                    ("Speed", "TEXT(50)"), ("Parity", "YESNO"), ("StopBit", "LONG"),
+                    ("DataBit", "LONG"), ("Reverse", "YESNO"), ("Timeout", "LONG"),
+                    ("MaxLength", "LONG"),
+                    ("MasterTemplate", "TEXT(255)") // F29: шаблон пакетов станции
+                })
+                    if (!srCols.Contains(col))
+                        Execute($"ALTER TABLE [{Schema.ScadaMbSlaveRulesTable}] ADD COLUMN [{col}] {type}");
+            }
+            if (!TableExists(Schema.ScadaMbTemplateTable))
+                Execute(Schema.CreateScadaMbTemplateTable);
+            // F14: ручное сопоставление «Typno → эталон шаблона привязок Data_Out»
+            if (!TableExists(Schema.ScadaTypnoMapTable))
+                Execute(Schema.CreateScadaTypnoMapTable);
+            else
+            {
+                // F16: миграция — колонка Template (имя именованного шаблона Data_Out)
+                var tnCols = new HashSet<string>(GetColumns(Schema.ScadaTypnoMapTable), StringComparer.OrdinalIgnoreCase);
+                if (!tnCols.Contains("Template"))
+                    Execute($"ALTER TABLE [{Schema.ScadaTypnoMapTable}] ADD COLUMN [Template] TEXT(255)");
+            }
+            // F16: именованные шаблоны привязок Data_Out (имя → XML-текст, Typno → имя)
+            if (!TableExists(Schema.ScadaDataOutTemplatesTable))
+                Execute(Schema.CreateScadaDataOutTemplatesTable);
+            // F22: мастер-шаблоны блоков (TCP/RTU) и шаблоны привязок DataIn
+            if (!TableExists(Schema.ScadaMasterTemplatesTable))
+                Execute(Schema.CreateScadaMasterTemplatesTable);
+            if (!TableExists(Schema.ScadaDataInTemplatesTable))
+                Execute(Schema.CreateScadaDataInTemplatesTable);
+            // F23: маппинг «переменная шаблона → колонка IO_LIST/литерал»
+            if (!TableExists(Schema.ScadaTemplateVarsTable))
+                Execute(Schema.CreateScadaTemplateVarsTable);
         }
 
         /// <summary>F12: сидирование маппинга типов IO List → SCADA по умолчанию

@@ -20,7 +20,7 @@ namespace IO_PJT.Services
     }
 
     /// <summary>
-    /// Реестр 126 колонок данных (без ID): колонка Access ↔ вложенное свойство IoPoint.
+    /// Реестр 130 колонок данных (без ID): колонка Access ↔ вложенное свойство IoPoint.
     /// Единственное место знания о соответствии «дерево IOclass ↔ плоская таблица».
     /// </summary>
     public static class FieldRegistry
@@ -66,6 +66,7 @@ namespace IO_PJT.Services
             FS("SubLoop", p => p.Identification.SubLoop, (p, v) => p.Identification.SubLoop = v),
             FS("ProcessLoop", p => p.Identification.ProcessLoop, (p, v) => p.Identification.ProcessLoop = v),
             FS("Logic", p => p.Identification.Logic, (p, v) => p.Identification.Logic = v),
+            FS("Typno", p => p.Identification.Typno, (p, v) => p.Identification.Typno = v), // F14
             FS("Tag", p => p.Identification.Tag, (p, v) => p.Identification.Tag = v),
             FS("ProcessTag", p => p.Identification.ProcessTag, (p, v) => p.Identification.ProcessTag = v),
             FS("System", p => p.Identification.System, (p, v) => p.Identification.System = v),
@@ -111,7 +112,7 @@ namespace IO_PJT.Services
             FS("HH", p => p.Ranges?.Alarms?.HH, (p, v) => ((p.Ranges ??= new()).Alarms ??= new()).HH = v),
             FS("HH2", p => p.Ranges?.Alarms?.HH2, (p, v) => ((p.Ranges ??= new()).Alarms ??= new()).HH2 = v),
 
-            // ===== Modbus (27) — F9: данные карты адресации Modbus, перед CBL_* =====
+            // ===== Modbus (30) — F9: данные карты адресации Modbus; F13: привязки блоков; F27: M_Marka =====
             FS("M_MapFile", p => p.Modbus?.MapFile, (p, v) => (p.Modbus ??= new()).MapFile = v),
             FS("M_SlaveStation", p => p.Modbus?.SlaveStation, (p, v) => (p.Modbus ??= new()).SlaveStation = v),
             FS("M_SlaveIdMain", p => p.Modbus?.SlaveIdMain, (p, v) => (p.Modbus ??= new()).SlaveIdMain = v),
@@ -139,6 +140,9 @@ namespace IO_PJT.Services
             FS("M_DcsTag", p => p.Modbus?.DcsTag, (p, v) => (p.Modbus ??= new()).DcsTag = v),
             FS("M_DcsFunctions", p => p.Modbus?.DcsFunctions, (p, v) => (p.Modbus ??= new()).DcsFunctions = v),
             FS("M_Note", p => p.Modbus?.Note, (p, v) => (p.Modbus ??= new()).Note = v),
+            FS("M_BusBlock", p => p.Modbus?.BusBlock, (p, v) => (p.Modbus ??= new()).BusBlock = v), // F13
+            FS("M_BusDataOut", p => p.Modbus?.BusDataOut, (p, v) => (p.Modbus ??= new()).BusDataOut = v), // F13
+            FS("M_Marka", p => p.Modbus?.Marka, (p, v) => (p.Modbus ??= new()).Marka = v), // F27
 
             // ===== Cable (13) =====
             FS("CBL_Id", p => p.Cable?.Id, (p, v) => (p.Cable ??= new()).Id = v),
@@ -212,7 +216,7 @@ namespace IO_PJT.Services
             foreach (var f in Fields) _byColumn[f.Column] = f;
         }
 
-        /// <summary>Имена колонок в порядке DDL (126 шт.; вместе с ID — 127).</summary>
+        /// <summary>Имена колонок в порядке DDL (130 шт.; вместе с ID — 131).</summary>
         public static string[] Columns
         {
             get

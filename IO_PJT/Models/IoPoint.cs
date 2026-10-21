@@ -54,6 +54,7 @@ namespace IO_PJT.Models
         public string? SubLoop { get; set; }
         public string? ProcessLoop { get; set; }
         public string? Logic { get; set; }          // Logic No из Excel
+        public string? Typno { get; set; }           // F14: типовой алгоритм (напр. PID1200-01R); без него сигнал вне генерации F14
         public string? Tag { get; set; }            // ОБЯЗАТЕЛЬНОЕ поле
         public InstrumentTag? ParsedTag { get; set; } // вычисляется из Tag
         public string? ProcessTag { get; set; }
@@ -189,6 +190,15 @@ namespace IO_PJT.Models
         public string? DcsFunctions { get; set; }
         /// <summary>Примечание (note).</summary>
         public string? Note { get; set; }
+        /// <summary>F13: имя блока Modbus SCADA (MB_TCP_MASTER_4_1) — куда входит точка
+        /// (заполняется кнопкой «Записать привязки в IO_LIST»).</summary>
+        public string? BusBlock { get; set; }
+        /// <summary>F13: привязка данных блока SCADA (MB_TCP_MASTER_4_1.DataOut[0] — индекс =
+        /// адрес точки − Address пакета; заполняется той же кнопкой).</summary>
+        public string? BusDataOut { get; set; }
+        /// <summary>F27: Марка SCADA (MakeMarka от поля-источника F12) — заполняется кнопкой
+        /// «Записать Марку в IO_LIST» в окне генератора перечня (F12).</summary>
+        public string? Marka { get; set; }
     }
 
     /// <summary>Кабельное хозяйство (ветвь Cable, префикс CBL_).</summary>

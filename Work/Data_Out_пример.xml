@@ -1,0 +1,214 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<BufScadaPOUS>
+  <!-- F13.1: шаблон привязок «out → tagname» для генерации блоков Modbus. Каждый OnePOU —
+       эталонная цепочка одного типа сигнала; тип — в Disc (BOOL/INT/DINT/REAL). Блок-источник
+       GROBJTYPE=31 с T11Text ".DataOut[k]" заменяется на «{имя блока пакета}.DataOut[смещение]»,
+       блок-приёмник (Info без ".DataOut[", конечный узел) — на тег из IO_LIST (тире → «_»,
+       ведущий «_»); член тега (T11Text ".Xin") берётся из эталона. Формат цепочек — по образцу
+       Work\Data_Out_шаблоны.xml (SCADA, ISAGraf). -->
+  <Common Name="" Disc="" PageMode="4" PageID="" UserName="Инженер" ShowTitles="0" NoLink="0" />
+  <POUS>
+    <OnePOU ID="30001" NAME="P_DATAOUT_BOOL" isFBD="1" GroupID="" Enabled="1" POUNum="1" Disc="BOOL">
+      <PARAMS X="0" Y="0" WIDTH="1800" HEIGHT="600" />
+      <ISAGraf>
+        <Blocks>
+          <Block GROBJTYPE="31" Info="_MB_TCP_MASTER_4_1.DataOut[0]" T11ID="301001">
+            <Graphics X="150" Y="300" WIDTH="260" HEIGHT="20" />
+            <Params T11Text=".DataOut[0]" CI="1" CO="1" VMODE="0" Commented="false" IsaObjId="17572" cardId="623353">
+              <IV>FALSE,1,200,4,4000,(246(0)),96,(246(0)),FALSE,TRUE,3(0),FALSE,0,65533,0,6(0),0,1,115200,FALSE,1,8</IV>
+            </Params>
+          </Block>
+          <Block GROBJTYPE="31" Info="_8100_TAG_0001_A_FAIL.Xin" T11ID="301002">
+            <Graphics X="800" Y="300" WIDTH="240" HEIGHT="20" />
+            <Params T11Text=".Xin" CI="1" CO="1" VMODE="0" Commented="false" IsaObjId="17490" cardId="627278">
+              <IV />
+            </Params>
+          </Block>
+        </Blocks>
+        <Gotos />
+        <Links>
+          <Link Negative="false" asPointer="false" UserEdit="false" Color="0" GetBitNum="-1" ConvertTo="0">
+            <PointList PL="(410,310);(790,310);" />
+            <FirstPoint FP="301001|False|0|0,0,100,20" />
+            <LastPoint LP="301002|True|Xin|0,0,100,20" />
+          </Link>
+        </Links>
+      </ISAGraf>
+      <GrObj />
+    </OnePOU>
+    <OnePOU ID="30002" NAME="P_DATAOUT_INT" isFBD="1" GroupID="" Enabled="1" POUNum="2" Disc="INT">
+      <PARAMS X="0" Y="0" WIDTH="1800" HEIGHT="600" />
+      <ISAGraf>
+        <Blocks>
+          <Block GROBJTYPE="31" Info="_MB_TCP_MASTER_4_1.DataOut[0]" T11ID="302001">
+            <Graphics X="150" Y="300" WIDTH="260" HEIGHT="20" />
+            <Params T11Text=".DataOut[0]" CI="1" CO="1" VMODE="0" Commented="false" IsaObjId="17572" cardId="623353">
+              <IV>FALSE,1,200,4,4000,(246(0)),96,(246(0)),FALSE,TRUE,3(0),FALSE,0,65533,0,6(0),0,1,115200,FALSE,1,8</IV>
+            </Params>
+          </Block>
+          <Block GROBJTYPE="36" Info="ANY_TO_DINT" T11ID="302002">
+            <Graphics X="560" Y="290" WIDTH="110" HEIGHT="40" />
+            <Params T11Text="" CI="1" CO="1" VMODE="0" Commented="false" IsaObjId="1205" cardId="0" />
+          </Block>
+          <Block GROBJTYPE="31" Info="_8100_TAG_0002_A_INT" T11ID="302003">
+            <Graphics X="850" Y="300" WIDTH="240" HEIGHT="20" />
+            <Params T11Text="" CI="1" CO="1" VMODE="0" Commented="false" IsaObjId="-7" cardId="627283">
+              <IV>0.0</IV>
+            </Params>
+          </Block>
+        </Blocks>
+        <Gotos />
+        <Links>
+          <Link Negative="false" asPointer="false" UserEdit="false" Color="0" GetBitNum="-1" ConvertTo="0">
+            <PointList PL="(410,310);(550,310);" />
+            <FirstPoint FP="302001|False|0|0,0,100,20" />
+            <LastPoint LP="302002|True|IN|0,0,100,20" />
+          </Link>
+          <Link Negative="false" asPointer="false" UserEdit="false" Color="0" GetBitNum="-1" ConvertTo="0">
+            <PointList PL="(670,310);(840,310);" />
+            <FirstPoint FP="302002|False|OUT|0,0,100,20" />
+            <LastPoint LP="302003|True|0|0,0,100,20" />
+          </Link>
+        </Links>
+      </ISAGraf>
+      <GrObj />
+    </OnePOU>
+    <OnePOU ID="30003" NAME="P_DATAOUT_DINT" isFBD="1" GroupID="" Enabled="1" POUNum="3" Disc="DINT">
+      <PARAMS X="0" Y="0" WIDTH="1800" HEIGHT="600" />
+      <ISAGraf>
+        <Blocks>
+          <Block GROBJTYPE="31" Info="_MB_TCP_MASTER_4_1.DataOut[0]" T11ID="303001">
+            <Graphics X="150" Y="300" WIDTH="260" HEIGHT="20" />
+            <Params T11Text=".DataOut[0]" CI="1" CO="1" VMODE="0" Commented="false" IsaObjId="17572" cardId="623353">
+              <IV>FALSE,1,200,4,4000,(246(0)),96,(246(0)),FALSE,TRUE,3(0),FALSE,0,65533,0,6(0),0,1,115200,FALSE,1,8</IV>
+            </Params>
+          </Block>
+          <Block GROBJTYPE="31" Info="_MB_TCP_MASTER_4_1.DataOut[1]" T11ID="303002">
+            <Graphics X="150" Y="280" WIDTH="260" HEIGHT="20" />
+            <Params T11Text=".DataOut[1]" CI="1" CO="1" VMODE="0" Commented="false" IsaObjId="17572" cardId="623353">
+              <IV>FALSE,1,200,4,4000,(246(0)),96,(246(0)),FALSE,TRUE,3(0),FALSE,0,65533,0,6(0),0,1,115200,FALSE,1,8</IV>
+            </Params>
+          </Block>
+          <Block GROBJTYPE="36" Info="MB_REGs_TO_WORD_CPU850" T11ID="303003">
+            <Graphics X="560" Y="280" WIDTH="154" HEIGHT="40" />
+            <Params T11Text="" CI="2" CO="1" VMODE="0" Commented="false" IsaObjId="18420" cardId="0" />
+          </Block>
+          <Block GROBJTYPE="36" Info="ANY_TO_DINT" T11ID="303004">
+            <Graphics X="780" Y="290" WIDTH="110" HEIGHT="40" />
+            <Params T11Text="" CI="1" CO="1" VMODE="0" Commented="false" IsaObjId="1205" cardId="0" />
+          </Block>
+          <Block GROBJTYPE="31" Info="_8100_TAG_0003_A_DINT" T11ID="303005">
+            <Graphics X="1030" Y="300" WIDTH="240" HEIGHT="20" />
+            <Params T11Text="" CI="1" CO="1" VMODE="0" Commented="false" IsaObjId="-7" cardId="627291">
+              <IV>0</IV>
+            </Params>
+          </Block>
+        </Blocks>
+        <Gotos />
+        <Links>
+          <Link Negative="false" asPointer="false" UserEdit="false" Color="0" GetBitNum="-1" ConvertTo="0">
+            <PointList PL="(410,310);(550,310);" />
+            <FirstPoint FP="303001|False|0|0,0,100,20" />
+            <LastPoint LP="303003|True|IN2|0,0,100,20" />
+          </Link>
+          <Link Negative="false" asPointer="false" UserEdit="false" Color="0" GetBitNum="-1" ConvertTo="0">
+            <PointList PL="(410,290);(550,290);" />
+            <FirstPoint FP="303002|False|0|0,0,100,20" />
+            <LastPoint LP="303003|True|IN1|0,0,100,20" />
+          </Link>
+          <Link Negative="false" asPointer="false" UserEdit="false" Color="0" GetBitNum="-1" ConvertTo="0">
+            <PointList PL="(714,300);(770,300);" />
+            <FirstPoint FP="303003|False|Result|0,0,100,20" />
+            <LastPoint LP="303004|True|IN|0,0,100,20" />
+          </Link>
+          <Link Negative="false" asPointer="false" UserEdit="false" Color="0" GetBitNum="-1" ConvertTo="0">
+            <PointList PL="(890,310);(1020,310);" />
+            <FirstPoint FP="303004|False|OUT|0,0,100,20" />
+            <LastPoint LP="303005|True|0|0,0,100,20" />
+          </Link>
+        </Links>
+      </ISAGraf>
+      <GrObj />
+    </OnePOU>
+    <OnePOU ID="30004" NAME="P_DATAOUT_REAL" isFBD="1" GroupID="" Enabled="1" POUNum="4" Disc="REAL">
+      <PARAMS X="0" Y="0" WIDTH="1800" HEIGHT="600" />
+      <ISAGraf>
+        <Blocks>
+          <Block GROBJTYPE="31" Info="_MB_TCP_MASTER_4_1.DataOut[0]" T11ID="304001">
+            <Graphics X="150" Y="300" WIDTH="260" HEIGHT="20" />
+            <Params T11Text=".DataOut[0]" CI="1" CO="1" VMODE="0" Commented="false" IsaObjId="17572" cardId="623353">
+              <IV>FALSE,1,200,4,4000,(246(0)),96,(246(0)),FALSE,TRUE,3(0),FALSE,0,65533,0,6(0),0,1,115200,FALSE,1,8</IV>
+            </Params>
+          </Block>
+          <Block GROBJTYPE="31" Info="_MB_TCP_MASTER_4_1.DataOut[1]" T11ID="304002">
+            <Graphics X="150" Y="280" WIDTH="260" HEIGHT="20" />
+            <Params T11Text=".DataOut[1]" CI="1" CO="1" VMODE="0" Commented="false" IsaObjId="17572" cardId="623353">
+              <IV>FALSE,1,200,4,4000,(246(0)),96,(246(0)),FALSE,TRUE,3(0),FALSE,0,65533,0,6(0),0,1,115200,FALSE,1,8</IV>
+            </Params>
+          </Block>
+          <Block GROBJTYPE="36" Info="MB_REGs_TO_REAL_CPU850" T11ID="304003">
+            <Graphics X="560" Y="280" WIDTH="154" HEIGHT="40" />
+            <Params T11Text="" CI="2" CO="1" VMODE="0" Commented="false" IsaObjId="18419" cardId="0" />
+          </Block>
+          <Block GROBJTYPE="35" Info="*" T11ID="304004">
+            <Graphics X="800" Y="280" WIDTH="60" HEIGHT="60" />
+            <Params T11Text="" CI="2" CO="1" VMODE="0" Commented="false" IsaObjId="-1" cardId="0" />
+          </Block>
+          <Block GROBJTYPE="34" Info="0.01" T11ID="304005">
+            <Graphics X="720" Y="360" WIDTH="80" HEIGHT="20" />
+            <Params T11Text="0.01" CI="0" CO="1" VMODE="0" Commented="false" IsaObjId="-101" cardId="0" />
+          </Block>
+          <Block GROBJTYPE="31" Info="_8100_TAG_0004_A_REAL" T11ID="304006">
+            <Graphics X="1030" Y="300" WIDTH="240" HEIGHT="20" />
+            <Params T11Text="" CI="1" CO="1" VMODE="0" Commented="false" IsaObjId="-7" cardId="627303">
+              <IV>0.0</IV>
+            </Params>
+          </Block>
+        </Blocks>
+        <Gotos />
+        <Links>
+          <Link Negative="false" asPointer="false" UserEdit="false" Color="0" GetBitNum="-1" ConvertTo="0">
+            <PointList PL="(410,310);(550,310);" />
+            <FirstPoint FP="304001|False|0|0,0,100,20" />
+            <LastPoint LP="304003|True|IN2|0,0,100,20" />
+          </Link>
+          <Link Negative="false" asPointer="false" UserEdit="false" Color="0" GetBitNum="-1" ConvertTo="0">
+            <PointList PL="(410,290);(550,290);" />
+            <FirstPoint FP="304002|False|0|0,0,100,20" />
+            <LastPoint LP="304003|True|IN1|0,0,100,20" />
+          </Link>
+          <Link Negative="false" asPointer="false" UserEdit="false" Color="0" GetBitNum="-1" ConvertTo="0">
+            <PointList PL="(714,300);(790,300);" />
+            <FirstPoint FP="304003|False|Result|0,0,100,20" />
+            <LastPoint LP="304004|True|IN1|0,0,100,20" />
+          </Link>
+          <Link Negative="false" asPointer="false" UserEdit="false" Color="0" GetBitNum="-1" ConvertTo="0">
+            <PointList PL="(800,380);(830,380);(830,350);" />
+            <FirstPoint FP="304005|False|0|0,0,100,20" />
+            <LastPoint LP="304004|True|IN2|0,0,100,20" />
+          </Link>
+          <Link Negative="false" asPointer="false" UserEdit="false" Color="0" GetBitNum="-1" ConvertTo="0">
+            <PointList PL="(860,310);(1020,310);" />
+            <FirstPoint FP="304004|False|OUT|0,0,100,20" />
+            <LastPoint LP="304006|True|0|0,0,100,20" />
+          </Link>
+        </Links>
+      </ISAGraf>
+      <GrObj />
+    </OnePOU>
+  </POUS>
+  <ISAOBJSINFO>
+    <rec ID="1205" Info="ANY_TO_DINT" LibName="Библиотека" />
+    <rec ID="1211" Info="ANY_TO_REAL" LibName="Библиотека" />
+    <rec ID="17490" Info="DD_v3" LibName="TACSfbl" />
+    <rec ID="17572" Info="MB_RTU_MASTER" LibName="TenixRtLib" />
+    <rec ID="18419" Info="MB_REGs_TO_REAL_CPU850" LibName="ut_CPU850" />
+    <rec ID="18420" Info="MB_REGs_TO_WORD_CPU850" LibName="ut_CPU850" />
+  </ISAOBJSINFO>
+  <ISACARDSINFO>
+    <rec ID="627278" Info="_8100_TAG_0001_A_FAIL" IsRetain="-1" Name="" SSize="0" KLPath="" />
+    <rec ID="627283" Info="_8100_TAG_0002_A_INT" IsRetain="-1" Name="" SSize="0" KLPath="" />
+    <rec ID="627291" Info="_8100_TAG_0003_A_DINT" IsRetain="-1" Name="" SSize="0" KLPath="" />
+    <rec ID="627303" Info="_8100_TAG_0004_A_REAL" IsRetain="-1" Name="" SSize="0" KLPath="" />
+  </ISACARDSINFO>
+</BufScadaPOUS>

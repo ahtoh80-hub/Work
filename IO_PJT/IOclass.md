@@ -666,22 +666,22 @@ IOPoint:
 
 ## 🗂 Маппинг дерева → таблица Access `IO_LIST` (производный раздел)
 
-БД Access повторяет структуру дерева 1:1 в виде **одной плоской таблицы**. **Итого 127 колонок** = `ID` + Identification 14 + ParsedTag 7 + Signal 11 + Ranges 6 + Alarms 6 + **Modbus 27 (F9, колонки `M_*` перед `CBL_*`)** + Cable 13 + Equipment 17 + Revision 15 + `column1`…`column10`. (Колонка `REV_Sheet` — вкладка-источник документа, добавлена по ТЗ F2.16: документ в БД = файл + вкладка.)
+БД Access повторяет структуру дерева 1:1 в виде **одной плоской таблицы**. **Итого 131 колонка** = `ID` + Identification 15 (F14: + `Typno`) + ParsedTag 7 + Signal 11 + Ranges 6 + Alarms 6 + **Modbus 30 (F9 27 + F13 2 + F27 1 — колонки `M_*` перед `CBL_*`)** + Cable 13 + Equipment 17 + Revision 15 + `column1`…`column10`. (Колонка `REV_Sheet` — вкладка-источник документа, добавлена по ТЗ F2.16: документ в БД = файл + вкладка.)
 
-**Имя таблицы может быть любым (по умолчанию `IO_LIST`)** — структура берётся из настоящего раздела. Служебная таблица **`IO_LIST_Audit`** (история изменений «старое → новое», см. ТЗ, F7) в 127 колонок не входит; служебная таблица **`MODBUS_MAP`** (F9: карта адресации Modbus) — тоже.
+**Имя таблицы может быть любым (по умолчанию `IO_LIST`)** — структура берётся из настоящего раздела. Служебная таблица **`IO_LIST_Audit`** (история изменений «старое → новое», см. ТЗ, F7) в 130 колонок не входит; служебная таблица **`MODBUS_MAP`** (F9: карта адресации Modbus) — тоже.
 
 **Типы полей:** все текстовые — `TEXT(255)`; **исключение — `PTag_*`: `TEXT(50)`**; числовые служебные — `LONG`; даты — `DATETIME`; ключ — `COUNTER`. Шкалы (`Range_*`) и уставки (`LL`…`HH2`) — тоже `TEXT(255)`: нечисловое содержимое не теряется, конвертация в число выполняется при валидации.
 
 | Ветвь дерева | Префикс в БД | Колонки (типы) |
 |:---|:---|:---|
 | Служебное | — | `ID` — COUNTER PRIMARY KEY |
-| Identification | без префикса | `Code` (LONG); `Area`, `Plant`, `Title`, `Loop`, `SubLoop`, `ProcessLoop`, `Logic`, `Tag`★, `ProcessTag`, `System`, `IoType`, `Controller`, `Location` — TEXT(255) |
+| Identification | без префикса | `Code` (LONG); `Area`, `Plant`, `Title`, `Loop`, `SubLoop`, `ProcessLoop`, `Logic`, `Typno` (F14: типовой алгоритм — ключ сопоставления SCADA_TYPNO_MAP), `Tag`★, `ProcessTag`, `System`, `IoType`, `Controller`, `Location` — TEXT(255) |
 | ParsedTag | `PTag_` | `PTag_TagArea`, `PTag_DeviceClass`, `PTag_LoopNumber`, `PTag_TagNumber`, `PTag_Suffix`, `PTag_FullTag`, `PTag_Separator` — **TEXT(50)** |
 | Signal | **без префикса** | `Service`, `ServiceEnglish`, `InstrumentType`, `InstrumentTypeEnglish`, `PID`, `SignalType`, `ExType`, `Subsystem`, `Auxiliary`, `VoltageLevel`, `PowerConsumption` — TEXT(255) |
 | Ranges.Primary | — | `Range_MIN`, `Range_MAX`, `Eng_Unit` — TEXT(255) (шкала TEXT) |
 | Ranges.Secondary | — | `Range_MIN2`, `Range_MAX2`, `Eng_Unit2` — TEXT(255) (шкала TEXT) |
 | Alarms | **без префикса** | `LL`, `LL2`, `L`, `H`, `HH`, `HH2` — TEXT(255) (**уставки TEXT, без единиц измерения**) |
-| **Modbus (F9)** | **`M_`** | `M_MapFile`, `M_SlaveStation`, `M_SlaveIdMain`, `M_SlaveIdBackup`, `M_Speed`, `M_Timeout`, `M_PrfDesignation`, `M_PlcTag`, `M_ObjectTag`, `M_Description`, `M_Units`, `M_Scale`, `M_LL`, `M_LA`, `M_HA`, `M_HH`, `M_Scaling`, `M_SigType`, `M_RegType`, `M_Address`, `M_AccessType`, `M_DataType`, `M_FuncCode`, `M_DcsChannel`, `M_DcsTag`, `M_DcsFunctions`, `M_Note` — TEXT(255); заполняется кнопкой «Обновить адресацию Modbus» по парам `MODBUS_MAP.DcsTag ↔ IO_LIST.Tag` (F9.4) — не при импорте карты и не Excel-импортом |
+| **Modbus (F9/F13)** | **`M_`** | `M_MapFile`, `M_SlaveStation`, `M_SlaveIdMain`, `M_SlaveIdBackup`, `M_Speed`, `M_Timeout`, `M_PrfDesignation`, `M_PlcTag`, `M_ObjectTag`, `M_Description`, `M_Units`, `M_Scale`, `M_LL`, `M_LA`, `M_HA`, `M_HH`, `M_Scaling`, `M_SigType`, `M_RegType`, `M_Address`, `M_AccessType`, `M_DataType`, `M_FuncCode`, `M_DcsChannel`, `M_DcsTag`, `M_DcsFunctions`, `M_Note` — заполняется кнопкой «Обновить адресацию Modbus» по парам `MODBUS_MAP.DcsTag ↔ IO_LIST.Tag` (F9.4) — не при импорте карты и не Excel-импортом; `M_BusBlock`, `M_BusDataOut` (F13) — привязка блока SCADA (имя `MB_TCP_MASTER_4_1` и путь `MB_TCP_MASTER_4_1.DataOut[0]`), заполняется кнопкой «Записать привязки в IO_LIST» окна F13 — только для Modbus-сигналов |
 | Cable | `CBL_` | `CBL_Id`, `CBL_Description`, `CBL_Type`, `CBL_Designation`, `CBL_From`, `CBL_To`, `CBL_Color`, `CBL_Note`, `CBL_VendorDesignation`, `CBL_Drum`, `CBL_Voltage` — TEXT(255); `CBL_Length`, `CBL_Pair` — LONG |
 | Equipment | `EQP_` | `EQP_CableTecon` … `EQP_Type` — TEXT(255); `EQP_Channel` — LONG |
 | Revision | `REV_` | `REV_Description`, `REV_Package`, `REV_VendorField1`, `REV_VendorField2`, `REV_Document`, `REV_AkerRevision`, `REV_FileName`, `REV_Sheet` (вкладка-источник, F2.16), `REV_Author`, `REV_Type`, `REV_Count` (ИД из Excel) — TEXT(255); `REV_Number`, `REV_RowNumber` — LONG; `REV_DateEntered`, `REV_DateModified` — DATETIME |
@@ -695,7 +695,7 @@ IOPoint:
 CREATE TABLE IO_LIST (
   ID COUNTER PRIMARY KEY,
   Code LONG, Area TEXT(255), Plant TEXT(255), Title TEXT(255), Loop TEXT(255), SubLoop TEXT(255),
-  ProcessLoop TEXT(255), Logic TEXT(255), Tag TEXT(255), ProcessTag TEXT(255), System TEXT(255),
+  ProcessLoop TEXT(255), Logic TEXT(255), Typno TEXT(255), Tag TEXT(255), ProcessTag TEXT(255), System TEXT(255),
   IoType TEXT(255), Controller TEXT(255), Location TEXT(255),
   PTag_TagArea TEXT(50), PTag_DeviceClass TEXT(50), PTag_LoopNumber TEXT(50),
   PTag_TagNumber TEXT(50), PTag_Suffix TEXT(50), PTag_FullTag TEXT(50), PTag_Separator TEXT(50),
@@ -714,6 +714,7 @@ CREATE TABLE IO_LIST (
   M_Scaling TEXT(255), M_SigType TEXT(255), M_RegType TEXT(255), M_Address TEXT(255),
   M_AccessType TEXT(255), M_DataType TEXT(255), M_FuncCode TEXT(255),
   M_DcsChannel TEXT(255), M_DcsTag TEXT(255), M_DcsFunctions TEXT(255), M_Note TEXT(255),
+  M_BusBlock TEXT(255), M_BusDataOut TEXT(255), M_Marka TEXT(255),
   CBL_Id TEXT(255), CBL_Description TEXT(255), CBL_Type TEXT(255), CBL_Designation TEXT(255),
   CBL_From TEXT(255), CBL_To TEXT(255), CBL_Length LONG, CBL_Color TEXT(255), CBL_Pair LONG,
   CBL_Note TEXT(255), CBL_VendorDesignation TEXT(255), CBL_Drum TEXT(255), CBL_Voltage TEXT(255),
@@ -847,6 +848,312 @@ CREATE TABLE SCADA_TEHOBJ_SETTINGS (
 );
 ```
 
+### DDL служебных таблиц генерации блоков Modbus (XML) (`SCADA_MB_SETTINGS`, `SCADA_MB_SLAVE_RULES`, `SCADA_MB_TEMPLATE`, `SCADA_TYPNO_MAP`, `SCADA_DATAOUT_TEMPLATES`, F13–F16)
+
+Таблицы меню «SCADA → Генерация блоков Modbus (XML)» (шаблон блоков — `Work\MB_TCP_MASTER_пример_new.xml`,
+структура — `SCADA_XML_STRUCTURE.md`; шаблон привязок out → tagname — `Work\Data_Out_пример.xml`;
+генераторы — `ScadaTemplateXmlService`, `ScadaDataOutXmlService`). F18: **встроенных (embedded)
+копий примеров в приложении больше нет** (`EmbeddedResource` удалены из csproj) — шаблон задаётся
+явно: файл (путь настройки или авто-поиск: каталог exe → вверх до 6 уровней в `Work\`) либо
+вставленный код (режим «Код»); без шаблона генерация не стартует, статус говорит «укажите файл
+или вставьте код». Примеры в `Work\` — только для понимания логики: в шаблоне при генерации
+меняются лишь марка приёмника, имена блоков и номера `DataOut`.
+`SCADA_MB_SETTINGS` — настройки генерации (Name/Value; ключи: `Policy`
+(Contiguous/Cover/FixedSize/Gap — политика пакетирования; Gap — прореха ≤ `MaxGap` остаётся
+в пакете, > MaxGap → новый блок), `MaxCount`, `MaxGap` (допустимый промежуток адресов для
+Gap; 0 = Contiguous), `DefaultPort`, `DefaultSlaveId`, `DefaultTimeoutMs`,
+`TemplateMode` (File/Inline — источник шаблона блоков), `TemplateFilePath`,
+`DataOutTemplateMode`/`DataOutTemplateFilePath` (источник шаблона привязок Data_Out),
+`DataOutTemplateName` (F16: имя текущего шаблона привязок — идентификатор в
+`SCADA_DATAOUT_TEMPLATES`/колонка `SCADA_TYPNO_MAP.Template`; для файла по умолчанию —
+его имя без расширения, для вставленного кода — имя спрашивается при сохранении),
+`BlockNamePattern` (маска имени блока TCP: токены `{Seq}`/`{Slave}`/`{Station}`/`{Ip}`/`{Func}`;
+пусто — историческое имя «цифры шаблона + №»), `BlockNamePatternRtu` (F14: маска имени блока
+Modbus RTU — применяется, если мастер шаблона содержит «RTU» в имени; пусто — как
+`BlockNamePattern`), `FormatAddress` (F14: True/False — вход Address блока в формате
+«регистр + адрес»: FC1→0, FC2→1, FC3→4, FC4→3 + адрес с ведущими нулями, ≥4 знака
+(FC3: 1 → 4001, 602 → 4602, 1506 → 41506); адрес ≥ 10000 — как есть; False — сырой
+`M_Address`), `PouNamePattern`/`DataOutPouNamePattern` (F17: шаблоны имени POU при
+экспорте — основной файл `BufScadaPOUS` (мастер-блоки, один POU) и файл привязок
+(по POU на пакет); токены `{Master}` (имя мастера шаблона / имя блока мастера
+пакета), `{Seq}`/`{Slave}`/`{Station}`/`{Ip}`/`{Port}`/`{Func}` (в основном файле —
+контекст первого пакета, в привязках — своего пакета), `{Date}` (yyyyMMdd)/
+`{Time}` (HHmmss) — момент экспорта; пусто — исторические имена «NAME из шаблона»
+(`MB_Master_4`) / «имя блока мастера» (`MB_TCP_MASTER_4_1`); дубли POU в файле
+привязок → суффиксы `_2`, `_3`),
+`BaseT11Id`, `BaseCardId`, `ColumnsPerRow`, `RowStep`, `ColumnStep`); при отсутствии
+значения/таблицы — defaults из `ScadaMbGenSettings`; устаревшие ключи F13 v1
+(`PulsePeriodMs`, `TimeoutTagName`, `PouName`, `MasterPrefix`, `ArrayPrefix`,
+`NoLinkPrefix`, `PouId`, `PouNum`, `ControllerTypeName`, `ControllerId`, `ResourceId`,
+`ShowTitles`) игнорируются при чтении и удаляются при сохранении.
+`SCADA_MB_SLAVE_RULES` — правила «станция → SlaveId»: в IO_LIST нет числового SlaveId
+(в `M_SlaveIdMain` — только IP/маска/порт), поэтому `Station` (`M_SlaveStation`,
+IgnoreCase) → `SlaveId` (LONG, 1-255); станции без правила получают `DefaultSlaveId`.
+`SCADA_MB_TEMPLATE` — вставленные в окно XML-шаблоны (режим «Код»): строка
+`Name` = «current» — шаблон блоков, `Name` = «dataout» — шаблон привязок (F13.1);
+тело — `Body` **MEMO** (до 64 КБ; TEXT(255) не хватает на 5 КБ шаблон).
+`SCADA_TYPNO_MAP` (F14/F16) — ручное сопоставление «`Typno` (IO_LIST, типовой алгоритм) →
+(шаблон привязок, эталон)»: `Typno` TEXT(255) (ключ, IgnoreCase) → `Template` TEXT(255)
+(F16: имя шаблона из `SCADA_DATAOUT_TEMPLATES`; **пусто — основной шаблон редактора**
+(файл/вставленный код)) → `Exemplar` TEXT(255) (ключ Disc/NAME OnePOU: BOOL/INT/DINT/REAL).
+Сигнал **без `Typno` не участвует в генерации F14**
+(фильтр `BuildPlan`, счётчик `SkippedNoTypno`); для сопоставленного Typno эталон выбирается
+**по маппингу (приоритет)**, Typno без строки — исторический выбор по `M_DataType` с
+предупреждением; все Tag с одним Typno получают цепочки своего эталона (по одной цепочке на
+тег). Хранилище — `ModbusBlockPlannerService` (`LoadTypnoMap`/`SaveTypnoMap` — полная замена:
+строки без Typno/эталона отбрасываются, дубль IgnoreCase выигрывает последний с сохранением
+канонического написания первого).
+`SCADA_DATAOUT_TEMPLATES` (F16) — именованные шаблоны привязок Data_Out: несколько шаблонов
+одновременно участвуют в генерации, `Typno` ссылается на имя шаблона. `Name` TEXT(255)
+(имя-идентификатор, IgnoreCase, уникально — сохранение с тем же именем заменяет строку),
+`Body` MEMO (XML-тело шаблона на момент сохранения — и для файла, и для вставленного кода;
+генерация читает тело из БД и не зависит от наличия файлов), `FilePath` TEXT(255) (путь
+файла-источника, справочно; кнопка «Обновить из файла» перечитывает `Body` по нему).
+Опознавание мастера в шаблоне блоков (F15): по **имени**, а не по `IsaObjId` —
+① блок, чей `Params.IsaObjId` совпадает с `ID` rec `MB_TCP_MASTER`/`MB_RTU_MASTER`
+в `ISAOBJSINFO` одного шаблона (само значение ID произвольно: 15003, 17573, … — SCADA
+переподставляет его при импорте); ② fallback — блок `GROBJTYPE=37` с именем `Info`,
+начинающимся на `MB_TCP_MASTER`/`MB_RTU_MASTER`.
+Хранилище — `ModbusBlockPlannerService` (`LoadDataOutTemplates`/`SaveDataOutTemplate`
+(замена по имени)/`DeleteDataOutTemplate`).
+**F18 — байтовая адресация `DataOut` и шаблоны «на один тип сигнала» (2026-10):** блоки мастера
+`MB_TCP_MASTER`/`MB_RTU_MASTER` отдают данные как **массив байт** (`MB_USINT_0_249`, док
+«Modbus RTU_TCP block.md»), поэтому индекс `DataOut` везде байтовый — `ModbusBlockPlannerService.
+DataOutByteIndex(offset, isBit)`: для FC03/04 смещение привязки в регистрах → `offset*2`
+(регистр = 2 байта), для FC01/02 смещение в битах → `offset/8` (биты упакованы в байты);
+используется в `M_BusDataOut`/`DataOutExpr`, в историческом простом файле привязок и в генераторе
+цепочек (`ScadaDataOutXmlService`): источник(и) эталона получают подряд идущие байты
+`[{byteBase}…{byteBase+nSrc-1}]`, **число байт задаёт сам эталон** (float V2 = 4 источника,
+16-бит = 2 и т.д. — «последовательность 1,2,3,4 байта согласно шаблону для данного сигнала»);
+граница привязки считается в байтах (`byteBase + nSrc − 1 ≥ байт_пакета` → пропуск с
+предупреждением). **Fallback единственного эталона:** если нужного типа нет (`Disc`/`NAME` эталона
+не совпал с `M_DataType`/Typno), а в шаблоне ровно один эталон — берётся он (предупреждение F18);
+наборы «шаблон на один тип сигнала» (например `Data_Out_шаблоны_32-Bit Floating_V2.xml`: `Disc=""`,
+`NAME="test"`, цепочка 4 байта → `MB_REGs_TO_REAL_CPU850` → приёмник `MARKA` → марка тега
+`_1110_MII_00101`) работают без ручной настройки `SCADA_TYPNO_MAP` (но правило
+`Typno → ("", "имя-эталона")` подключает эталон напрямую, без fallback-предупреждения). Пустой
+`Disc=""` корректно падает на `NAME`. UI: после «Сохранить настройки» шаблоны перечитываются
+(`CheckTemplate`/`CheckDataOutTemplate`) — статус актуален; отмена ввода имени шаблона привязок —
+явное сообщение «тело в SCADA_MB_TEMPLATE «dataout», в список не добавлено»; диалог имени — с
+Owner (поверх активного окна). **F18.1 — прокрутка окна генерации:** окно при открытии
+вписывается в рабочую область экрана и заново центрируется (на невысоких мониторах низ ползунка
+ушёл за край — нижние группы, напр. Typno, были недостижимы); колёсико мыши не «залипает» во
+внутренних таблицах фиксированной высоты левой колонки («станция → SlaveId», Typno) — после
+достижения их конца прокрутка продолжается во внешнем `ScrollViewer` (`LeftScroller`) через
+`PreviewMouseWheel` окна; таблицы правой колонки («Превью пакетов»/«Привязки») не затрагиваются.
+**F19 — имена блоков = превью, один юнит-мастер из XML-шаблона (2026-10):** `Write` размножает
+только основной юнит — «мастер, указанный в шаблоне» (`units[0]`: порядок документа совпадает
+с `MasterNameBase` из `Parse`); имя блока мастера пакета — строго `p.MasterName` из плана
+(ровно то, что показано в превью), без `ShiftInstanceName` за счёт дополнительных юнитов.
+Лишние юниты-мастера (артефакт прошлого экспорта в шаблоне: `ModbusTCP` + `ModbusTCP_2` —
+оба `IsaObjId=17573`) **исключаются из результата** с предупреждением `GeneratedXml.Warnings`
+(выводится в журнал `Log.Warn("F19: …")` и добавляется в статус экспорта): раньше каждый юнит
+размножался на каждый пакет — в файле были дубли (`ModbusTCP_2` ×2), лишний `ModbusTCP_3`
+и имена, отсутствующие в превью. Связи юнита клонируются по блокам **своего** юнита
+(`activeT11`, а не общий `unitT11Set` — чужие связи больше не копируются с несмапленными
+T11), связи исключённых юнитов не попадают ни в клоны, ни в «общие» (`droppedT11`); блоки
+и примитивы исключённых юнитов в результат не включаются. **Карточки `ISACARDSINFO`:**
+rec копируются только при `cardId`, реально используемом блоками результата (`cardNames` из
+`outBlocks`), `Info` rec подменяется именем блока — устраняет «старую привязку 4_1»
+(`rec ID=630712 Info="MB_TCP_MASTER_4_1"`: при клонировании k=1 cardId не меняется, и rec
+шаблона раньше копировался без переименования); rec исключённых юнитов отбрасываются как
+сироты. Приёмка: синтетический шаблон с 2 блоками `GROBJTYPE=37` + 2 пакета → ровно 2 блока
+мастера с именами превью, `rec 630712.Info` = имя пакета 1, rec юнита B отсутствует,
+1 предупреждение в `Warnings`; одиночный мастер — без предупреждений (регрессия F13–F18).
+
+**F20 — раздельные лимиты Count: регистры и биты (2026-10):** лимит размера пакета
+задаётся двумя независимыми настройками `SCADA_MB_SETTINGS`: `MaxCountRegisters`
+(FC03/FC04, ≤123 регистров на блок — формат блока выделяет 2 слова под число
+регистров) и `MaxCountBits` (FC01/FC02, ≤246 бит); старый общий ключ `MaxCount`
+мигрируется в оба при загрузке и удаляется при сохранении (`SettingKeys` — 24 ключа).
+Планировщик ограничивает каждый пакет своим лимитом, предупреждение «пакет превышает
+лимит» выдаётся по типу функции пакета; UI — отдельные поля с валидацией диапазонов
+(регистры 0–123, биты 0–246).
+
+**F21 — станции из IO_LIST: параметры станции в `SCADA_MB_SLAVE_RULES` (2026-10):**
+таблица правил «станция → SlaveId» дополнена параметрами станции из IO_LIST: `IpMain`/
+`IpReserve` (IP основной/резервный), `Protocol` (TCP/RTU), `Speed`, UART (`Parity`,
+`StopBit`, `DataBit`), `Reverse`, `Timeout`, `MaxLength`; старые базы дополняются
+колонками идемпотентно. `FillSlaveRulesCommand` («Заполнить из IO_LIST») строит правила
+из колонок `M_SlaveStation`/`M_SlaveIdMain` и IP станции (основной/резерв), SlaveId
+существующих правил не затираются. Протокол станции далее определяет выбор
+мастер-шаблона (F22), RTU-пакеты планируются с `IsRtu`.
+
+**F22 — именованные мастер-шаблоны и генерация по протоколу станции (2026-10):**
+мастер-шаблоны блоков хранятся в `SCADA_MASTER_TEMPLATES` (Name/Protocol/Body/
+FilePath; Protocol со «RTU» → RTU, иначе TCP): окно получает CRUD-список (залить из
+файла, сохранить, удалить) и настройки `MasterTemplateName`/`MasterRtuTemplateName`;
+шаблоны привязок DataIn — `SCADA_DATAIN_TEMPLATES` (хранилище без генерации).
+`ScadaTemplateXmlService.WriteProtocolSplit` генерирует документ по протоколу станции:
+TCP-пакеты — из TCP-шаблона, RTU — из RTU-шаблона, результаты склеиваются в один
+`BufScadaPOUS` с уникальными T11/Info (`MergeSplitResults`); без RTU-шаблона RTU-пакеты
+пропускаются с предупреждением в `Warnings`.
+
+**F23 — переменные шаблона: маппинг «вход → колонка/литерал» (`SCADA_TEMPLATE_VARS`,
+2026-10):** таблица `SCADA_TEMPLATE_VARS` (Scope/TemplateName/Var/IoColumn/Literal)
+хранит маппинг переменных генерации; скоуп `master` — входы мастера (dataout/datain —
+в плане после приёмки master). UI «Переменные мастер-шаблона»: список входов парсится
+из связей текущего шаблона (`ParseInputVariables`: SlaveId/TimeOut/Mode/Address/Count/
+…), для каждой задаётся колонка IO_LIST (ComboBox из FieldRegistry) или литерал;
+колонка «Источник» показывает подстановку без маппинга («из плана» — SlaveId/Mode/
+Address/Count/TimeOut из расчёта пакета, «из шаблона» — значение шаблона). «Сохранить
+маппинг» пишет строки скоупа master (полная замена); при экспорте
+`ApplyTemplateVarsToPackets` заполняет `MbPacketPlan.VarValues` значением колонки
+первой точки пакета (`ColumnValues`) либо литералом. Генератор имеет приоритет
+`VarValues` над источником из плана (числовой Address форматируется как вход блока),
+пустая колонка/неизвестная переменная — источник из плана с предупреждением в журнале;
+константа-источник (GROBJTYPE=34) получает `Info`/`T11Text`, тег — IV.
+
+**F24 — токены `{ИмяКолонки}` в паттернах имён блоков/POU (2026-10):** `MbPacketPlan`
+несёт `ColumnValues` — колонки IO_LIST первой точки пакета (`ColumnValuesOf(IoPoint)`:
+Identification/Signal/Modbus-колонки с непустым значением, заполняется в `BuildPlan`).
+`ApplyBlockNamePattern` (имя блока) и `BuildPouName` (имя POU) после служебных токенов
+`{Seq}/{Slave}/{Station}/{Ip}/{Func}/{Port}` резолвят `{ИмяКолонки}` по значениям
+пакета (пробелы/точки → `_`); неизвестный токен остаётся литералом как есть. Примеры
+паттернов: `MB_{Tag}_{Seq}`, `{M_SlaveStation}_POU`.
+
+**F25 — маппинг «на каждый шаблон» + фикс ComboBox «Колонка IO_LIST» (2026-10):**
+`SCADA_TEMPLATE_VARS.TemplateName` теперь ключ маппинга — имя XML-файла шаблона без
+расширения (`ModbusTCP_v0`), для вставленного кода — `current`; пустое имя — легаси-
+строки (общий fallback для шаблонов без своего маппинга). VM ведёт `CurrentTemplateKey`
+(пересчёт в `CheckTemplate`/`SaveTemplateVars`); «Сохранить маппинг» заменяет только
+строки `[Scope]+[TemplateName]` (чужие шаблоны не затираются); `LoadTemplateVars(scope,
+templateName)` читает строки ключа + легаси (при совпадении `Var` приоритет у ключа).
+В UI — подпись «шаблон: …» рядом с кнопками. Пустой список «Колонка IO_LIST» исправлен:
+`DataGridComboBoxColumn` (прямой `ItemsSource` не наследует DataContext) заменён на
+`DataGridTemplateColumn` + `ComboBox` c `RelativeSource AncestorType=Window` (паттерн F14/
+ImportWindow), `IsEditable=True` — колонку можно и выбрать, и вписать.
+
+Приёмка: **455 проверок смоука пройдена** (F25 — 5; регрессия F13–F24 зелёная).
+
+**F26 — фикс: «Сохранить настройки» не сбрасывал «Шаблон привязок» в гриде Typno (2026-10):**
+причина — `LoadDataOutTemplateList()` начинался с `DataOutTemplateNames.Clear()`; Reset-событие
+`ObservableCollection` сбрасывал `ItemsSource` редактируемого ComboBox в колонке «Шаблон
+привязок», TwoWay-привязка `Text` затирала `MbTypnoMapRule.Template` пустым значением.
+Лечение — поштучная синхронизация (Remove отсутствующих/Add новых, обновление `Body/FilePath`
+у существующих) без Reset; выбор/привязки не сбрасываются.
+
+**F27 — колонка `M_Marka` в IO_LIST и кнопка «Записать Марку в IO_LIST» (2026-10):**
+`IO_LIST.M_Marka TEXT(255)` (конец блока M_* перед `CBL_Id`; 130 колонок данных + ID = 131,
+`EnsureColumns` добавляет старым базам идемпотентно). `IoPoint.Modbus.Marka` +
+`FieldRegistry`/`FieldDescriptions`. `ScadaTechObjectRow.SourceTag` (служебное поле превья F12,
+в Excel не экспортируется) заполняется в `BuildRows`. Кнопка **«Записать Марку в IO_LIST»**
+(окно F12, рядом с «Сформировать Excel…») → `ScadaTechObjectService.WriteMarka(rows, repo)`:
+по `SourceTag` находит точку, пишет `M_Marka` (аудит Update, одна сессия репозитория),
+итог MessageBox (обновлено/не найдено).
+
+**F28 — фильтр станций при экспорте (пакт 4 ТЗ; 2026-10):** `MbStationFilterItem`
+(станция/галочка/число пакетов), коллекция `StationFilters` заполняется в `Build()` по станциям
+плана (новые — выбранными, состояние существующих сохраняется при перестроении), кнопки
+«Все»/«Ни одной» + подсказка «Генерить станций: X из Y». `SelectedStationPackets()`/`FilteredPlan()`:
+экспорт XML **и** запись привязок в IO_LIST работают только по выбранным станциям (иначе
+`M_BusBlock` заполнился бы у негенерируемых); не выбрана ни одна — понятная ошибка.
+Статус экспорта содержит «станций X/Y». UI — панель чекбоксов над превью пакетов.
+
+**F29 — шаблон пакетов по станции (2026-10):** `SCADA_MB_SLAVE_RULES.MasterTemplate
+TEXT(255)` (DDL + ALTER-миграция F21-списка) — в правиле станции выбирается конкретный
+шаблон из `SCADA_MASTER_TEMPLATES`; `LoadSlaveRules`/`SaveSlaveRules` читают/пишут колонку,
+`MergeSlaveRulesFromPoints` ручное поле не трогает. Экспорт: `Export()` строит словарь
+«станция → тело шаблона» (правило → иначе fallback по Protocol: TCP/RTU из настроек);
+`ScadaTemplateXmlService.WriteProtocolSplit` получил перегрузку с `templateByStation` —
+пакеты группируются по **телу шаблона** (станции с одним шаблоном → один проход Write;
+склейка `MergeSplitResults` со сдвигом T11/cardId — как в F22). Колонка «Шаблон пакетов»
+(редактируемый ComboBox) в гриде станций. Typno по-прежнему влияет только на data-шаблоны.
+
+**F30 — функции записи в пакетах: привязки DataIn[] (2026-10):** `BuildPlan` включает
+FC05/06/15/16 (раньше `SkippedWrite`); в группировке (IP×порт×M_FuncCode — один код функции
+на пакет) записи образуют отдельные пакеты; FC05/FC06 — пакет ровно на 1 операцию
+(одиночная запись Modbus); FC15 битовые/FC16 регистровые лимиты как у чтения (F20);
+FC22/23 — `NormalizeFuncCode` расширен до 23, отклоняются с предупреждением.
+`MbPacketPlan.IsWrite`/`Direction`, `MbBinding.IsWrite`; привязка — `{Block}.DataIn[байт]`
+(байтовый индекс `DataOutByteIndex` тот же; путь хранится в `M_BusDataOut`).
+`Exemplar.IsWrite`/`IsDataInBlock`: `Parse` принимает datain-эталоны (корень — тег без
+входящих, приёмник — «.DataIn[…]»; `SourceCount` = число DataIn-блоков), подстановки в
+`ApplyBindingSubstitutions` инвертированы (тег → имя тега, DataIn → `{Block}.DataIn[байт]`).
+`Write(..., dataInTemplates)` — для записи `ChooseWriteTemplate` ищет эталон: имя Typno-правила
+среди datain → по typeKey среди datain (единый write-эталон — без предупреждений) → нет
+write-эталона → пропуск с предупреждением; защита `b.IsWrite == ex.IsWrite`.
+VM передаёт `SCADA_DATAIN_TEMPLATES` при экспорте. Превью: колонка «Направление».
+
+**F31 — разделение окна: Master-шаблоны и data-шаблоны в одном месте (2026-10):**
+левая колонка — `TabControl`: **«① Шаблоны пакетов (Master)»** (текущий XML-шаблон,
+мастер-шаблоны CRUD + новая кнопка **«Из файла…»** (`OpenMasterTemplate`: файл →
+`SCADA_MASTER_TEMPLATES`, Protocol по имени) + TCP/RTU-выбор) и **«② Data-шаблоны»**
+(редактор привязок Data_Out + **объединённый перечень** `DataTemplates` — dataout∪datain
+с колонкой «Направление»; отдельная группа «Залитые шаблоны (мастер/DataIn)» убрана).
+Кнопки перечня: **«Из файла…»** (`OpenDataTemplate` — тип определяется по содержимому:
+есть «.DataIn[» → запись, иначе чтение; файл → БД → перечень → выбор), «В редактор»
+(чтение → редактор привязок; запись → сводка), «Удалить» (по типу строки). Модель
+`MbDataTemplateRow {Kind, Name, FilePath}`; `RefreshDataTemplates()` (поштучно, без Reset —
+F26-фикс сохранён) и расширяет `DataOutTemplateNames` именами datain (грид Typno ссылается
+на любой data-шаблон; выбор/удаление делегируются командам F16/F22).
+
+**F32 — строковые шаблоны привязок переменных (2026-10):** в маппинге
+`SCADA_TEMPLATE_VARS` колонка `IoColumn` теперь принимает И строку-шаблон с несколькими
+токенами — «`{M_DcsTag} Adress: {M_Address}`» (литералы между токенами сохраняются) —
+ИЛИ имя колонки, а `Literal` — фиксированный текст (как раньше). Резолв —
+`ModbusBlockPlannerService.RenderVarTemplate(template, columnValues, out unresolved)`:
+токены по `ColumnValues` первой точки пакета; неизвестная/пустая колонка → её токен
+остаётся литералом + предупреждение (семантика `RenderValue` F12). Применение —
+`ApplyTemplateVarsToPackets` (приоритет VarValues в Write, F23). Колонка UI переименована
+в «Колонка / шаблон» (IsEditable — ввод строки с `{}`).
+
+Приёмка: **475 проверок смоука пройдена** (F26–F32 — 20+ новых; регрессия F9–F25 зелёная).
+
+Все таблицы создаются идемпотентно в `TableCreator.EnsureServiceTables`;
+хранилище — `ModbusBlockPlannerService` (`LoadSettings`/`SaveSettings` — полная замена
+ключей, `LoadSlaveRules`/`SaveSlaveRules` — полная замена с валидацией: пустая станция/
+SlaveId вне 1-255 отбрасываются, `LoadInlineTemplate`/`SaveInlineTemplate` — MEMO
+roundtrip). Привязки блоков в самой `IO_LIST` — колонки `M_BusBlock`/`M_BusDataOut`
+(заполняются `WriteBindings` по кнопке окна F13; ограничение F9.4 — только Modbus-сигналы).
+
+```sql
+CREATE TABLE SCADA_MB_SETTINGS (
+  [ID] COUNTER PRIMARY KEY,
+  [Name] TEXT(255), [Value] TEXT(255)
+);
+
+CREATE TABLE SCADA_MB_SLAVE_RULES (
+  [ID] COUNTER PRIMARY KEY,
+  [Station] TEXT(255), [SlaveId] LONG,
+  [IpMain] TEXT(255), [IpReserve] TEXT(255), [Protocol] TEXT(10),
+  [Speed] TEXT(50), [Parity] YESNO, [StopBit] LONG, [DataBit] LONG,
+  [Reverse] YESNO, [Timeout] LONG, [MaxLength] LONG,
+  [MasterTemplate] TEXT(255)  -- F29: шаблон пакетов станции из SCADA_MASTER_TEMPLATES
+);
+
+CREATE TABLE SCADA_MB_TEMPLATE (
+  [ID] COUNTER PRIMARY KEY,
+  [Name] TEXT(50), [Body] MEMO
+);
+
+CREATE TABLE SCADA_TYPNO_MAP (
+  [ID] COUNTER PRIMARY KEY,
+  [Typno] TEXT(255), [Template] TEXT(255), [Exemplar] TEXT(255)
+);
+
+CREATE TABLE SCADA_DATAOUT_TEMPLATES (
+  [ID] COUNTER PRIMARY KEY,
+  [Name] TEXT(255), [Body] MEMO, [FilePath] TEXT(255)
+);
+
+CREATE TABLE SCADA_MASTER_TEMPLATES (
+  [ID] COUNTER PRIMARY KEY,
+  [Name] TEXT(255), [Protocol] TEXT(10), [Body] MEMO, [FilePath] TEXT(255)
+);
+
+CREATE TABLE SCADA_DATAIN_TEMPLATES (
+  [ID] COUNTER PRIMARY KEY,
+  [Name] TEXT(255), [Body] MEMO, [FilePath] TEXT(255)
+);
+
+CREATE TABLE SCADA_TEMPLATE_VARS (
+  [ID] COUNTER PRIMARY KEY,
+  [Scope] TEXT(10), [TemplateName] TEXT(255),
+  [Var] TEXT(255), [IoColumn] TEXT(255), [Literal] TEXT(255)
+);
+```
+
 ### Пример таблицы `IO_LIST` (значения — строка 2 листа `OSBL_IO_List_SCS_v4`, файл «пример данных.xlsx»)
 
 **Служебное:**
@@ -867,6 +1174,7 @@ CREATE TABLE SCADA_TEHOBJ_SETTINGS (
 | `SubLoop` | TEXT(255) | *NULL* (в Excel «-») |
 | `ProcessLoop` | TEXT(255) | *NULL* |
 | `Logic` | TEXT(255) | 2701-Z-10001/2701-Z-10004/2701-Z-10101 |
+| `Typno` | TEXT(255) | PID1200-01R (F14: типовой алгоритм; пусто — вне генерации F14) |
 | `Tag` ★ | TEXT(255) | 2701-XZY-10101A |
 | `ProcessTag` | TEXT(255) | 2701-XZY-10101A |
 | `System` | TEXT(255) | SIS |

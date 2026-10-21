@@ -46,6 +46,10 @@ namespace IO_PJT.Models
         public string PlcGr { get; set; } = "1";
         /// <summary>TEMPLATE (Шаблон) — всегда «простой».</summary>
         public string Template { get; set; } = "простой";
+
+        /// <summary>F27: Tag точки-источника IO_LIST (служебное поле для «Записать Марку в IO_LIST»;
+        /// в Excel не экспортируется).</summary>
+        public string SourceTag { get; set; } = "";
     }
 
     /// <summary>F12: соответствие типа данных IO_LIST (колонка M_DataType карты Modbus)

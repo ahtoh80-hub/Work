@@ -20,6 +20,8 @@
                             ToolTip="Собрать строки перечня из текущей таблицы (только точки с заполненной адресацией Modbus — M_PlcTag)" />
                     <Button Content="Сформировать Excel..." Command="{Binding ExportCommand}" Width="140" Margin="0,0,6,0" FontWeight="SemiBold"
                             ToolTip="Сохранить превью в Excel в формате образца «ТехОбъекты_простой.xls» (шапка 4 строки, данные с 5-й)" />
+                    <Button Content="Записать Марку в IO_LIST" Command="{Binding WriteMarkaCommand}" Width="185" Margin="0,0,6,0"
+                            ToolTip="F27: заполнить колонку M_Marka у точек IO_LIST Марками из превью (по Tag; аудит Update)" />
                     <Button Content="Сохранить настройки" Command="{Binding SaveSettingsCommand}" Width="140" Margin="0,0,6,0"
                             ToolTip="Записать поля-источники и константы в SCADA_TEHOBJ_SETTINGS (переживают перезапуск)" />
                     <Button Content="Сохранить маппинг типов" Command="{Binding SaveMappingsCommand}" Width="165" Margin="0,0,6,0"

@@ -51,3 +51,7 @@ c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\ModbusLinkRulesWindow.baml
 c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\ModbusLinkRulesWindow.g.cs
 c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\ScadaTechObjectsWindow.baml
 c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\ScadaTechObjectsWindow.g.cs
+c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\ScadaModbusBlocksWindow.baml
+c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\ScadaModbusBlocksWindow.g.cs
+c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\NamePromptWindow.baml
+c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\NamePromptWindow.g.cs

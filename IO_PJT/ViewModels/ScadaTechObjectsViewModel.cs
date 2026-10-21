@@ -41,6 +41,9 @@ namespace IO_PJT.ViewModels
 
         public RelayCommand BuildCommand { get; }
         public RelayCommand ExportCommand { get; }
+
+        /// <summary>F27: «Записать Марку в IO_LIST» — колонка M_Marka по превью.</summary>
+        public RelayCommand WriteMarkaCommand { get; }
         public RelayCommand SaveSettingsCommand { get; }
         public RelayCommand SaveMappingsCommand { get; }
         public RelayCommand AddMappingCommand { get; }
@@ -59,6 +62,7 @@ namespace IO_PJT.ViewModels
             Settings = _s.ScadaTechObjects.LoadSettings();
             BuildCommand = new RelayCommand(Build);
             ExportCommand = new RelayCommand(Export, () => Preview.Count > 0);
+            WriteMarkaCommand = new RelayCommand(WriteMarkaToDb, () => Preview.Count > 0);
             SaveSettingsCommand = new RelayCommand(SaveSettings);
             SaveMappingsCommand = new RelayCommand(SaveMappings);
             AddMappingCommand = new RelayCommand(AddMapping);
@@ -138,6 +142,32 @@ namespace IO_PJT.ViewModels
             {
                 _s.Log.Error($"F12: ошибка экспорта: {ex.Message}");
                 StatusText = $"Ошибка экспорта: {ex.Message}";
+            }
+        }
+
+        /// <summary>F27: «Записать Марку в IO_LIST» — колонка M_Marka по SourceTag строк превья
+        /// (MessageBox со счётчиками, аудит Update).</summary>
+        private void WriteMarkaToDb()
+        {
+            if (_built == null) return;
+            try
+            {
+                var (updated, notFound) = _s.ScadaTechObjects.WriteMarka(_built.Rows, _s.Repo);
+                string summary = $"Марка записана в IO_LIST (M_Marka): обновлено точек: {updated}; " +
+                                 $"тегов не найдено: {notFound}";
+                _s.Log.Info($"F12/F27: {summary}");
+                MessageBox.Show(
+                    summary + (notFound > 0 ? $"\n\nТеги не найдены: {notFound} (первые — в журнале)." : ""),
+                    "Марка в IO_LIST",
+                    MessageBoxButton.OK,
+                    notFound > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
+                StatusText = summary;
+            }
+            catch (Exception ex)
+            {
+                string msg = DbProbe.ClassifyMessage(ex.Message);
+                _s.Log.Error($"F12/F27: ошибка записи Марки: {msg}");
+                StatusText = $"Ошибка записи Марки: {msg}";
             }
         }
 

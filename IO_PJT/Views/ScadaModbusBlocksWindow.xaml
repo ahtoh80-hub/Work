@@ -1,0 +1,544 @@
+﻿<Window x:Class="IO_PJT.Views.ScadaModbusBlocksWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Генерация блоков Modbus (XML, F13)" Width="1350" Height="780"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        PreviewMouseWheel="Window_PreviewMouseWheel">
+
+    <!-- F13: генерация блоков опроса Modbus TCP для импорта в SCADA: внешний XML-шаблон
+         (файл или вставленный код) размножается по пакетам из точек с адресацией (M_PlcTag);
+         привязки DataOut[i] пишутся в IO_LIST (M_BusBlock/M_BusDataOut) и выгружаются
+         отдельным файлом привязок. -->
+    <DockPanel Margin="8">
+
+        <Border DockPanel.Dock="Top" Padding="4" Margin="0,0,0,6">
+            <StackPanel>
+                <TextBlock Text="{Binding FieldsHint}" TextWrapping="Wrap" Foreground="#444444" Margin="0,0,0,6" />
+                <StackPanel Orientation="Horizontal">
+                    <Button Content="Построить превью" Command="{Binding BuildCommand}" Width="130" Margin="0,0,6,0"
+                            ToolTip="Сформировать пакеты-запросы из точек с адресацией Modbus (M_PlcTag) по шаблону" />
+                    <Button Content="Записать привязки в IO_LIST" Command="{Binding WriteBindingsCommand}" Width="200" Margin="0,0,6,0"
+                            ToolTip="Заполнить M_BusBlock (имя блока) и M_BusDataOut (Block.DataOut[i]) у точек плана; непопавшие в пакеты — очистка. Аудит Update" />
+                    <Button Content="Сформировать XML..." Command="{Binding ExportCommand}" Width="140" Margin="0,0,6,0" FontWeight="SemiBold"
+                            ToolTip="Сохранить BufScadaPOUS из шаблона + файл привязок «{имя}_bindings.xml» рядом" />
+                    <Button Content="Сохранить настройки" Command="{Binding SaveSettingsCommand}" Width="140" Margin="0,0,6,0"
+                            ToolTip="Записать параметры в SCADA_MB_SETTINGS; в режиме «Код» — и шаблон в SCADA_MB_TEMPLATE" />
+                    <Button Content="Сохранить правила SlaveId" Command="{Binding SaveRulesCommand}" Width="175"
+                            ToolTip="Записать таблицу «станция → SlaveId» в SCADA_MB_SLAVE_RULES (полная замена)" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <Border DockPanel.Dock="Bottom" Padding="4,6">
+            <StackPanel>
+                <TextBlock Text="{Binding StatsText}" FontWeight="SemiBold" TextWrapping="Wrap" Foreground="#1F4E79" />
+                <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Margin="0,2,0,0" />
+            </StackPanel>
+        </Border>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="420" />
+                <ColumnDefinition Width="6" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <ScrollViewer x:Name="LeftScroller" VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+
+                    <!-- F31: разделение окна по ТЗ — «① шаблоны пакетов (Master)» и
+                         «② data-шаблоны (привязки чтения/записи)»; общие настройки ниже -->
+                    <TabControl>
+                        <TabItem Header="① Шаблоны пакетов (Master)">
+                            <StackPanel Margin="4">
+
+                    <GroupBox Header="XML-шаблон (структура одного запроса)" Margin="0,0,0,6">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,2,0,4">
+                                <RadioButton Content="Файл" GroupName="TMode" IsChecked="{Binding ModeFile}" Margin="0,0,12,0"
+                                             ToolTip="Шаблон читается из файла (по умолчанию — MB_TCP_MASTER_пример_new.xml рядом с программой)" />
+                                <RadioButton Content="Код" GroupName="TMode" IsChecked="{Binding ModeInline}"
+                                             ToolTip="Шаблон вставляется в поле ниже и хранится в SCADA_MB_TEMPLATE (MEMO)" />
+                            </StackPanel>
+                            <DockPanel Margin="0,0,0,4">
+                                <Button DockPanel.Dock="Right" Content="Обзор..." Command="{Binding BrowseTemplateCommand}" Width="80" Margin="6,0,0,0"
+                                        ToolTip="Выбрать файл шаблона и переключить режим на «Файл»" />
+                                <TextBox Text="{Binding Settings.TemplateFilePath, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="Путь к файлу шаблона; пусто — авто-поиск MB_TCP_MASTER_пример_new.xml (каталог exe, Work\, встроенная копия)" />
+                            </DockPanel>
+                            <TextBox Text="{Binding InlineTemplateText, UpdateSourceTrigger=PropertyChanged}"
+                                     AcceptsReturn="True" AcceptsTab="True" VerticalScrollBarVisibility="Auto"
+                                     FontFamily="Consolas" FontSize="11" Height="120" TextWrapping="NoWrap"
+                                     ToolTip="XML-шаблон BufScadaPOUS: POU с блоком мастера MB_TCP_MASTER (IsaObjId 15003) и его обвязкой" />
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                <Button Content="Проверить шаблон" Command="{Binding CheckTemplateCommand}" Width="140" Margin="0,0,6,0"
+                                        ToolTip="Разобрать шаблон: корень BufScadaPOUS, блоки, мастер MB_TCP_MASTER" />
+                                <TextBlock Text="{Binding TemplateStatus}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <!-- F22/F31: залитые мастер-шаблоны пакетов (SCADA_MASTER_TEMPLATES) —
+                         «первое место» по ТЗ (шаблоны пакетов TCP/RTU отдельно от data) -->
+                    <GroupBox Header="Мастер-шаблоны пакетов (SCADA_MASTER_TEMPLATES)" Margin="0,0,0,6">
+                        <StackPanel>
+                            <ComboBox ItemsSource="{Binding MasterTemplates}" DisplayMemberPath="Name"
+                                      SelectedItem="{Binding SelectedMasterTemplate}" Height="24"
+                                      ToolTip="F22: все залитые мастер-шаблоны; Protocol определяется по имени («RTU» → RTU, иначе TCP)" />
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,4">
+                                <Button Content="Из файла…" Command="{Binding OpenMasterTemplateCommand}" Width="90" Margin="0,0,6,0"
+                                        ToolTip="F31: открыть XML-файл шаблона пакетов — сохранить в БД и добавить в перечень (Protocol по имени: «RTU» → RTU)" />
+                                <Button Content="В редактор" Command="{Binding LoadMasterTemplateCommand}" Width="85" Margin="0,0,6,0"
+                                        ToolTip="Тело выбранного мастер-шаблона → редактор «Код» (проверка/генерация)" />
+                                <Button Content="Сохранить текущий…" Command="{Binding SaveMasterTemplateAsCommand}" Width="135" Margin="0,0,6,0"
+                                        ToolTip="Текущий шаблон блоков (файла или кода) → SCADA_MASTER_TEMPLATES под именем" />
+                                <Button Content="Удалить" Command="{Binding DeleteMasterTemplateCommand}" Width="70" />
+                            </StackPanel>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="95" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition />
+                                    <RowDefinition />
+                                </Grid.RowDefinitions>
+                                <Label Grid.Row="0" Grid.Column="0" Content="TCP-шаблон:" VerticalAlignment="Center" />
+                                <ComboBox Grid.Row="0" Grid.Column="1" Margin="4,2"
+                                          ItemsSource="{Binding MasterTemplates}" DisplayMemberPath="Name"
+                                          SelectedValuePath="Name"
+                                          SelectedValue="{Binding Settings.MasterTcpTemplateName, UpdateSourceTrigger=PropertyChanged}"
+                                          Height="24"
+                                          ToolTip="F22: мастер-шаблон для пакетов Modbus TCP; пусто — текущий шаблон редактора (историческое поведение)" />
+                                <Label Grid.Row="1" Grid.Column="0" Content="RTU-шаблон:" VerticalAlignment="Center" />
+                                <ComboBox Grid.Row="1" Grid.Column="1" Margin="4,2"
+                                          ItemsSource="{Binding MasterTemplates}" DisplayMemberPath="Name"
+                                          SelectedValuePath="Name"
+                                          SelectedValue="{Binding Settings.MasterRtuTemplateName, UpdateSourceTrigger=PropertyChanged}"
+                                          Height="24"
+                                          ToolTip="F22: мастер-шаблон для пакетов Modbus RTU; пусто — RTU-пакеты пропускаются с предупреждением. Для конкретной станции выберите шаблон в правиле («Шаблон пакетов») — F29" />
+                            </Grid>
+                        </StackPanel>
+                    </GroupBox>
+
+                            </StackPanel>
+                        </TabItem>
+
+                        <TabItem Header="② Data-шаблоны (привязки чтения/записи)">
+                            <StackPanel Margin="4">
+
+                    <!-- F13.1: отдельный шаблон привязок out → tagname: эталоны цепочек по типам
+                         сигналов (Disc OnePOU = BOOL/INT/DINT/REAL), клонируются на каждую пару
+                         (пакет, индекс DataOut) с подстановкой тега из IO_LIST -->
+                    <GroupBox Header="XML-шаблон привязок (Data_Out: out → tagname)" Margin="0,0,0,6">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,2,0,4">
+                                <RadioButton Content="Файл" GroupName="DMode" IsChecked="{Binding ModeDataOutFile}" Margin="0,0,12,0"
+                                             ToolTip="Шаблон привязок читается из файла (по умолчанию — Data_Out_пример.xml рядом с программой)" />
+                                <RadioButton Content="Код" GroupName="DMode" IsChecked="{Binding ModeDataOutInline}"
+                                             ToolTip="Шаблон привязок вставляется в поле ниже и хранится в SCADA_MB_TEMPLATE (строка «dataout»)" />
+                            </StackPanel>
+                            <DockPanel Margin="0,0,0,4">
+                                <Button DockPanel.Dock="Right" Content="Обзор..." Command="{Binding BrowseDataOutTemplateCommand}" Width="80" Margin="6,0,0,0"
+                                        ToolTip="Выбрать файл шаблона привязок и переключить режим на «Файл»" />
+                                <TextBox Text="{Binding Settings.DataOutTemplateFilePath, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="Путь к файлу шаблона привязок; пусто — авто-поиск Data_Out_пример.xml (каталог exe, Work\, встроенная копия)" />
+                            </DockPanel>
+                            <!-- F16: имя текущего шаблона + список именованных шаблонов (SCADA_DATAOUT_TEMPLATES) -->
+                            <DockPanel Margin="0,0,0,4">
+                                <TextBlock DockPanel.Dock="Left" Text="Имя шаблона:" VerticalAlignment="Center" Margin="0,0,6,0"
+                                           ToolTip="F16: идентификатор шаблона для SCADA_TYPNO_MAP (колонка «Шаблон привязок»); для файла по умолчанию — его имя без расширения" />
+                                <TextBox Text="{Binding Settings.DataOutTemplateName, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="F16: имя шаблона в SCADA_DATAOUT_TEMPLATES (уникально без учёта регистра); пусто — имя будет задано при сохранении" />
+                            </DockPanel>
+                            <ComboBox ItemsSource="{Binding DataOutTemplates}" DisplayMemberPath="Name"
+                                      SelectedItem="{Binding SelectedDataOutTemplate}" Margin="0,0,0,4"
+                                      ToolTip="F16: сохранённые именованные шаблоны привязок (SCADA_DATAOUT_TEMPLATES): Typno в гриде ниже ссылается на имя шаблона" />
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                <Button Content="Сохранить под именем…" Command="{Binding SaveDataOutTemplateAsCommand}" Width="155" Margin="0,0,6,0"
+                                        ToolTip="Текущий текст (файла или кода) сохраняется в SCADA_DATAOUT_TEMPLATES под именем из поля «Имя шаблона»; пустое имя — будет задан вопрос" />
+                                <Button Content="Загрузить" Command="{Binding LoadDataOutTemplateCommand}" Width="90" Margin="0,0,6,0"
+                                        ToolTip="Вставить тело выбранного шаблона в редактор (режим «Код»)" />
+                                <Button Content="Обновить из файла" Command="{Binding UpdateDataOutTemplateFileCommand}" Width="135" Margin="0,0,6,0"
+                                        ToolTip="Перечитать тело выбранного шаблона из его файла-источника (колонка FilePath в БД)" />
+                                <Button Content="Удалить" Command="{Binding DeleteDataOutTemplateCommand}" Width="90"
+                                        ToolTip="Удалить выбранный шаблон; правила Typno на него → основной шаблон" />
+                            </StackPanel>
+                            <TextBox Text="{Binding InlineDataOutText, UpdateSourceTrigger=PropertyChanged}"
+                                     AcceptsReturn="True" AcceptsTab="True" VerticalScrollBarVisibility="Auto"
+                                     FontFamily="Consolas" FontSize="11" Height="110" TextWrapping="NoWrap"
+                                     ToolTip="XML-шаблон BufScadaPOUS: эталоны цепочек «DataOut[i] → обработка → тег», тип эталона — в Disc OnePOU (BOOL/INT/DINT/REAL)" />
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                <Button Content="Проверить" Command="{Binding CheckDataOutTemplateCommand}" Width="140" Margin="0,0,6,0"
+                                        ToolTip="Разобрать шаблон привязок: корень BufScadaPOUS, эталоны по Disc (BOOL/INT/DINT/REAL)" />
+                                <TextBlock Text="{Binding DataOutTemplateStatus}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <!-- F31: объединённый перечень data-шаблонов — чтение (SCADA_DATAOUT_TEMPLATES,
+                         «DataOut[] → тег») и запись (SCADA_DATAIN_TEMPLATES, «тег → DataIn[]»)
+                         в одном месте; отдельная вкладка DataIn убрана -->
+                    <GroupBox Header="Data-шаблоны (перечень: чтение + запись)" Margin="0,0,0,6">
+                        <StackPanel>
+                            <DataGrid ItemsSource="{Binding DataTemplates}" SelectedItem="{Binding SelectedDataTemplate}"
+                                      AutoGenerateColumns="False" IsReadOnly="True" Height="110"
+                                      HeadersVisibility="Column" Margin="0,2,0,4"
+                                      ToolTip="F31: все залитые data-шаблоны: чтение — цепочки «DataOut[] → тег», запись — «тег → DataIn[]» (генерация берёт эталон по типу/Typno)">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Направление" Binding="{Binding Kind}" Width="70" />
+                                    <DataGridTextColumn Header="Имя" Binding="{Binding Name}" Width="*" />
+                                    <DataGridTextColumn Header="Файл-источник" Binding="{Binding FilePath}" Width="130" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                            <StackPanel Orientation="Horizontal">
+                                <Button Content="Из файла…" Command="{Binding OpenDataTemplateCommand}" Width="90" Margin="0,0,6,0"
+                                        ToolTip="F31: открыть XML-файл — тип определяется автоматически (есть «.DataIn[» → запись), шаблон сохраняется в БД и появляется в перечне" />
+                                <Button Content="В редактор" Command="{Binding LoadDataTemplateCommand}" Width="90" Margin="0,0,6,0"
+                                        ToolTip="F31: тело выбранного шаблона чтения → редактор привязок; записи — сводка в статусе" />
+                                <Button Content="Удалить" Command="{Binding DeleteDataTemplateCommand}" Width="80"
+                                        ToolTip="F31: удалить выбранный шаблон (SCADA_DATAOUT_/SCADA_DATAIN_TEMPLATES)" />
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
+
+                            </StackPanel>
+                        </TabItem>
+                    </TabControl>
+
+                    <GroupBox Header="Пакетирование" Margin="0,0,0,6">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition /><RowDefinition /><RowDefinition />
+                                <RowDefinition /><RowDefinition /><RowDefinition />
+                                <RowDefinition /><RowDefinition /><RowDefinition />
+                                <RowDefinition /><RowDefinition />
+                            </Grid.RowDefinitions>
+                            <Label Grid.Row="0" Grid.Column="0" Content="Политика:" />
+                            <ComboBox Grid.Row="0" Grid.Column="1" Margin="4" SelectedIndex="{Binding PolicyIndex}"
+                                      ToolTip="Непрерывные диапазоны — разрыв адресов → новый блок; Покрытие — поле min..max (прорехи вхолостую); Фиксированные — по лимиту Count от начального адреса; С допуском разрыва — прореха ≤ MaxGap в одном блоке, > MaxGap → новый блок">
+                                <ComboBoxItem Content="Непрерывные диапазоны" />
+                                <ComboBoxItem Content="Покрытие min..max" />
+                                <ComboBoxItem Content="Фиксированные (по лимиту)" />
+                                <ComboBoxItem Content="С допуском разрыва (MaxGap)" />
+                            </ComboBox>
+                            <Label Grid.Row="1" Grid.Column="0" Content="Лимит в пакете:" />
+                            <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="4,4,4,4">
+                                <Label Content="Регистры (0-123):" VerticalAlignment="Center" Padding="0,0,4,0" />
+                                <TextBox Width="64" VerticalAlignment="Center"
+                                         Text="{Binding Settings.MaxCountRegisters, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="F20: максимум регистров в пакете для FC03/FC04; фактический лимит = min(значение, 123 — лимит блока MB_TCP_MASTER); 0 — без ограничения (123)" />
+                                <Label Content="Бит (0-246):" VerticalAlignment="Center" Padding="14,0,4,0" />
+                                <TextBox Width="64" VerticalAlignment="Center"
+                                         Text="{Binding Settings.MaxCountBits, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="F20: максимум бит в пакете для FC01/FC02; фактический лимит = min(значение, 246 — лимит блока MB_TCP_MASTER); 0 — без ограничения (246)" />
+                            </StackPanel>
+                            <Label Grid.Row="2" Grid.Column="0" Content="Разрыв ≤ (MaxGap):" />
+                            <TextBox Grid.Row="2" Grid.Column="1" Margin="4"
+                                     Text="{Binding Settings.MaxGap, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="F13.1: промежуток адресов ≤ N — сигналы в одном блоке (читается вхолостую), > N — новый блок; только для политики «С допуском разрыва»; 0 — как «Непрерывные»" />
+                            <Label Grid.Row="3" Grid.Column="0" Content="Порт по умолчанию:" />
+                            <TextBox Grid.Row="3" Grid.Column="1" Margin="4"
+                                     Text="{Binding Settings.DefaultPort, UpdateSourceTrigger=PropertyChanged}" />
+                            <Label Grid.Row="4" Grid.Column="0" Content="SlaveId по умолчанию:" />
+                            <TextBox Grid.Row="4" Grid.Column="1" Margin="4"
+                                     Text="{Binding Settings.DefaultSlaveId, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="1-255; для станций без правила «станция → SlaveId»" />
+                            <Label Grid.Row="5" Grid.Column="0" Content="Таймаут по умолчанию, мс:" />
+                            <TextBox Grid.Row="5" Grid.Column="1" Margin="4"
+                                     Text="{Binding Settings.DefaultTimeoutMs, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="Если M_Timeout пуст; иначе — минимум из точек группы" />
+                            <Label Grid.Row="6" Grid.Column="0" Content="Имя блока TCP (шаблон):" />
+                            <TextBox Grid.Row="6" Grid.Column="1" Margin="4"
+                                     Text="{Binding Settings.BlockNamePattern, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="F13.1: маска имени блока мастера Modbus TCP; токены {Seq} — № пакета, {Slave} — SlaveId, {Station} — станция, {Ip} — IP через _, {Func} — код функции. Пример: MB_TCP_Master_{Slave}_{Seq}. Пусто — историческое правило (цифры имени шаблона + №)" />
+                            <Label Grid.Row="7" Grid.Column="0" Content="Имя блока RTU (шаблон):" />
+                            <TextBox Grid.Row="7" Grid.Column="1" Margin="4"
+                                     Text="{Binding Settings.BlockNamePatternRtu, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="F14: маска имени блока Modbus RTU — применяется, если мастер шаблона содержит «RTU» в имени; пусто — как TCP-маска (BlockNamePattern). Токены те же" />
+                            <CheckBox Grid.Row="8" Grid.Column="1" Margin="4"
+                                      IsChecked="{Binding Settings.FormatAddress}"
+                                      Content="Address в формате «регистр + адрес» (4001)"
+                                      ToolTip="F14: вход Address блока = префикс регистра (FC1→0, FC2→1, FC3→4, FC4→3) + адрес с ведущими нулями (FC3: 1 → 4001, 602 → 4602, 1506 → 41506); адрес ≥ 10000 из IO_LIST — как есть. Снимите — сырой адрес M_Address" />
+                            <Label Grid.Row="9" Grid.Column="0" Content="Имя POU (мастер-блоки):" />
+                            <TextBox Grid.Row="9" Grid.Column="1" Margin="4"
+                                     Text="{Binding Settings.PouNamePattern, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="F17: шаблон имени POU в основном файле BufScadaPOUS (импорт под этим именем); токены {Master} — имя мастера шаблона, {Station}/{Slave}/{Ip}/{Port}/{Func}/{Seq} — контекст первого пакета (POU один на все пакеты), {Date} (yyyyMMdd)/{Time} (HHmmss) — момент экспорта. Пусто — NAME из шаблона (MB_Master_4)" />
+                            <Label Grid.Row="10" Grid.Column="0" Content="Имя POU (привязки):" />
+                            <TextBox Grid.Row="10" Grid.Column="1" Margin="4"
+                                     Text="{Binding Settings.DataOutPouNamePattern, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="F17: шаблон имени POU в файле привязок (один POU на пакет); токены {Master} — имя блока мастера пакета, {Seq} — № пакета, {Slave}, {Station}, {Ip}, {Port}, {Func}, {Date}/{Time}; дубли внутри файла → суффиксы _2,_3. Пусто — NAME = имя блока мастера (MB_TCP_MASTER_4_1)" />
+                        </Grid>
+                    </GroupBox>
+
+                    <GroupBox Header="Раскладка схемы (T11ID/cardId клонов)" Margin="0,0,0,6">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition /><RowDefinition /><RowDefinition />
+                                <RowDefinition /><RowDefinition />
+                            </Grid.RowDefinitions>
+                            <Label Grid.Row="0" Grid.Column="0" Content="Стартовый T11ID:" />
+                            <TextBox Grid.Row="0" Grid.Column="1" Margin="4"
+                                     Text="{Binding Settings.BaseT11Id, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="Клоны получают ID от max(T11ID шаблона, BaseT11Id) с продолжением счётчика" />
+                            <Label Grid.Row="1" Grid.Column="0" Content="Стартовый cardId:" />
+                            <TextBox Grid.Row="1" Grid.Column="1" Margin="4"
+                                     Text="{Binding Settings.BaseCardId, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="Карточки клонов — от max(cardId шаблона, BaseCardId), шаг 10" />
+                            <Label Grid.Row="2" Grid.Column="0" Content="Блоков в строке:" />
+                            <TextBox Grid.Row="2" Grid.Column="1" Margin="4"
+                                     Text="{Binding Settings.ColumnsPerRow, UpdateSourceTrigger=PropertyChanged}" />
+                            <Label Grid.Row="3" Grid.Column="0" Content="Шаг по вертикали, px:" />
+                            <TextBox Grid.Row="3" Grid.Column="1" Margin="4"
+                                     Text="{Binding Settings.RowStep, UpdateSourceTrigger=PropertyChanged}" />
+                            <Label Grid.Row="4" Grid.Column="0" Content="Шаг по горизонтали, px:" />
+                            <TextBox Grid.Row="4" Grid.Column="1" Margin="4"
+                                     Text="{Binding Settings.ColumnStep, UpdateSourceTrigger=PropertyChanged}" />
+                        </Grid>
+                    </GroupBox>
+
+                    <GroupBox Header="Станции slave (SCADA_MB_SLAVE_RULES)" Margin="0,0,0,6">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
+                                <Button Content="Добавить" Command="{Binding AddRuleCommand}" Width="80" Margin="0,0,6,0"
+                                        ToolTip="Новая станция (сохраняется кнопкой «Сохранить правила SlaveId»)" />
+                                <Button Content="Удалить" Command="{Binding DeleteRuleCommand}" Width="70" Margin="0,0,6,0" />
+                                <Button Content="Из IO_LIST" Command="{Binding FillSlaveRulesCommand}" Width="90"
+                                        ToolTip="F21: автосбор станций из IO_LIST — IP main/reserve, скорость, таймаут (merge по Station: ручные поля и SlaveId сохраняются, Protocol заполняется эвристикой «есть IPv4 → TCP, иначе RTU» для новых/пустых строк). Изменения сохраните кнопкой «Сохранить»" />
+                            </StackPanel>
+                            <DataGrid ItemsSource="{Binding SlaveRules}" SelectedItem="{Binding SelectedRule}"
+                                      AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column"
+                                      Height="200">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Станция (M_SlaveStation)"
+                                                        Binding="{Binding Station, UpdateSourceTrigger=PropertyChanged}" Width="150" />
+                                    <DataGridTextColumn Header="SlaveId (1-255)"
+                                                        Binding="{Binding SlaveId, UpdateSourceTrigger=PropertyChanged}" Width="70"
+                                                        ToolTipService.ToolTip="Числовой SlaveId отсутствует в IO_LIST — задаётся здесь (1-255)" />
+                                    <DataGridTextColumn Header="IP main"
+                                                        Binding="{Binding IpMain, UpdateSourceTrigger=PropertyChanged}" Width="150"
+                                                        ToolTipService.ToolTip="F21: авто из M_SlaveIdMain (IP/маска/port либо COM-интерфейс); редактируется вручную" />
+                                    <DataGridTextColumn Header="IP reserve"
+                                                        Binding="{Binding IpReserve, UpdateSourceTrigger=PropertyChanged}" Width="130"
+                                                        ToolTipService.ToolTip="F21: авто из M_SlaveIdBackup" />
+                                    <DataGridTextColumn Header="Protocol"
+                                                        Binding="{Binding Protocol, UpdateSourceTrigger=PropertyChanged}" Width="70"
+                                                        ToolTipService.ToolTip="F21: «TCP» или «RTU» — определяет мастер-шаблон при генерации; эвристика: в IP main есть IPv4 → TCP, непустое без IPv4 (COM) → RTU" />
+                                    <DataGridTextColumn Header="Speed"
+                                                        Binding="{Binding Speed, UpdateSourceTrigger=PropertyChanged}" Width="80"
+                                                        ToolTipService.ToolTip="F21: авто из M_Speed (напр. 100Mbps / 9600)" />
+                                    <DataGridCheckBoxColumn Header="Parity"
+                                                            Binding="{Binding Parity, UpdateSourceTrigger=PropertyChanged}" Width="55"
+                                                            ToolTipService.ToolTip="F21: чётность (вход Parity MB_RTU_MASTER) — в IO_LIST отсутствует, задаётся вручную" />
+                                    <DataGridTextColumn Header="Stop bit"
+                                                        Binding="{Binding StopBit, UpdateSourceTrigger=PropertyChanged}" Width="55"
+                                                        ToolTipService.ToolTip="F21: 1 или 2 (вход StopBit MB_RTU_MASTER) — ручное" />
+                                    <DataGridTextColumn Header="Data bit"
+                                                        Binding="{Binding DataBit, UpdateSourceTrigger=PropertyChanged}" Width="55"
+                                                        ToolTipService.ToolTip="F21: 7 или 8 (вход DataBit MB_RTU_MASTER) — ручное" />
+                                    <DataGridCheckBoxColumn Header="Reverse"
+                                                            Binding="{Binding Reverse, UpdateSourceTrigger=PropertyChanged}" Width="60"
+                                                            ToolTipService.ToolTip="F21: reverse обмена — ручное" />
+                                    <DataGridTextColumn Header="Timeout, мс"
+                                                        Binding="{Binding Timeout, UpdateSourceTrigger=PropertyChanged}" Width="70"
+                                                        ToolTipService.ToolTip="F21: авто из M_Timeout («100ms» → 100); 0 — пусто" />
+                                    <DataGridTextColumn Header="Max length"
+                                                        Binding="{Binding MaxLength, UpdateSourceTrigger=PropertyChanged}" Width="70"
+                                                        ToolTipService.ToolTip="F21: maximum length пакета — ручное" />
+                                    <DataGridTemplateColumn Header="Шаблон пакетов" Width="150"
+                                                            ToolTipService.ToolTip="F29: имя шаблона пакетов SCADA_MASTER_TEMPLATES для станции (выбор при экспорте); пусто — мастер-шаблон по Protocol (TCP/RTU из настроек)">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <ComboBox IsEditable="True" Margin="1"
+                                                          ItemsSource="{Binding DataContext.MasterTemplates, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                          DisplayMemberPath="Name"
+                                                          Text="{Binding MasterTemplate, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"
+                                                          ToolTipService.ToolTip="Имя шаблона из списка «Мастер-шаблоны» (или введите вручную)" />
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </DockPanel>
+                    </GroupBox>
+
+                    <!-- F23/F25: маппинг «вход → колонка IO_LIST/литерал» (SCADA_TEMPLATE_VARS,
+                         ключ — имя файла текущего шаблона, у каждого шаблона свой) -->
+                    <GroupBox Header="Переменные мастер-шаблона (F23)" Margin="0,0,0,6">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
+                                <Button Content="Обновить" Command="{Binding RefreshTemplateVarsCommand}" Width="80" Margin="0,0,6,0"
+                                        ToolTip="Пересобрать список входов из текущего шаблона + сохранённый маппинг SCADA_TEMPLATE_VARS текущего шаблона" />
+                                <Button Content="Сохранить маппинг" Command="{Binding SaveTemplateVarsCommand}" Width="130"
+                                        ToolTip="Записать «вход → колонка/литерал» в SCADA_TEMPLATE_VARS под именем текущего шаблона (F25); чужие шаблоны не затираются; применяется при экспорте с приоритетом над источником из плана" />
+                                <TextBlock VerticalAlignment="Center" Margin="10,0,0,0" Foreground="#444444"
+                                           ToolTip="F25: ключ маппинга — имя XML-файла шаблона без расширения (режим «Код» — current); у каждого шаблона свой маппинг">
+                                    <Run Text="шаблон: " /><Run Text="{Binding CurrentTemplateKey, Mode=OneWay}" />
+                                </TextBlock>
+                            </StackPanel>
+                            <DataGrid ItemsSource="{Binding TemplateVars}" AutoGenerateColumns="False" CanUserAddRows="False"
+                                      HeadersVisibility="Column" Height="150">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Вход"
+                                                        Binding="{Binding Var, UpdateSourceTrigger=PropertyChanged}" Width="85"
+                                                        ToolTipService.ToolTip="F23: имя входа мастера из связей шаблона (SlaveId/TimeOut/Mode/Address/Count/…)" />
+                                    <DataGridTextColumn Header="Источник"
+                                                        Binding="{Binding DefaultSource, Mode=OneWay}" Width="72"
+                                                        ToolTipService.ToolTip="«из плана» — значение из расчёта пакета (если не задана колонка/литерал); «из шаблона» — значение шаблона, подменяется только колонкой/литералом" />
+                                    <!-- F25: DataGridTemplateColumn + RelativeSource — прямой ItemsSource
+                                         на DataGridComboBoxColumn не наследует DataContext (список пуст) -->
+                                    <DataGridTemplateColumn Header="Колонка / шаблон" Width="135">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <ComboBox IsEditable="True"
+                                                          ItemsSource="{Binding DataContext.VarIoColumns, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                          Text="{Binding IoColumn, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                          ToolTipService.ToolTip="F23/F25/F32: имя колонки IO_LIST первой точки пакета, ЛИБО строка-шаблон с несколькими колонками — «{M_DcsTag} Adress: {M_Address}» (литералы между токенами сохраняются); пусто — не подставлять" />
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                    <DataGridTextColumn Header="Литерал"
+                                                        Binding="{Binding Literal, UpdateSourceTrigger=PropertyChanged}" Width="80"
+                                                        ToolTipService.ToolTip="F23: фиксированное значение, если колонка не задана" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </DockPanel>
+                    </GroupBox>
+
+                    <!-- F14: ручное сопоставление «Typno → эталон шаблона привязок»:
+                         тип объекта выбирает, какую цепочку Data_Out клонировать для
+                         сигналов этого типового алгоритма -->
+                    <GroupBox Header="Сопоставление Typno → шаблон привязок (SCADA_TYPNO_MAP)" Margin="0,0,0,6">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                    <Button Content="Добавить" Command="{Binding AddTypnoRuleCommand}" Width="90" Margin="0,0,6,0"
+                                            ToolTip="Новое правило «Typno → эталон» (сохраняется кнопкой «Сохранить сопоставление Typno»)" />
+                                    <Button Content="Удалить" Command="{Binding DeleteTypnoRuleCommand}" Width="90" Margin="0,0,6,0" />
+                                    <Button Content="Заполнить из данных" Command="{Binding FillTypnoRulesCommand}" Width="140" Margin="0,0,6,0"
+                                            ToolTip="Добавить уникальные Typno точек с адресацией M_PlcTag, ещё не присутствующие в списке; эталон задаётся вручную" />
+                                    <Button Content="Сохранить сопоставление Typno" Command="{Binding SaveTypnoMapCommand}" Width="210"
+                                            ToolTip="Полная замена строк таблицы SCADA_TYPNO_MAP; строки без Typno/эталона отбрасываются" />
+                                </StackPanel>
+                                <TextBlock Text="Сигнал без Typno не участвует в генерации; все Tag одного Typno получают цепочки своего эталона (по одной на тег). Эталон — ключ Disc OnePOU шаблона привязок."
+                                           TextWrapping="Wrap" Foreground="#444444" />
+                            </StackPanel>
+                            <DataGrid ItemsSource="{Binding TypnoRules}" SelectedItem="{Binding SelectedTypnoRule}"
+                                      AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column"
+                                      Height="140">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Typno (типовой алгоритм)"
+                                                        Binding="{Binding Typno, UpdateSourceTrigger=PropertyChanged}" Width="*"
+                                                        ToolTipService.ToolTip="Напр. PID1200-01R; значение IO_LIST.Typno, сравнение без учёта регистра" />
+                                    <DataGridTemplateColumn Header="Шаблон привязок" Width="160">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <ComboBox IsEditable="True"
+                                                          ItemsSource="{Binding DataContext.DataOutTemplateNames, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                          Text="{Binding Template, UpdateSourceTrigger=PropertyChanged}"
+                                                          ToolTipService.ToolTip="F16: имя шаблона из SCADA_DATAOUT_TEMPLATES (выбрать из списка или вписать); пусто — основной шаблон редактора" />
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                    <DataGridTextColumn Header="Эталон (Disc)"
+                                                        Binding="{Binding Exemplar, UpdateSourceTrigger=PropertyChanged}" Width="110"
+                                                        ToolTipService.ToolTip="Ключ эталона в выбранном шаблоне: BOOL / INT / DINT / REAL" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </DockPanel>
+                    </GroupBox>
+
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Правая колонка: превью пакетов + привязки DataOut -->
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="6" />
+                    <RowDefinition Height="2*" />
+                </Grid.RowDefinitions>
+
+                <GroupBox Grid.Row="0" Header="Превью пакетов (по одному блоку мастера на пакет)">
+                    <DockPanel>
+                        <!-- F28: фильтр станций — галочки «генерить» + «выбрать все»/«снять все» -->
+                        <Border DockPanel.Dock="Top" Padding="2,3" Background="#F5F5F5" BorderBrush="#DDDDDD" BorderThickness="0,0,0,1">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Станции:" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                <Button Content="Все" Command="{Binding SelectAllStationsCommand}" Width="46" Margin="0,0,4,0"
+                                        ToolTip="Выбрать все станции для генерации" />
+                                <Button Content="Ни одной" Command="{Binding ClearAllStationsCommand}" Width="70" Margin="0,0,8,0"
+                                        ToolTip="Снять все станции" />
+                                <TextBlock Text="{Binding StationsHint}" VerticalAlignment="Center" Margin="0,0,10,0"
+                                           Foreground="#444444" />
+                                <ItemsControl ItemsSource="{Binding StationFilters}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                      Click="StationFilter_Click"
+                                                      Margin="0,0,10,0" VerticalAlignment="Center"
+                                                      ToolTipService.ToolTip="{Binding PacketCount, StringFormat={}Пакетов станции в плане: {0}}">
+                                                <TextBlock>
+                                                    <Run Text="{Binding Station, Mode=OneWay}" /><Run Text=" (" /><Run Text="{Binding PacketCount, Mode=OneWay}" /><Run Text=")" />
+                                                </TextBlock>
+                                            </CheckBox>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                        <DataGrid ItemsSource="{Binding Preview}" AutoGenerateColumns="False" IsReadOnly="True"
+                                  HeadersVisibility="Column" EnableRowVirtualization="True">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="№" Binding="{Binding No}" Width="40" />
+                            <DataGridTextColumn Header="Станция" Binding="{Binding Station}" Width="110" />
+                            <DataGridTextColumn Header="IP:порт" Binding="{Binding Endpoint}" Width="120" />
+                            <DataGridTextColumn Header="SlaveId" Binding="{Binding SlaveId}" Width="60" />
+                            <DataGridTextColumn Header="FuncCode" Binding="{Binding FuncCode}" Width="70" />
+                            <DataGridTextColumn Header="Направление" Binding="{Binding Direction}" Width="80"
+                                                ToolTipService.ToolTip="F30: чтение → привязка DataOut[]; запись (FC05/06/15/16) → DataIn[]" />
+                            <DataGridTextColumn Header="Address" Binding="{Binding Address}" Width="65" />
+                            <DataGridTextColumn Header="Address (вход)" Binding="{Binding AddressInput}" Width="95"
+                                                ToolTipService.ToolTip="F14: значение входа Address блока: регистр + адрес (настраивается чекбоксом); пусто — не отформатировано (превью до построения)" />
+                            <DataGridTextColumn Header="Count" Binding="{Binding Count}" Width="55" />
+                            <DataGridTextColumn Header="Тайм. мс" Binding="{Binding TimeoutMs}" Width="65" />
+                            <DataGridTextColumn Header="Точек" Binding="{Binding PointCount}" Width="50" />
+                            <DataGridTextColumn Header="Блок" Binding="{Binding MasterName}" Width="160"
+                                                ToolTipService.ToolTip="Имя блока мастера в XML (от имени мастера шаблона + номер пакета)" />
+                            <DataGridTextColumn Header="Первый тег" Binding="{Binding FirstTag}" Width="*" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    </DockPanel>
+                </GroupBox>
+
+                <GroupBox Grid.Row="2" Header="Привязки (DataOut) — M_BusBlock / M_BusDataOut в IO_LIST">
+                    <DataGrid ItemsSource="{Binding BindingsPreview}" AutoGenerateColumns="False" IsReadOnly="True"
+                              HeadersVisibility="Column" EnableRowVirtualization="True">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Тег IO_LIST" Binding="{Binding Tag}" Width="*" />
+                            <DataGridTextColumn Header="Typno" Binding="{Binding Typno}" Width="90"
+                                                ToolTipService.ToolTip="F14: типовой алгоритм — ключ выбора эталона шаблона привязок (SCADA_TYPNO_MAP)" />
+                            <DataGridTextColumn Header="Адрес" Binding="{Binding Address}" Width="70" />
+                            <DataGridTextColumn Header="Смещение" Binding="{Binding Offset}" Width="80"
+                                                ToolTipService.ToolTip="Индекс DataOut = адрес точки − Address пакета" />
+                            <DataGridTextColumn Header="Блок (M_BusBlock)" Binding="{Binding BlockName}" Width="180" />
+                            <DataGridTextColumn Header="Привязка (M_BusDataOut)" Binding="{Binding DataOutExpr}" Width="240" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </GroupBox>
+            </Grid>
+        </Grid>
+    </DockPanel>
+</Window>
+

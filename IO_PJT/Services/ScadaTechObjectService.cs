@@ -138,6 +138,7 @@ namespace IO_PJT.Services
 
                 result.Rows.Add(new ScadaTechObjectRow
                 {
+                    SourceTag = p.Tag ?? "", // F27: ключ IO_LIST для записи M_Marka
                     Mode = RenderValue(p, settings.Section, result, "Раздел"),
                     Marka = marka,
                     ObjType = MapDataType(p.Modbus?.DataType, typeMap, result),
@@ -459,5 +460,44 @@ namespace IO_PJT.Services
         }
 
 
+        // ================== F27: запись Марки в IO_LIST ==================
+
+        /// <summary>F27: «Записать Марку в IO_LIST» — заполнить колонку M_Marka у точек по
+        /// SourceTag строк превья (MakeMarka уже применён при построении). Аудит — Update по
+        /// каждому изменённому полю (одна сессия репозитория); возвращает (обновлено, не найдено).</summary>
+        public (int Updated, int NotFound) WriteMarka(IReadOnlyList<ScadaTechObjectRow> rows, IIOListRepository repo)
+        {
+            if (rows == null) throw new ArgumentNullException(nameof(rows));
+            if (repo == null) throw new ArgumentNullException(nameof(repo));
+
+            // индекс IO_LIST по Tag (дубли тегов — первая запись, как в WriteBindings F13)
+            var byTag = new Dictionary<string, IoPoint>(StringComparer.OrdinalIgnoreCase);
+            foreach (var p in repo.GetAll())
+                if (!string.IsNullOrWhiteSpace(p.Tag))
+                    byTag.TryAdd(p.Tag!.Trim(), p);
+
+            int updated = 0, notFound = 0;
+            repo.BeginSession();
+            try
+            {
+                foreach (var r in rows)
+                {
+                    string tag = (r.SourceTag ?? "").Trim();
+                    if (tag.Length == 0) continue;
+                    if (!byTag.TryGetValue(tag, out var p)) { notFound++; continue; }
+                    p.Modbus ??= new Modbus();
+                    if (string.Equals(p.Modbus.Marka ?? "", r.Marka ?? "", StringComparison.Ordinal)) continue;
+                    p.Modbus.Marka = r.Marka;
+                    if (repo.Update(p) > 0) updated++;
+                }
+                repo.EndSession();
+            }
+            catch (Exception)
+            {
+                repo.AbortSession();
+                throw;
+            }
+            return (updated, notFound);
+        }
     }
 }

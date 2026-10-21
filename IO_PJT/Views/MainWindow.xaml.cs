@@ -24,6 +24,7 @@ namespace IO_PJT.Views
             _vm.OpenModbusImportWindow = ShowModbusImport;
             _vm.OpenModbusLinkRulesWindow = ShowModbusLinkRules;
             _vm.OpenScadaTechObjectsWindow = ShowScadaTechObjects;
+            _vm.OpenScadaModbusBlocksWindow = ShowScadaModbusBlocks;
             _vm.OpenHistoryWindow = ShowHistory;
             _vm.OpenCardWindow = ShowCard;
             _vm.OpenCreateTableDialog = ShowCreateTable;
@@ -66,6 +67,15 @@ namespace IO_PJT.Views
             var window = new ScadaTechObjectsWindow { DataContext = vm, Owner = this };
             window.ShowDialog();
             _vm.Refresh(); // данные не меняются — только выгрузка
+        }
+
+        /// <summary>F13: окно «Генерация блоков Modbus (XML)» (меню SCADA).</summary>
+        private void ShowScadaModbusBlocks()
+        {
+            var vm = new ScadaModbusBlocksViewModel(_vm.Services);
+            var window = new ScadaModbusBlocksWindow { DataContext = vm, Owner = this };
+            window.ShowDialog();
+            _vm.Refresh(); // данные не меняются — только планирование и выгрузка XML
         }
 
         /// <summary>Окно истории изменений (F7) + окно «Формирование отчёта» (F7.8).</summary>

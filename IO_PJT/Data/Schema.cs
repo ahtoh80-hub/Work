@@ -65,6 +65,133 @@ CREATE TABLE [{ScadaSettingsTable}] (
   [Value] TEXT(255)
 )";
 
+        /// <summary>F13: настройки окна «Генерация блоков Modbus (XML)» — параметры пакетирования
+        /// и XML-шаблона (Name/Value), переживают перезапуск.</summary>
+        public const string ScadaMbSettingsTable = "SCADA_MB_SETTINGS";
+
+        /// <summary>F13/F21: правила «станция Modbus → SlaveId (1-255)» — числового SlaveId нет
+        /// в IO_LIST (в M_SlaveIdMain — только IP/маска/порт), задаётся таблицей.
+        /// F21: станция хранит параметры подключения: IP main/reserve (авто из IO_LIST),
+        /// Protocol TCP/RTU, Speed (авто), Parity/StopBit/DataBit/Reverse (UART), Timeout
+        /// (авто), MaxLength — см. MbSlaveIdRule.</summary>
+        public const string ScadaMbSlaveRulesTable = "SCADA_MB_SLAVE_RULES";
+
+        /// <summary>F13: вставленный в окно XML-шаблон генерации (режим «Код», Body — MEMO,
+        /// строка «current»).</summary>
+        public const string ScadaMbTemplateTable = "SCADA_MB_TEMPLATE";
+
+        /// <summary>F14: ручное сопоставление «Typno (IO_LIST) → (шаблон Data_Out, эталон)»
+        /// (F16: Template — имя из SCADA_DATAOUT_TEMPLATES, пусто — основной шаблон;
+        /// Exemplar — ключ Disc/NAME OnePOU). Сигналы без Typno не участвуют в генерации F14;
+        /// Typno без строки маппинга — эталон по M_DataType (с предупреждением).</summary>
+        public const string ScadaTypnoMapTable = "SCADA_TYPNO_MAP";
+
+        /// <summary>F16: именованные шаблоны привязок Data_Out (каждый — свой XML-текст;
+        /// Typno → имя шаблона в SCADA_TYPNO_MAP). Body — MEMO, путь файла — справочно
+        /// (кнопка «Обновить из файла» перечитывает тело по FilePath).</summary>
+        public const string ScadaDataOutTemplatesTable = "SCADA_DATAOUT_TEMPLATES";
+
+        /// <summary>F22: именованные мастер-шаблоны блоков Modbus (Name + Protocol TCP/RTU →
+        /// XML-тело) — «залитые» шаблоны в окне генерации; экспорт использует TCP/RTU-шаблон
+        /// по протоколу станции пакета (SCADA_MB_SETTINGS MasterTcp/RtuTemplateName).</summary>
+        public const string ScadaMasterTemplatesTable = "SCADA_MASTER_TEMPLATES";
+
+        /// <summary>F22: именованные шаблоны привязок DataIn (вход DataIn = массив записи
+        /// в Slave) — хранение/список/маппинг F23; генерации привязок DataIn нет.</summary>
+        public const string ScadaDataInTemplatesTable = "SCADA_DATAIN_TEMPLATES";
+
+        /// <summary>F23: маппинг «переменная шаблона → колонка IO_LIST/литерал»
+        /// (Scope: master/dataout/datain; применяется при генерации).</summary>
+        public const string ScadaTemplateVarsTable = "SCADA_TEMPLATE_VARS";
+
+        /// <summary>DDL F13: настройки генерации блоков (значения параметров).</summary>
+        public static string CreateScadaMbSettingsTable => $@"
+CREATE TABLE [{ScadaMbSettingsTable}] (
+  ID COUNTER PRIMARY KEY,
+  [Name] TEXT(255),
+  [Value] TEXT(255)
+)";
+
+        /// <summary>DDL F13/F21: правила «станция → SlaveId» + параметры станции (F21);
+        /// существующие старые базы дополняются колонками в TableCreator.EnsureServiceTables.</summary>
+        public static string CreateScadaMbSlaveRulesTable => $@"
+CREATE TABLE [{ScadaMbSlaveRulesTable}] (
+  ID COUNTER PRIMARY KEY,
+  [Station] TEXT(255),
+  [SlaveId] LONG,
+  [IpMain] TEXT(255),
+  [IpReserve] TEXT(255),
+  [Protocol] TEXT(10),
+  [Speed] TEXT(50),
+  [Parity] YESNO,
+  [StopBit] LONG,
+  [DataBit] LONG,
+  [Reverse] YESNO,
+  [Timeout] LONG,
+  [MaxLength] LONG,
+  [MasterTemplate] TEXT(255)
+)";
+
+        /// <summary>DDL F13: вставленный шаблон генерации (код окна; MEMO — до 64 КБ).</summary>
+        public static string CreateScadaMbTemplateTable => $@"
+CREATE TABLE [{ScadaMbTemplateTable}] (
+  ID COUNTER PRIMARY KEY,
+  [Name] TEXT(50),
+  [Body] MEMO
+)";
+
+        /// <summary>DDL F14/F16: сопоставление «Typno → (шаблон Data_Out, эталон)»
+        /// (F16: Template — имя из SCADA_DATAOUT_TEMPLATES, пусто — основной шаблон;
+        /// Exemplar — ключ Disc/NAME OnePOU шаблона, напр. BOOL/INT/DINT/REAL).</summary>
+        public static string CreateScadaTypnoMapTable => $@"
+CREATE TABLE [{ScadaTypnoMapTable}] (
+  ID COUNTER PRIMARY KEY,
+  [Typno] TEXT(255),
+  [Template] TEXT(255),
+  [Exemplar] TEXT(255)
+)";
+
+        /// <summary>DDL F16: именованные шаблоны привязок Data_Out (имя → XML-тело;
+        /// FilePath — путь файла-источника, справочно).</summary>
+        public static string CreateScadaDataOutTemplatesTable => $@"
+CREATE TABLE [{ScadaDataOutTemplatesTable}] (
+  ID COUNTER PRIMARY KEY,
+  [Name] TEXT(255),
+  [Body] MEMO,
+  [FilePath] TEXT(255)
+)";
+
+        /// <summary>DDL F22: именованные мастер-шаблоны блоков (TCP/RTU).</summary>
+        public static string CreateScadaMasterTemplatesTable => $@"
+CREATE TABLE [{ScadaMasterTemplatesTable}] (
+  ID COUNTER PRIMARY KEY,
+  [Name] TEXT(255),
+  [Protocol] TEXT(10),
+  [Body] MEMO,
+  [FilePath] TEXT(255)
+)";
+
+        /// <summary>DDL F22: именованные шаблоны привязок DataIn (без генерации).</summary>
+        public static string CreateScadaDataInTemplatesTable => $@"
+CREATE TABLE [{ScadaDataInTemplatesTable}] (
+  ID COUNTER PRIMARY KEY,
+  [Name] TEXT(255),
+  [Body] MEMO,
+  [FilePath] TEXT(255)
+)";
+
+        /// <summary>DDL F23: маппинг «переменная шаблона → колонка IO_LIST/литерал».</summary>
+        public static string CreateScadaTemplateVarsTable => $@"
+CREATE TABLE [{ScadaTemplateVarsTable}] (
+  ID COUNTER PRIMARY KEY,
+  [Scope] TEXT(10),
+  [TemplateName] TEXT(255),
+  [Var] TEXT(255),
+  [IoColumn] TEXT(255),
+  [Literal] TEXT(255)
+)";
+
+
         /// <summary>F12: маппинг типов по умолчанию (раздел 2.5.4 спецификации;
         /// сидируется в SCADA_TYPE_MAP при создании пустой таблицы).</summary>
         public static readonly (string Source, string Target)[] DefaultScadaTypeMap =
@@ -81,13 +208,14 @@ CREATE TABLE [{ScadaSettingsTable}] (
         };
 
 
-        /// <summary>DDL таблицы данных IO_LIST: 126 колонок данных (+ ID = 127), TEXT(255) везде,
-        /// кроме PTag_* — TEXT(50). Блок M_* (F9, 27 колонок) — данные карты Modbus, перед CBL_*.</summary>
+        /// <summary>DDL таблицы данных IO_LIST: 130 колонок данных (+ ID = 131), TEXT(255) везде,
+        /// кроме PTag_* — TEXT(50). Блок M_* (F9 27 + F13 2 + F27 1 = 30 колонок) — данные карты
+        /// Modbus и привязки блоков, перед CBL_*. F14: Typno в Identification.</summary>
         public static string CreateTable(string tableName) => $@"
 CREATE TABLE [{tableName}] (
   ID COUNTER PRIMARY KEY,
   Code LONG, Area TEXT(255), Plant TEXT(255), Title TEXT(255), Loop TEXT(255), SubLoop TEXT(255),
-  ProcessLoop TEXT(255), Logic TEXT(255), Tag TEXT(255), ProcessTag TEXT(255), System TEXT(255),
+  ProcessLoop TEXT(255), Logic TEXT(255), Typno TEXT(255), Tag TEXT(255), ProcessTag TEXT(255), System TEXT(255),
   IoType TEXT(255), Controller TEXT(255), Location TEXT(255),
   PTag_TagArea TEXT(50), PTag_DeviceClass TEXT(50), PTag_LoopNumber TEXT(50),
   PTag_TagNumber TEXT(50), PTag_Suffix TEXT(50), PTag_FullTag TEXT(50), PTag_Separator TEXT(50),
@@ -106,6 +234,7 @@ CREATE TABLE [{tableName}] (
   M_Scaling TEXT(255), M_SigType TEXT(255), M_RegType TEXT(255), M_Address TEXT(255),
   M_AccessType TEXT(255), M_DataType TEXT(255), M_FuncCode TEXT(255),
   M_DcsChannel TEXT(255), M_DcsTag TEXT(255), M_DcsFunctions TEXT(255), M_Note TEXT(255),
+  M_BusBlock TEXT(255), M_BusDataOut TEXT(255), M_Marka TEXT(255),
   CBL_Id TEXT(255), CBL_Description TEXT(255), CBL_Type TEXT(255), CBL_Designation TEXT(255),
   CBL_From TEXT(255), CBL_To TEXT(255), CBL_Length LONG, CBL_Color TEXT(255), CBL_Pair LONG,
   CBL_Note TEXT(255), CBL_VendorDesignation TEXT(255), CBL_Drum TEXT(255), CBL_Voltage TEXT(255),
@@ -171,14 +300,14 @@ CREATE TABLE MODBUS_MAP (
 )";
 
         /// <summary>
-        /// Имена 126 колонок таблицы данных (в порядке DDL; вместе с ID — 127).
+        /// Имена 130 колонок таблицы данных (в порядке DDL; вместе с ID — 131).
         /// Используются для маппинга Excel↔Access, создания таблицы и подсветки.
         /// REV_Sheet (F2.16) — вкладка-источник, входит в идентификацию документа (файл+вкладка).
         /// M_* (F9) — данные карты Modbus перед CBL_*.
         /// </summary>
         public static readonly string[] DataColumns =
         {
-            "Code", "Area", "Plant", "Title", "Loop", "SubLoop", "ProcessLoop", "Logic", "Tag", "ProcessTag",
+            "Code", "Area", "Plant", "Title", "Loop", "SubLoop", "ProcessLoop", "Logic", "Typno", "Tag", "ProcessTag",
             "System", "IoType", "Controller", "Location",
             "PTag_TagArea", "PTag_DeviceClass", "PTag_LoopNumber", "PTag_TagNumber", "PTag_Suffix",
             "PTag_FullTag", "PTag_Separator",
@@ -192,6 +321,7 @@ CREATE TABLE MODBUS_MAP (
             "M_Units", "M_Scale", "M_LL", "M_LA", "M_HA", "M_HH",
             "M_Scaling", "M_SigType", "M_RegType", "M_Address", "M_AccessType", "M_DataType", "M_FuncCode",
             "M_DcsChannel", "M_DcsTag", "M_DcsFunctions", "M_Note",
+            "M_BusBlock", "M_BusDataOut", "M_Marka",
             "CBL_Id", "CBL_Description", "CBL_Type", "CBL_Designation", "CBL_From", "CBL_To",
             "CBL_Length", "CBL_Color", "CBL_Pair", "CBL_Note", "CBL_VendorDesignation",
             "CBL_Drum", "CBL_Voltage",
