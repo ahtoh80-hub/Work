@@ -222,6 +222,7 @@ namespace IO_PJT.Services
                     case "Seq": return packet.No.ToString();
                     case "Slave": return packet.SlaveId.ToString();
                     case "Station": return SanitizeNamePart(packet.Station);
+                    case "Controller": return SanitizeNamePart(packet.Controller); // F37
                     case "Ip": return $"{packet.Ip1}_{packet.Ip2}_{packet.Ip3}_{packet.Ip4}";
                     case "Func": return packet.FuncCode.ToString();
                     case "Port": return packet.Port.ToString();
@@ -260,6 +261,7 @@ namespace IO_PJT.Services
                         case "Seq": return ctx.No.ToString();
                         case "Slave": return ctx.SlaveId.ToString();
                         case "Station": return SanitizeNamePart(ctx.Station);
+                        case "Controller": return SanitizeNamePart(ctx.Controller); // F37
                         case "Ip": return $"{ctx.Ip1}_{ctx.Ip2}_{ctx.Ip3}_{ctx.Ip4}";
                         case "Port": return ctx.Port.ToString();
                         case "Func": return ctx.FuncCode.ToString();
@@ -280,6 +282,80 @@ namespace IO_PJT.Services
             string v = (s ?? "").Trim();
             v = Regex.Replace(v, @"[\s.""'`]+", "_");
             return v.Trim('_', ' ');
+        }
+
+        /// <summary>F34: стандартные входы мастера, заполняемые из плана при генерации;
+        /// для RTU-мастера IpOctet_1..4/Port не синтезируются (у MB_RTU_MASTER их нет).</summary>
+        public static readonly string[] MasterInputPorts =
+        {
+            "SlaveId", "Mode", "Address", "Count", "TimeOut",
+            "IpOctet_1", "IpOctet_2", "IpOctet_3", "IpOctet_4", "Port"
+        };
+
+        /// <summary>F34/F35: значение входа мастера при генерации — строго из плана пакета
+        /// (SlaveId/Mode/Address/Count/TimeOut/IpOctet_1..4/Port); скрытых источников нет
+        /// (VarValues F23 удалён — недопустимы подстановки вне плана/таблиц маппинга).
+        /// Порт вне списка — null.</summary>
+        public static string? MasterInputValue(MbPacketPlan p, string port, ScadaMbGenSettings s)
+        {
+            return port switch
+            {
+                // F33: IP/порт/SlaveId/Timeout задаются входами блока по связям шаблона
+                "SlaveId" => p.SlaveId.ToString(),
+                "Mode" => p.Mode.ToString(),
+                "Address" => FormatBlockAddress(p.Address, p.FuncCode, s.FormatAddress),
+                "Count" => p.Count.ToString(),
+                "TimeOut" => p.TimeoutMs.ToString(),
+                "IpOctet_1" => p.Ip1.ToString(),
+                "IpOctet_2" => p.Ip2.ToString(),
+                "IpOctet_3" => p.Ip3.ToString(),
+                "IpOctet_4" => p.Ip4.ToString(),
+                "Port" => p.Port.ToString(),
+                _ => null
+            };
+        }
+
+        /// <summary>F35: позиционная строка IV блока мастера со значениями плана пакета —
+        /// вместо синтеза блоков-констант F34. Карта позиций (с 1): 2=SlaveId, 3=TimeOut,
+        /// 4=Mode, 5=Address, 7=Count (поз. 6/8 — буферы «(246(0))» скелета),
+        /// 17-20=IpOctet_1..4, 21=Port; значения пишутся
+        /// обычными числами (как в эталонных примерах). Пустой/усечённый IV шаблона
+        /// дополняется скелетом эталонов (FALSE,0,0,0,0,(246(0)),0,(246(0)),FALSE,TRUE,
+        /// 3(0),FALSE,0,65533,0,6(0),0,0,0,0,0). RTU-мастер: позиции 17-21 не пишутся
+        /// (у MB_RTU_MASTER нет TCP-адреса; COM-порт задаёт шаблон RTU).</summary>
+        public static string BuildMasterIv(string templateIv, MbPacketPlan p,
+            ScadaMbGenSettings s, bool masterRtu)
+        {
+            const string skeleton =
+                "FALSE,0,0,0,0,(246(0)),0,(246(0)),FALSE,TRUE,3(0),FALSE,0,65533,0,6(0),0,0,0,0,0";
+            string[] parts = string.IsNullOrWhiteSpace(templateIv)
+                ? skeleton.Split(',')
+                : templateIv!.Split(',');
+            if (parts.Length < 21) // усечённый IV шаблона дополняется скелетом справа
+            {
+                var ext = skeleton.Split(',');
+                Array.Copy(parts, ext, parts.Length);
+                parts = ext;
+            }
+            void Set(int pos, string? val)
+            {
+                if (!string.IsNullOrEmpty(val) && pos >= 1 && pos <= parts.Length)
+                    parts[pos - 1] = val!;
+            }
+            Set(2, MasterInputValue(p, "SlaveId", s));
+            Set(3, MasterInputValue(p, "TimeOut", s));
+            Set(4, MasterInputValue(p, "Mode", s));
+            Set(5, MasterInputValue(p, "Address", s));
+            Set(7, MasterInputValue(p, "Count", s));
+            if (!masterRtu)
+            {
+                Set(17, MasterInputValue(p, "IpOctet_1", s));
+                Set(18, MasterInputValue(p, "IpOctet_2", s));
+                Set(19, MasterInputValue(p, "IpOctet_3", s));
+                Set(20, MasterInputValue(p, "IpOctet_4", s));
+                Set(21, MasterInputValue(p, "Port", s));
+            }
+            return string.Join(",", parts);
         }
 
         // ================== Генерация ==================
@@ -308,8 +384,15 @@ namespace IO_PJT.Services
 
         /// <summary>F13: собрать BufScadaPOUS (пакеты) и BufScada (привязки DataOut) из плана
         /// пакетов по шаблону. Юнит = компонента связности ровно с одним мастером; блоки
-        /// связных с несколькими мастерами (или без мастера) — общие, пишутся один раз.</summary>
-        public GeneratedXml Write(IReadOnlyList<MbPacketPlan> packets, string templateXml, ScadaMbGenSettings s)
+        /// связных с несколькими мастерами (или без мастера) — общие, пишутся один раз.
+        /// F38: dataVars/dataVarsTemplateKey — таблица объектов data-шаблонов (маппинг
+        /// «колонка/шаблон/литерал») для подстановки ТЕКСТОВ примитивов [TEXT]: всё значение
+        /// [TEXT] клона примитива заменяется резолвом строки текстового объекта
+        /// (LOOPComment(Text) и др., идентификатор — первое слово [TEXT]); null/пусто —
+        /// тексты копируются как в шаблоне (строгий режим F35).</summary>
+        public GeneratedXml Write(IReadOnlyList<MbPacketPlan> packets, string templateXml, ScadaMbGenSettings s,
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal)>>? dataVars = null,
+            string dataVarsTemplateKey = "")
         {
             if (packets == null) throw new ArgumentNullException(nameof(packets));
             if (s == null) throw new ArgumentNullException(nameof(s));
@@ -431,6 +514,8 @@ namespace IO_PJT.Services
                     outPrims.Add(new XElement(pr));
 
             int cols = Math.Max(1, s.ColumnsPerRow);
+            bool rtuIpWarned = false;   // F35: RTU без IP/порта в IV — один раз на экспорт
+            var textWarned = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // F38: (пакет|объект)
 
             foreach (var p in packets)
             {
@@ -490,48 +575,52 @@ namespace IO_PJT.Services
                         outBlocks.Add(clone);
                     }
 
-                    // подстановки значений входов мастера по связям (константе — Info/T11Text, тегу — IV)
+                    // подстановки значений входов мастера по связям шаблона (константе —
+                    // Info/T11Text, тегу — IV); F35: остальные входы пишутся в <IV> мастера
                     foreach (var l in links.Where(l => l.ToT11 == master.T11))
                     {
                         string port = PortOf(l.El.Element("LastPoint")?.Attribute("LP")?.Value);
-                        string? val;
-                        // F23: приоритет — маппинг переменной (колонка IO_LIST/литерал из
-                        // SCADA_TEMPLATE_VARS, заполняется VM при экспорте в p.VarValues)
-                        if (!string.IsNullOrEmpty(port) && p.VarValues.TryGetValue(port, out var mapped) &&
-                            !string.IsNullOrEmpty(mapped))
-                        {
-                            // Address — числовое значение форматируется как вход блока
-                            val = string.Equals(port, "Address", StringComparison.OrdinalIgnoreCase) &&
-                                  int.TryParse(mapped, out int mappedAddr)
-                                ? FormatBlockAddress(mappedAddr, p.FuncCode, s.FormatAddress)
-                                : mapped;
-                        }
-                        else
-                        {
-                            val = port switch
-                            {
-                                "SlaveId" => p.SlaveId.ToString(),
-                                "Mode" => p.Mode.ToString(),
-                                "Address" => FormatBlockAddress(p.Address, p.FuncCode, s.FormatAddress),
-                                "Count" => p.Count.ToString(),
-                                "TimeOut" => p.TimeoutMs.ToString(),
-                                _ => null
-                            };
-                        }
+                        string? val = port.Length > 0 ? MasterInputValue(p, port, s) : null;
                         if (val != null && t11Map.TryGetValue(l.FromT11, out int srcNew))
                             ApplyInputValue(cloneByT11[srcNew], val);
                     }
 
-                    // IV мастера — IP/порт пакета (хвост «ip1,ip2,ip3,ip4,port»)
                     var masterClone = cloneByT11[t11Map[master.T11]];
+
+                    // F35: синтез блоков-констант F34 отменён — недостающие входы мастера
+                    // (Mode/Address/Count/IpOctet_1..4/Port и т.д.) пишутся в позиционную
+                    // строку <IV> блока мастера (BuildMasterIv ниже)
+                    // RTU-опознание — имя блока/пакета либо имя объекта библиотеки
+                    // (rec ISAOBJSINFO по IsaObjId мастера: MB_RTU_MASTER)
+                    string masterObjName =
+                        root.Element("ISAOBJSINFO")?.Elements("rec")
+                            .FirstOrDefault(r => (string?)r.Attribute("ID") ==
+                                                 master.IsaObjId.ToString())?
+                            .Attribute("Info")?.Value ?? "";
+                    bool masterRtu =
+                        masterName.IndexOf("RTU", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        master.Info.IndexOf("RTU", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        masterObjName.IndexOf("RTU", StringComparison.OrdinalIgnoreCase) >= 0;
+
+
+                    // F35: позиционная строка IV мастера — значения плана по карте позиций
+                    // (2=SlaveId, 3=TimeOut, 4=Mode, 5=Address, 7=Count, 17-20=IpOctet_1..4,
+                    // 21=Port); пустой IV шаблона дополняется скелетом эталонных примеров;
+                    // RTU-мастеру IP/порт (17-21) не пишутся (+ предупреждение один раз)
                     var mp = masterClone.Element("Params");
-                    string newIv = SetIvEndpoint(mp?.Element("IV")?.Value ?? "",
-                        p.Ip1, p.Ip2, p.Ip3, p.Ip4, p.Port);
+                    string srcIv = mp?.Element("IV")?.Value ?? "";
+                    string newIv = BuildMasterIv(srcIv, p, s, masterRtu);
                     if (mp != null)
                     {
                         var ivEl = mp.Element("IV");
                         if (ivEl == null) { ivEl = new XElement("IV"); mp.Add(ivEl); }
                         ivEl.Value = newIv;
+                    }
+                    if (masterRtu && !rtuIpWarned)
+                    {
+                        rtuIpWarned = true;
+                        warnings.Add("F35: RTU-мастер — IP/порт (позиции 17-21 IV) не " +
+                            "записываются (у MB_RTU_MASTER их нет; COM-порт задаёт шаблон RTU)");
                     }
                     // cardId мастера пакета — из Params клона (учтён в cardMap)
                     int masterCard = mp != null && int.TryParse((string?)mp.Attribute("cardId"), out int mc)
@@ -562,6 +651,10 @@ namespace IO_PJT.Services
                             (int.TryParse((string?)prc.Attribute("X"), out int px) ? px : 0) + dx);
                         prc.SetAttributeValue("Y",
                             (int.TryParse((string?)prc.Attribute("Y"), out int py) ? py : 0) + dy);
+                        // F38: подстановка текста [TEXT] примитива по таблице объектов
+                        // (LOOPComment(Text) и др.) — значение пишется пер-пакетно
+                        ApplyPrimTextSubstitution(prc, p, dataVars, dataVarsTemplateKey,
+                            warnings, textWarned);
                         outPrims.Add(prc);
                     }
                 }
@@ -711,17 +804,23 @@ namespace IO_PJT.Services
         /// RTU-шаблон не задан — RTU-пакеты пропускаются с предупреждением; при наличии обеих
         /// групп результаты склеиваются в один документ (T11/cardId/имена без конфликтов).</summary>
         public GeneratedXml WriteProtocolSplit(IReadOnlyList<MbPacketPlan> packets,
-            string tcpTemplateXml, string? rtuTemplateXml, ScadaMbGenSettings s) =>
-            WriteProtocolSplit(packets, null, tcpTemplateXml, rtuTemplateXml, s);
+            string tcpTemplateXml, string? rtuTemplateXml, ScadaMbGenSettings s,
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal)>>? dataVars = null,
+            string dataVarsTemplateKey = "") =>
+            WriteProtocolSplit(packets, null, tcpTemplateXml, rtuTemplateXml, s, dataVars, dataVarsTemplateKey);
 
         /// <summary>F29: генерация с выбором шаблона пакетов по станции: templateByStation —
         /// «станция → тело шаблона» (SCADA_MB_SLAVE_RULES.MasterTemplate → SCADA_MASTER_TEMPLATES).
         /// Станция без правила/пустое имя — fallback по протоколу (tcpTemplateXml/rtuTemplateXml).
         /// Пакеты группируются по ТЕЛУ шаблона (одинаковые тела → один проход Write + склейка
-        /// MergeSplitResults), поэтому несколько станций с одним шаблоном не дублируют генерацию.</summary>
+        /// MergeSplitResults), поэтому несколько станций с одним шаблоном не дублируют генерацию.
+        /// F38: dataVars/dataVarsTemplateKey — таблица объектов маппинга для подстановки текстов
+        /// примитивов [TEXT] (см. Write).</summary>
         public GeneratedXml WriteProtocolSplit(IReadOnlyList<MbPacketPlan> packets,
             IReadOnlyDictionary<string, string>? templateByStation,
-            string tcpTemplateXml, string? rtuTemplateXml, ScadaMbGenSettings s)
+            string tcpTemplateXml, string? rtuTemplateXml, ScadaMbGenSettings s,
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal)>>? dataVars = null,
+            string dataVarsTemplateKey = "")
         {
             if (packets == null) throw new ArgumentNullException(nameof(packets));
             if (s == null) throw new ArgumentNullException(nameof(s));
@@ -761,7 +860,7 @@ namespace IO_PJT.Services
             var settings = s;
             foreach (var g in groups)
             {
-                var gen = Write(g.Value, g.Key, settings);
+                var gen = Write(g.Value, g.Key, settings, dataVars, dataVarsTemplateKey);
                 acc = acc == null ? gen : MergeSplitResults(acc, gen);
                 settings = ShiftSettingsForSecondPass(s, acc);
             }
@@ -779,8 +878,8 @@ namespace IO_PJT.Services
             return s2;
         }
 
-        /// <summary>F22: максимум T11ID среди Block во всех кусках XML (0 — нет блоков).</summary>
-        private static int MaxT11(params string[] xmls)
+        /// <summary>F22/F37: максимум T11ID среди Block во всех кусках XML (0 — нет блоков).</summary>
+        public static int MaxT11(params string[] xmls)
         {
             int max = 0;
             foreach (var xml in xmls)
@@ -811,6 +910,123 @@ namespace IO_PJT.Services
             }
             catch (System.Xml.XmlException) { }
             return max;
+        }
+
+        /// <summary>F37: максимум cardId во всех кусках XML — Block/@cardId, Block/Params/@cardId
+        /// и rec ISACARDSINFO/@ID (0 — нет); используется для непрерывности счётчика карточек
+        /// между файлами split-экспорта.</summary>
+        public static int MaxCardId(params string[] xmls)
+        {
+            int max = 0;
+            foreach (var xml in xmls)
+            {
+                if (string.IsNullOrWhiteSpace(xml)) continue;
+                try
+                {
+                    var root = XDocument.Parse(xml).Root;
+                    if (root == null) continue;
+                    foreach (var b in root.Descendants("Block"))
+                    {
+                        if (int.TryParse((string?)b.Attribute("cardId"), out int c1) && c1 > max) max = c1;
+                        if (int.TryParse((string?)b.Element("Params")?.Attribute("cardId"), out int c2) && c2 > max)
+                            max = c2;
+                    }
+                    foreach (var r in root.Descendants("rec"))
+                        if (int.TryParse((string?)r.Attribute("ID"), out int c3) && c3 > max) max = c3;
+                }
+                catch (System.Xml.XmlException) { /* непарсенный кусок — игнорируем */ }
+            }
+            return max;
+        }
+
+        /// <summary>F37: настройки следующего файла split-экспорта — BaseT11Id/BaseCardId выше
+        /// максимумов уже сгенерированных файлов (T11ID/cardId не пересекаются между файлами
+        /// при импорте в один проект SCADA).</summary>
+        public static ScadaMbGenSettings ShiftSettingsForNextFile(ScadaMbGenSettings s, params string[] xmls)
+        {
+            var s2 = s.Clone();
+            s2.BaseT11Id = Math.Max(s.BaseT11Id, MaxT11(xmls) + 1);
+            s2.BaseCardId = Math.Max(s.BaseCardId, MaxCardId(xmls) + 10);
+            return s2;
+        }
+
+        /// <summary>F38: подстановка текста примитива [OnePrim/&lt;PARAMS&gt;] — идентификатор
+        /// (первое слово значения [TEXT], до пробела/запятой) сопоставляется с текстовым
+        /// объектом таблицы маппинга (Var «ident(Text)», fallback — «ident»): строка маппинга
+        /// ищется сначала по ключу активного data-шаблона (dataVarsTemplateKey), затем
+        /// сквозным поиском по всем ключам (текст один на основной шаблон, а Typno-правило
+        /// пакета может указывать любой data-шаблон). Найден — ВСЯ строка [TEXT] заменяется
+        /// резолвом (ResolveDataVarValue: колонка/«{}»-шаблон по ColumnValues первой точки
+        /// пакета, иначе литерал; [TEXT] — только канал значения, без TagNameFor — текст
+        /// пишется как есть). Нет строки — текст без изменений + предупреждение один раз на
+        /// (пакет, объект); неразрешённая колонка — фолбэк на литерал + предупреждение
+        /// (семантика F36).</summary>
+        private static void ApplyPrimTextSubstitution(XElement prim, MbPacketPlan p,
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal)>>? dataVars,
+            string dataVarsTemplateKey,
+            List<string> warnings, HashSet<string> textWarned)
+        {
+            if (dataVars == null || dataVars.Count == 0) return;
+            var pars = prim.Element("PARAMS");
+            if (pars == null) return;
+            string txt = pars.Value ?? "";
+            var m = Regex.Match(txt, @"(?m)^\[TEXT\]=([^\r\n]*)");
+            if (!m.Success) return;
+            string value = m.Groups[1].Value.Trim();
+            if (value.Length == 0) return;
+            string ident = (value.Split(new[] { ' ', '\t', ',' },
+                StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "").Trim();
+            if (ident.Length == 0) return;
+
+            // строка маппинга: активный ключ data-шаблона, затем сквозной поиск по всем
+            (string IoColumn, string Literal) row = default;
+            bool found = dataVarsTemplateKey.Length > 0 &&
+                         dataVars.TryGetValue(dataVarsTemplateKey, out var byKey) &&
+                         FindTextRow(byKey, ident, out row);
+            if (!found)
+                foreach (var kv in dataVars)
+                    if (FindTextRow(kv.Value, ident, out row)) { found = true; break; }
+            string warnKey = $"{p.No}|{ident}";
+            if (!found)
+            {
+                if (textWarned.Add(warnKey))
+                    warnings.Add($"F38: примитив пакета {p.MasterName}: текст «{ident}» — " +
+                        "нет строки объекта в маппинге («Объекты data-шаблонов», объект " +
+                        $"«{ident}(Text)») — текст не подставлен");
+                return;
+            }
+
+            var colVals = p.Bindings != null && p.Bindings.Count > 0
+                ? p.Bindings[0].ColumnValues : null;
+            string text = ScadaDataOutXmlService.ResolveDataVarValue(
+                row.IoColumn, row.Literal, colVals, out string? unres, out _);
+            if (unres != null && textWarned.Add(warnKey + "|unres"))
+                warnings.Add($"F38: примитив пакета {p.MasterName}: текст «{ident}» — " +
+                    $"колонка/шаблон «{row.IoColumn}» не разрешился ({unres}) — фолбэк на литерал");
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                if (textWarned.Add(warnKey + "|empty"))
+                    warnings.Add($"F38: примитив пакета {p.MasterName}: текст «{ident}» — " +
+                        "колонка/шаблон/литерал пусты — текст не подставлен");
+                return;
+            }
+
+            // вся строка [TEXT]=… → разрешённый текст (пер-пакетно: значения ColumnValues
+            // своей точки пакета); параметры [FONTID]/[HINT] и прочие не трогаются
+            pars.Value = txt.Substring(0, m.Groups[1].Index) + text +
+                         txt.Substring(m.Groups[1].Index + m.Groups[1].Length);
+        }
+
+        /// <summary>F38: строка текстового объекта в словаре маппинга шаблона — Var
+        /// «ident(Text)» (маркер объекта из грида), fallback «ident» (без суффикса).</summary>
+        private static bool FindTextRow(
+            IReadOnlyDictionary<string, (string IoColumn, string Literal)> vars,
+            string ident, out (string IoColumn, string Literal) row)
+        {
+            if (vars.TryGetValue(ident + "(Text)", out row)) return true;
+            if (vars.TryGetValue(ident, out row)) return true;
+            row = default;
+            return false;
         }
 
         /// <summary>F22: склеить результат второго прохода (RTU) в документ первого (TCP):
@@ -1034,16 +1250,6 @@ namespace IO_PJT.Services
                 if (iv != null) iv.Value = value;
                 else blockClone.Element("Params")?.Add(new XElement("IV", value));
             }
-        }
-
-        /// <summary>F13: заменить хвост IV мастера «ip1,ip2,ip3,ip4,port» адресом пакета.</summary>
-        private static string SetIvEndpoint(string iv, int ip1, int ip2, int ip3, int ip4, int port)
-        {
-            string tail = $"{ip1},{ip2},{ip3},{ip4},{port}";
-            string s = iv ?? "";
-            var m = Regex.Match(s, @"\d{1,3},\d{1,3},\d{1,3},\d{1,3},\d{1,5}$");
-            if (m.Success) return s.Substring(0, m.Index) + tail;
-            return string.IsNullOrWhiteSpace(s) ? tail : s.TrimEnd(',') + "," + tail;
         }
 
         /// <summary>F13: сдвинуть точки соединения связи PL на (dx,dy).</summary>

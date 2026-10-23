@@ -592,11 +592,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\VSCode\\IO_PJT\\IO_PJT.csproj",
+      "projectUniqueName": "c:\\VSCode\\IO_PJT\\IO_PJT.csproj",
       "projectName": "IO_PJT",
-      "projectPath": "C:\\VSCode\\IO_PJT\\IO_PJT.csproj",
+      "projectPath": "c:\\VSCode\\IO_PJT\\IO_PJT.csproj",
       "packagesPath": "C:\\Users\\Reshetov\\.nuget\\packages\\",
-      "outputPath": "C:\\VSCode\\IO_PJT\\obj\\",
+      "outputPath": "c:\\VSCode\\IO_PJT\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "C:\\Users\\Reshetov\\AppData\\Roaming\\NuGet\\NuGet.Config"

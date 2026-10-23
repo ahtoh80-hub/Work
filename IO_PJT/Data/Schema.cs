@@ -117,6 +117,7 @@ CREATE TABLE [{ScadaMbSettingsTable}] (
         public static string CreateScadaMbSlaveRulesTable => $@"
 CREATE TABLE [{ScadaMbSlaveRulesTable}] (
   ID COUNTER PRIMARY KEY,
+  [Controller] TEXT(255),
   [Station] TEXT(255),
   [SlaveId] LONG,
   [IpMain] TEXT(255),
@@ -140,15 +141,18 @@ CREATE TABLE [{ScadaMbTemplateTable}] (
   [Body] MEMO
 )";
 
-        /// <summary>DDL F14/F16: сопоставление «Typno → (шаблон Data_Out, эталон)»
+        /// <summary>DDL F14/F16/F33: сопоставление «Typno → (шаблон Data_Out, эталон, размер)»
         /// (F16: Template — имя из SCADA_DATAOUT_TEMPLATES, пусто — основной шаблон;
-        /// Exemplar — ключ Disc/NAME OnePOU шаблона, напр. BOOL/INT/DINT/REAL).</summary>
+        /// Exemplar — ключ Disc/NAME OnePOU шаблона, напр. BOOL/INT/DINT/REAL;
+        /// F33: Size — размер переменной: 32bit (4 байта) / 16bit (2) / 8bit / bit
+        /// (каждый DataOut[i] — бит 0/1) / 64bit (8); пусто — авто по M_DataType).</summary>
         public static string CreateScadaTypnoMapTable => $@"
 CREATE TABLE [{ScadaTypnoMapTable}] (
   ID COUNTER PRIMARY KEY,
   [Typno] TEXT(255),
   [Template] TEXT(255),
-  [Exemplar] TEXT(255)
+  [Exemplar] TEXT(255),
+  [Size] TEXT(10)
 )";
 
         /// <summary>DDL F16: именованные шаблоны привязок Data_Out (имя → XML-тело;

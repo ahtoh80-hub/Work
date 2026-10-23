@@ -45,6 +45,15 @@ namespace IO_PJT.Views
                 vm.NotifyStationFilterChanged();
         }
 
+        /// <summary>F34: окончание редактирования ячейки превью пакета — пересчёт зависимых
+        /// полей (AddressInput/привязки) в VM (данные уже записаны TwoWay-привязкой).</summary>
+        private void PreviewGrid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
+        {
+            if (DataContext is ViewModels.ScadaModbusBlocksViewModel vm &&
+                e.Row?.Item is Models.MbPacketPlan packet)
+                vm.NotifyPacketEdited(packet);
+        }
+
         /// <summary>F18.1: «залипшее» колёсико внутренней таблицы левой колонки →
         /// продолжить прокрутку внешнего ScrollViewer (до нижних групп настроек).</summary>
         private void Window_PreviewMouseWheel(object sender, MouseWheelEventArgs e)

@@ -113,8 +113,16 @@ namespace IO_PJT.Services
 
         // ================== Построение плана ==================
 
+        /// <summary>F37: черновая точка плана — параметры запроса + Controller (Identification);
+        /// Controller — ключ группировки пакетов: одна станция у разных контроллеров
+        /// планируется раздельно (свои пакеты и своё адресное пространство).</summary>
+        private readonly record struct RawPoint(int Ip1, int Ip2, int Ip3, int Ip4, int Port,
+            int FuncCode, int Address, int Width, string PlcTag, string Station, int Timeout,
+            string Tag, string DataType, string Typno, string Controller, IoPoint Point);
+
         /// <summary>F13/F30: построить пакеты-запросы из точек таблицы. Отбираются точки с заполненной
-        /// адресацией Modbus (M_PlcTag — как в F12); группировка: (IP из M_SlaveIdMain, порт,
+        /// адресацией Modbus (M_PlcTag — как в F12); группировка: (Controller, F37) станция,
+        /// IP из M_SlaveIdMain, порт,
         /// код функции — F30 в пакете всегда один M_FuncCode, чтение и запись не смешиваются);
         /// внутри группы — сортировка по M_Address и разбивка по политике
         /// settings.Policy с лимитом min(MaxCountRegisters/MaxCountBits — F20, лимит блока).
@@ -125,22 +133,30 @@ namespace IO_PJT.Services
         /// (ScadaTemplateXmlService.MasterNameFor).</summary>
         public MbPlanResult BuildPlan(IReadOnlyList<IoPoint> points,
             ScadaMbGenSettings settings, IReadOnlyList<MbSlaveIdRule> slaveRules,
-            string? masterNameBase)
+            string? masterNameBase,
+            IReadOnlyDictionary<string, string>? sizeByTypno = null)
         {
             if (settings == null) throw new ArgumentNullException(nameof(settings));
             slaveRules ??= Array.Empty<MbSlaveIdRule>();
             var result = new MbPlanResult();
 
-            // правила «станция → SlaveId» + параметры станции (F21: протокол) (IgnoreCase)
+            // правила «станция → SlaveId» + параметры станции (F21: протокол) (IgnoreCase);
+            // F37: точный ключ (Controller|Station) для правил с контроллером, отдельно —
+            // универсальные правила без Controller (покрывают станцию всех контроллеров)
+            var ruleByCs = new Dictionary<string, MbSlaveIdRule>(StringComparer.OrdinalIgnoreCase);
             var ruleByStation = new Dictionary<string, MbSlaveIdRule>(StringComparer.OrdinalIgnoreCase);
             foreach (var r in slaveRules)
-                if (!string.IsNullOrWhiteSpace(r.Station) && !ruleByStation.ContainsKey(r.Station.Trim()))
-                    ruleByStation[r.Station.Trim()] = r;
+            {
+                if (string.IsNullOrWhiteSpace(r.Station)) continue;
+                string stR = r.Station.Trim();
+                string ctR = (r.Controller ?? "").Trim();
+                string keyR = ctR + "|" + stR;
+                if (!ruleByCs.ContainsKey(keyR)) ruleByCs[keyR] = r;
+                if (ctR.Length == 0 && !ruleByStation.ContainsKey(stR)) ruleByStation[stR] = r;
+            }
 
             // черновые точки запроса (Tag — тег IO_LIST, нужен для привязок M_BusBlock/M_BusDataOut)
-            var raw = new List<(int Ip1, int Ip2, int Ip3, int Ip4, int Port, int FuncCode,
-                int Address, int Width, string PlcTag, string Station, int Timeout, string Tag,
-                string DataType, string Typno, IoPoint Point)>();
+            var raw = new List<RawPoint>();
 
             foreach (var p in points)
             {
@@ -181,7 +197,16 @@ namespace IO_PJT.Services
                 if (ep == null) { result.SkippedBadEndpoint++; continue; }
 
                 bool isBitFunc = fc == 1 || fc == 2 || fc == 5 || fc == 15;
-                int width = isBitFunc && IsBitDataType(mb.DataType) ? 1 : GetRegisterWidth(mb.DataType);
+                // F33 (этап 6): размер переменной из правила Typno (Size) приоритетен над
+                // M_DataType: 8/16bit → 1 регистр, 32bit → 2, 64bit → 4; битовые функции
+                // всегда 1 адрес на точку (bit — каждый DataOut[i] = бит 0/1)
+                int width;
+                if (!isBitFunc && sizeByTypno != null &&
+                    sizeByTypno.TryGetValue(typno, out var sizeVal) &&
+                    MbTypnoMapRule.SizeRegisters(sizeVal) > 0)
+                    width = MbTypnoMapRule.SizeRegisters(sizeVal);
+                else
+                    width = isBitFunc && IsBitDataType(mb.DataType) ? 1 : GetRegisterWidth(mb.DataType);
 
                 string plcTag = mb.PlcTag.Trim();
                 int comma = plcTag.IndexOf(',');
@@ -193,19 +218,27 @@ namespace IO_PJT.Services
 
                 int timeout = ParseTimeoutMs(mb.Timeout) ?? settings.DefaultTimeoutMs;
                 string station = (mb.SlaveStation ?? "").Trim();
+                string controller = (p.Identification.Controller ?? "").Trim(); // F37
 
-                raw.Add((ep.Value.Ip1, ep.Value.Ip2, ep.Value.Ip3, ep.Value.Ip4, ep.Value.Port,
-                    fc.Value, addr.Value, width, plcTag, station, timeout,
-                    (p.Tag ?? "").Trim(), (mb.DataType ?? "").Trim(), typno, p));
+                raw.Add(new RawPoint(ep.Value.Ip1, ep.Value.Ip2, ep.Value.Ip3, ep.Value.Ip4,
+                    ep.Value.Port, fc.Value, addr.Value, width, plcTag, station, timeout,
+                    (p.Tag ?? "").Trim(), (mb.DataType ?? "").Trim(), typno, controller, p));
             }
 
-            // группировка: (IP, порт, код функции)
+            // F33 (этап 4) + F37: группировка (Controller, станция, Typno, IP, порт, код функции)
+            // — один пакет = один Typno; одна станция у разных контроллеров планируется
+            // раздельно (свои пакеты и своё адресное пространство); порядок пакетов:
+            // Typno → IP → порт → функция → адрес (внутри группы)
             var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             int no = 0;
-            foreach (var g in raw.GroupBy(r => (r.Ip1, r.Ip2, r.Ip3, r.Ip4, r.Port, r.FuncCode))
-                                 .OrderBy(g => g.Key.Ip1).ThenBy(g => g.Key.Ip2)
+            foreach (var g in raw.GroupBy(r => (r.Controller, r.Station, r.Typno,
+                                     r.Ip1, r.Ip2, r.Ip3, r.Ip4, r.Port, r.FuncCode))
+                                 .OrderBy(g => g.Key.Typno, StringComparer.OrdinalIgnoreCase)
+                                 .ThenBy(g => g.Key.Ip1).ThenBy(g => g.Key.Ip2)
                                  .ThenBy(g => g.Key.Ip3).ThenBy(g => g.Key.Ip4)
-                                 .ThenBy(g => g.Key.Port).ThenBy(g => g.Key.FuncCode))
+                                 .ThenBy(g => g.Key.Port).ThenBy(g => g.Key.FuncCode)
+                                 .ThenBy(g => g.Key.Station, StringComparer.OrdinalIgnoreCase)
+                                 .ThenBy(g => g.Key.Controller, StringComparer.OrdinalIgnoreCase))
             {
                 var items = g.OrderBy(r => r.Address).ThenBy(r => r.PlcTag).ToList();
                 int gfc = g.Key.FuncCode;
@@ -226,8 +259,13 @@ namespace IO_PJT.Services
                         $"разные таймауты в группе — взят минимальный ({groupTimeout} мс)");
 
                 string station = items.First(r => r.Station.Length > 0).Station;
-                // F21: SlaveId и протокол станции — из правила SCADA_MB_SLAVE_RULES
-                bool hasRule = ruleByStation.TryGetValue(station, out var srule);
+                string controller = (items.Where(r => r.Controller.Length > 0)
+                    .Select(r => r.Controller).FirstOrDefault() ?? "").Trim(); // F37
+                // F21/F37: SlaveId и протокол станции — из правила SCADA_MB_SLAVE_RULES;
+                // точное правило (Controller|Station) приоритетнее универсального без Controller
+                MbSlaveIdRule? srule;
+                bool hasRule = (controller.Length > 0 && ruleByCs.TryGetValue(controller + "|" + station, out srule))
+                               || ruleByStation.TryGetValue(station, out srule);
                 int slaveId = hasRule ? Math.Clamp(srule!.SlaveId, 1, 255) : settings.DefaultSlaveId;
                 string protocol = hasRule && !string.IsNullOrWhiteSpace(srule!.Protocol)
                     ? NormalizeProtocol(srule.Protocol) : "TCP";
@@ -245,6 +283,7 @@ namespace IO_PJT.Services
                     {
                         No = no,
                         Station = station,
+                        Controller = controller, // F37
                         Ip1 = g.Key.Ip1, Ip2 = g.Key.Ip2, Ip3 = g.Key.Ip3, Ip4 = g.Key.Ip4,
                         Port = g.Key.Port,
                         SlaveId = slaveId,
@@ -289,13 +328,18 @@ namespace IO_PJT.Services
                             Address = m.Address,
                             Offset = offset,
                             BlockName = packet.MasterName,
-                            // F18: DataOut/DataIn блока мастера — массив байт (MB_USINT_0_249):
-                            // индекс = байт (регистр → 2 байта, бит → байт в упаковке)
+                            // F18/F33: индекс по DataOutByteIndex: регистр → байт (2 на
+                            // регистр), бит — адрес в пределах пакета (каждый dataOut — bool)
                             DataOutExpr = $"{packet.MasterName}.{exprField}[{DataOutByteIndex(offset, packet.IsBit)}]",
                             IsWrite = packet.IsWrite, // F30
                             Width = Math.Max(1, m.Width),
                             DataType = dtByTag.TryGetValue(m.Tag, out var dt) ? dt : "",
-                            Typno = typnoByTag.TryGetValue(m.Tag, out var tn) ? tn : ""
+                            Typno = typnoByTag.TryGetValue(m.Tag, out var tn) ? tn : "",
+                            // F35: колонки IO_LIST СВОЕЙ точки — пер-точечный маппинг
+                            // «Объекты data-шаблонов» (M_Marka адреса 579 ≠ M_Marka 580)
+                            ColumnValues = pointByTag.TryGetValue(m.Tag, out var bpt)
+                                ? ColumnValuesOf(bpt)
+                                : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                         });
                     }
                     result.Packets.Add(packet);
@@ -312,9 +356,7 @@ namespace IO_PJT.Services
         /// <summary>F13: разбивка отсортированного по адресу списка на пакеты по политике.
         /// Возвращает (начальный адрес, покрывающий Count, участники).</summary>
         private static List<(int Start, int Count, List<(int Address, int Width, string PlcTag, string Tag)> Members)>
-            PackItems(List<(int Ip1, int Ip2, int Ip3, int Ip4, int Port, int FuncCode,
-                int Address, int Width, string PlcTag, string Station, int Timeout, string Tag,
-                string DataType, string Typno, IoPoint Point)> items,
+            PackItems(List<RawPoint> items,
             MbPacketPolicy policy, int limit, bool isBitFunc, MbPlanResult result, int maxGap)
         {
             var packets = new List<(int Start, int Count, List<(int Address, int Width, string PlcTag, string Tag)> Members)>();
@@ -516,11 +558,15 @@ namespace IO_PJT.Services
             if (values.TryGetValue("DataOutPouNamePattern", out var dopp)) s.DataOutPouNamePattern = dopp;
             if (values.TryGetValue("FormatAddress", out var fa) &&
                 bool.TryParse(fa, out bool fav)) s.FormatAddress = fav;
+            if (values.TryGetValue("SplitByControllerStation", out var sbcs) && // F37
+                bool.TryParse(sbcs, out bool sbcsv)) s.SplitByControllerStation = sbcsv;
             if (values.TryGetValue("BaseT11Id", out var bt) && int.TryParse(bt, out int btv)) s.BaseT11Id = btv;
             if (values.TryGetValue("BaseCardId", out var bc) && int.TryParse(bc, out int bcv)) s.BaseCardId = bcv;
             if (values.TryGetValue("ColumnsPerRow", out var cpr) && int.TryParse(cpr, out int cprv)) s.ColumnsPerRow = cprv;
             if (values.TryGetValue("RowStep", out var rs) && int.TryParse(rs, out int rsv)) s.RowStep = rsv;
             if (values.TryGetValue("ColumnStep", out var cs) && int.TryParse(cs, out int csv)) s.ColumnStep = csv;
+            if (values.TryGetValue("DataPacketsPerPage", out var dpp) && // F38
+                int.TryParse(dpp, out int dppv)) s.DataPacketsPerPage = dppv;
             return s;
         }
 
@@ -550,6 +596,8 @@ namespace IO_PJT.Services
                 ("PouNamePattern", s.PouNamePattern ?? ""),
                 ("DataOutPouNamePattern", s.DataOutPouNamePattern ?? ""),
                 ("FormatAddress", s.FormatAddress ? "True" : "False"),
+                ("SplitByControllerStation", s.SplitByControllerStation ? "True" : "False"), // F37
+                ("DataPacketsPerPage", Math.Max(1, s.DataPacketsPerPage).ToString()), // F38
                 ("BaseT11Id", s.BaseT11Id.ToString()),
                 ("BaseCardId", s.BaseCardId.ToString()),
                 ("ColumnsPerRow", s.ColumnsPerRow.ToString()),
@@ -611,7 +659,7 @@ namespace IO_PJT.Services
                     using var cn = new OleDbConnection(ConnStr);
                     cn.Open();
                     using var cmd = new OleDbCommand(
-                        $@"SELECT ID, [Station], [SlaveId], [IpMain], [IpReserve], [Protocol],
+                        $@"SELECT ID, [Controller], [Station], [SlaveId], [IpMain], [IpReserve], [Protocol],
                                    [Speed], [Parity], [StopBit], [DataBit], [Reverse], [Timeout], [MaxLength],
                                    [MasterTemplate]
                             FROM [{Schema.ScadaMbSlaveRulesTable}] ORDER BY ID", cn);
@@ -621,19 +669,20 @@ namespace IO_PJT.Services
                         list.Add(new MbSlaveIdRule
                         {
                             Id = Convert.ToInt64(rd.GetValue(0)),
-                            Station = rd.IsDBNull(1) ? "" : rd.GetString(1),
-                            SlaveId = rd.IsDBNull(2) ? 1 : Convert.ToInt32(rd.GetValue(2)),
-                            IpMain = rd.IsDBNull(3) ? "" : rd.GetString(3),
-                            IpReserve = rd.IsDBNull(4) ? "" : rd.GetString(4),
-                            Protocol = rd.IsDBNull(5) ? "" : rd.GetString(5),
-                            Speed = rd.IsDBNull(6) ? "" : rd.GetString(6),
-                            Parity = !rd.IsDBNull(7) && Convert.ToBoolean(rd.GetValue(7)),
-                            StopBit = rd.IsDBNull(8) ? 1 : Convert.ToInt32(rd.GetValue(8)),
-                            DataBit = rd.IsDBNull(9) ? 8 : Convert.ToInt32(rd.GetValue(9)),
-                            Reverse = !rd.IsDBNull(10) && Convert.ToBoolean(rd.GetValue(10)),
-                            Timeout = rd.IsDBNull(11) ? 0 : Convert.ToInt32(rd.GetValue(11)),
-                            MaxLength = rd.IsDBNull(12) ? 0 : Convert.ToInt32(rd.GetValue(12)),
-                            MasterTemplate = rd.IsDBNull(13) ? "" : rd.GetString(13) // F29
+                            Controller = rd.IsDBNull(1) ? "" : rd.GetString(1), // F37
+                            Station = rd.IsDBNull(2) ? "" : rd.GetString(2),
+                            SlaveId = rd.IsDBNull(3) ? 1 : Convert.ToInt32(rd.GetValue(3)),
+                            IpMain = rd.IsDBNull(4) ? "" : rd.GetString(4),
+                            IpReserve = rd.IsDBNull(5) ? "" : rd.GetString(5),
+                            Protocol = rd.IsDBNull(6) ? "" : rd.GetString(6),
+                            Speed = rd.IsDBNull(7) ? "" : rd.GetString(7),
+                            Parity = !rd.IsDBNull(8) && Convert.ToBoolean(rd.GetValue(8)),
+                            StopBit = rd.IsDBNull(9) ? 1 : Convert.ToInt32(rd.GetValue(9)),
+                            DataBit = rd.IsDBNull(10) ? 8 : Convert.ToInt32(rd.GetValue(10)),
+                            Reverse = !rd.IsDBNull(11) && Convert.ToBoolean(rd.GetValue(11)),
+                            Timeout = rd.IsDBNull(12) ? 0 : Convert.ToInt32(rd.GetValue(12)),
+                            MaxLength = rd.IsDBNull(13) ? 0 : Convert.ToInt32(rd.GetValue(13)),
+                            MasterTemplate = rd.IsDBNull(14) ? "" : rd.GetString(14) // F29
                         });
                     break;
                 }
@@ -654,6 +703,7 @@ namespace IO_PJT.Services
                 .Where(r => !string.IsNullOrWhiteSpace(r.Station) && r.SlaveId >= 1 && r.SlaveId <= 255)
                 .Select(r => new MbSlaveIdRule
                 {
+                    Controller = (r.Controller ?? "").Trim(), // F37
                     Station = r.Station.Trim(),
                     SlaveId = r.SlaveId,
                     // F21: параметры станции (IP/протокол/скорость/UART/таймаут/длина)
@@ -696,13 +746,14 @@ namespace IO_PJT.Services
                 }
                 using var ins = new OleDbCommand(
                     $@"INSERT INTO [{Schema.ScadaMbSlaveRulesTable}]
-                       ([Station], [SlaveId], [IpMain], [IpReserve], [Protocol], [Speed],
+                       ([Controller], [Station], [SlaveId], [IpMain], [IpReserve], [Protocol], [Speed],
                         [Parity], [StopBit], [DataBit], [Reverse], [Timeout], [MaxLength], [MasterTemplate])
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", cn, tr);
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", cn, tr);
                 ins.CommandTimeout = DbProbe.TimeoutSeconds;
                 foreach (var r in list)
                 {
                     ins.Parameters.Clear();
+                    OleDbArgs.Add(ins, r.Controller ?? ""); // F37
                     OleDbArgs.Add(ins, r.Station);
                     OleDbArgs.Add(ins, r.SlaveId);
                     OleDbArgs.Add(ins, r.IpMain);
@@ -754,48 +805,79 @@ namespace IO_PJT.Services
         public static List<MbSlaveIdRule> MergeSlaveRulesFromPoints(
             IEnumerable<MbSlaveIdRule>? current, IEnumerable<IoPoint>? points)
         {
+            // F37: ключ правила — (Controller, Station); правило с пустым Controller —
+            // универсальное (покрывает станцию у всех контроллеров)
+            var byKey = new Dictionary<string, MbSlaveIdRule>(StringComparer.OrdinalIgnoreCase);
             var byStation = new Dictionary<string, MbSlaveIdRule>(StringComparer.OrdinalIgnoreCase);
             foreach (var r in current ?? Array.Empty<MbSlaveIdRule>())
-                if (!string.IsNullOrWhiteSpace(r.Station) && !byStation.ContainsKey(r.Station.Trim()))
-                    byStation[r.Station.Trim()] = r;
+            {
+                if (string.IsNullOrWhiteSpace(r.Station)) continue;
+                string stR = r.Station.Trim();
+                string ctR = (r.Controller ?? "").Trim();
+                string keyR = ctR + "|" + stR;
+                if (!byKey.ContainsKey(keyR)) byKey[keyR] = r;
+                if (ctR.Length == 0 && !byStation.ContainsKey(stR)) byStation[stR] = r;
+            }
 
             // авто-поля из IO_LIST: первая точка станции задаёт значения, пустые дозаполняются
-            var auto = new Dictionary<string, (string IpMain, string IpReserve, string Speed, int TimeoutMs)>(
+            var auto = new Dictionary<string,
+                (string Ctrl, string St, string IpMain, string IpReserve, string Speed, int TimeoutMs)>(
                 StringComparer.OrdinalIgnoreCase);
             foreach (var p in points ?? Array.Empty<IoPoint>())
             {
                 string st = (p.Modbus?.SlaveStation ?? "").Trim();
                 if (st.Length == 0) continue;
+                string ct = (p.Identification.Controller ?? "").Trim(); // F37
+                string key = ct + "|" + st;
                 string ipMain = (p.Modbus?.SlaveIdMain ?? "").Trim();
                 string ipReserve = (p.Modbus?.SlaveIdBackup ?? "").Trim();
                 string speed = (p.Modbus?.Speed ?? "").Trim();
                 int timeout = ParseTimeoutMs(p.Modbus?.Timeout) ?? 0;
-                if (!auto.TryGetValue(st, out var a))
-                    auto[st] = (ipMain, ipReserve, speed, timeout);
+                if (!auto.TryGetValue(key, out var a))
+                    auto[key] = (ct, st, ipMain, ipReserve, speed, timeout);
                 else
-                    auto[st] = (a.IpMain.Length > 0 ? a.IpMain : ipMain,
-                                a.IpReserve.Length > 0 ? a.IpReserve : ipReserve,
-                                a.Speed.Length > 0 ? a.Speed : speed,
-                                a.TimeoutMs > 0 ? a.TimeoutMs : timeout);
+                    auto[key] = (a.Ctrl, a.St,
+                        a.IpMain.Length > 0 ? a.IpMain : ipMain,
+                        a.IpReserve.Length > 0 ? a.IpReserve : ipReserve,
+                        a.Speed.Length > 0 ? a.Speed : speed,
+                        a.TimeoutMs > 0 ? a.TimeoutMs : timeout);
             }
 
             var result = new List<MbSlaveIdRule>();
-            foreach (var st in auto.Keys)
+            foreach (var kv in auto)
             {
-                if (!byStation.TryGetValue(st, out var rule))
-                    byStation[st] = rule = new MbSlaveIdRule { Station = st };
-                rule.IpMain = auto[st].IpMain;
-                rule.IpReserve = auto[st].IpReserve;
-                rule.Speed = auto[st].Speed;
-                rule.Timeout = auto[st].TimeoutMs;
+                var a = kv.Value;
+                MbSlaveIdRule? rule;
+                if (byKey.TryGetValue(kv.Key, out rule))
+                {
+                    // правило пары (Controller, Station) уже есть
+                }
+                else if (a.Ctrl.Length > 0 && byStation.TryGetValue(a.St, out rule))
+                {
+                    // универсальное правило (без Controller) покрывает станцию — новое не создаётся
+                }
+                else
+                {
+                    rule = new MbSlaveIdRule { Station = a.St, Controller = a.Ctrl };
+                    byKey[kv.Key] = rule;
+                    if (a.Ctrl.Length == 0) byStation[a.St] = rule;
+                }
+                rule.IpMain = a.IpMain;
+                rule.IpReserve = a.IpReserve;
+                rule.Speed = a.Speed;
+                rule.Timeout = a.TimeoutMs;
                 if (string.IsNullOrWhiteSpace(rule.Protocol))
                     rule.Protocol = DetectProtocol(rule.IpMain);
-                result.Add(rule);
+                if (!result.Contains(rule))
+                    result.Add(rule);
             }
-            foreach (var r in byStation.Values) // ручные станции без точек в IO_LIST
+            foreach (var r in byKey.Values) // ручные станции без точек в IO_LIST
                 if (!result.Contains(r))
                     result.Add(r);
-            return result.OrderBy(r => r.Station, StringComparer.OrdinalIgnoreCase).ToList();
+            return result
+                .OrderBy(r => (r.Controller ?? "").Trim(), StringComparer.OrdinalIgnoreCase)
+                .ThenBy(r => r.Station, StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
 
         // ================== F23: переменные шаблона (SCADA_TEMPLATE_VARS) ==================
@@ -990,7 +1072,8 @@ namespace IO_PJT.Services
 
         // ================== Сопоставление Typno (SCADA_TYPNO_MAP, F14) ==================
 
-        /// <summary>F14/F16: загрузить правила «Typno → (шаблон, эталон)» из SCADA_TYPNO_MAP.</summary>
+        /// <summary>F14/F16/F33: загрузить правила «Typno → (шаблон, эталон, размер)»
+        /// из SCADA_TYPNO_MAP.</summary>
         public List<MbTypnoMapRule> LoadTypnoMap()
         {
             var list = new List<MbTypnoMapRule>();
@@ -1002,7 +1085,7 @@ namespace IO_PJT.Services
                     using var cn = new OleDbConnection(ConnStr);
                     cn.Open();
                     using var cmd = new OleDbCommand(
-                        $"SELECT ID, [Typno], [Template], [Exemplar] FROM [{Schema.ScadaTypnoMapTable}] ORDER BY ID", cn);
+                        $"SELECT ID, [Typno], [Template], [Exemplar], [Size] FROM [{Schema.ScadaTypnoMapTable}] ORDER BY ID", cn);
                     cmd.CommandTimeout = DbProbe.TimeoutSeconds;
                     using var rd = cmd.ExecuteReader();
                     while (rd.Read())
@@ -1011,7 +1094,9 @@ namespace IO_PJT.Services
                             Id = Convert.ToInt64(rd.GetValue(0)),
                             Typno = rd.IsDBNull(1) ? "" : rd.GetString(1),
                             Template = rd.IsDBNull(2) ? "" : rd.GetString(2),
-                            Exemplar = rd.IsDBNull(3) ? "" : rd.GetString(3)
+                            Exemplar = rd.IsDBNull(3) ? "" : rd.GetString(3),
+                            // F33: размер нормализуется при чтении (недопустимое → пусто = авто)
+                            Size = rd.IsDBNull(4) ? "" : MbTypnoMapRule.NormalizeSize(rd.GetString(4))
                         });
                     break;
                 }
@@ -1039,7 +1124,12 @@ namespace IO_PJT.Services
                 // дубль IgnoreCase — выигрывает последний, но каноническое написание Typno
                 // остаётся от первого вхождения (привязка к строке IO_LIST регистронезависима)
                 string canon = byTypno.TryGetValue(typno, out var prev) ? prev.Typno : typno;
-                byTypno[typno] = new MbTypnoMapRule { Typno = canon, Exemplar = exemplar, Template = template };
+                // F33: размер нормализуется (32BIT/мусор → канон/пусто)
+                byTypno[typno] = new MbTypnoMapRule
+                {
+                    Typno = canon, Exemplar = exemplar, Template = template,
+                    Size = MbTypnoMapRule.NormalizeSize(r.Size)
+                };
             }
             var list = byTypno.Values.ToList();
             EnsureTables();
@@ -1067,7 +1157,7 @@ namespace IO_PJT.Services
                     del.ExecuteNonQuery();
                 }
                 using var ins = new OleDbCommand(
-                    $"INSERT INTO [{Schema.ScadaTypnoMapTable}] ([Typno], [Template], [Exemplar]) VALUES (?, ?, ?)", cn, tr);
+                    $"INSERT INTO [{Schema.ScadaTypnoMapTable}] ([Typno], [Template], [Exemplar], [Size]) VALUES (?, ?, ?, ?)", cn, tr);
                 ins.CommandTimeout = DbProbe.TimeoutSeconds;
                 foreach (var r in list)
                 {
@@ -1075,6 +1165,7 @@ namespace IO_PJT.Services
                     OleDbArgs.Add(ins, r.Typno);
                     OleDbArgs.Add(ins, r.Template);
                     OleDbArgs.Add(ins, r.Exemplar);
+                    OleDbArgs.Add(ins, r.Size); // F33
                     ins.ExecuteNonQuery();
                 }
                 tr.Commit();
@@ -1095,12 +1186,13 @@ namespace IO_PJT.Services
         /// <summary>F13.1: имя строки хранения вставленного шаблона привязок Data_Out (MEMO).</summary>
         public const string InlineDataOutTemplateName = "dataout";
 
-        /// <summary>F18: байтовый индекс DataOut блока мастера из смещения привязки.
-        /// DataOut мастера — массив байт (MB_USINT_0_249, «Modbus RTU_TCP block.md»):
-        /// FC03/04 — смещение в регистрах, регистр = 2 байта (offset*2);
-        /// FC01/02 — смещение в битах, биты упакованы в байты (offset/8).</summary>
+        /// <summary>F18/F33: индекс DataOut/DataIn блока мастера из смещения привязки.
+        /// F33 (BOOL): FC01/02/05/15 — каждый элемент dataOut(dataIn) — bool по одному
+        /// адресу пакета, индекс = смещение адреса в пределах пакета (адрес 10 →
+        /// dataout(10); новый пакет → нумерация от 0 начала пакета);
+        /// FC03/04/06/16 — смещение в регистрах, регистр = 2 байта (offset*2).</summary>
         public static int DataOutByteIndex(int offset, bool isBitFunc) =>
-            isBitFunc ? offset / 8 : offset * 2;
+            isBitFunc ? offset : offset * 2;
 
         /// <summary>F13: прочитать вставленный шаблон (SCADA_MB_TEMPLATE, строка «current»);
         /// null — шаблона нет.</summary>

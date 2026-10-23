@@ -55,3 +55,8 @@ c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\ScadaModbusBlocksWindow.baml
 c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\ScadaModbusBlocksWindow.g.cs
 c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\NamePromptWindow.baml
 c:\VSCode\IO_PJT\obj\Debug\net8.0-windows\Views\NamePromptWindow.g.cs
+c:\VSCode\_build_tmp\IO_PJT.exe
+c:\VSCode\_build_tmp\IO_PJT.deps.json
+c:\VSCode\_build_tmp\IO_PJT.runtimeconfig.json
+c:\VSCode\_build_tmp\IO_PJT.dll
+c:\VSCode\_build_tmp\IO_PJT.pdb

@@ -168,6 +168,7 @@ namespace IO_PJT.Services
                     StringComparer.OrdinalIgnoreCase);
                 foreach (var (col, type) in new (string, string)[]
                 {
+                    ("Controller", "TEXT(255)"), // F37: контроллер IO_LIST (Identification.Controller)
                     ("IpMain", "TEXT(255)"), ("IpReserve", "TEXT(255)"), ("Protocol", "TEXT(10)"),
                     ("Speed", "TEXT(50)"), ("Parity", "YESNO"), ("StopBit", "LONG"),
                     ("DataBit", "LONG"), ("Reverse", "YESNO"), ("Timeout", "LONG"),
@@ -188,6 +189,9 @@ namespace IO_PJT.Services
                 var tnCols = new HashSet<string>(GetColumns(Schema.ScadaTypnoMapTable), StringComparer.OrdinalIgnoreCase);
                 if (!tnCols.Contains("Template"))
                     Execute($"ALTER TABLE [{Schema.ScadaTypnoMapTable}] ADD COLUMN [Template] TEXT(255)");
+                // F33: миграция — колонка Size (размер переменной: 32bit/16bit/8bit/bit/64bit)
+                if (!tnCols.Contains("Size"))
+                    Execute($"ALTER TABLE [{Schema.ScadaTypnoMapTable}] ADD COLUMN [Size] TEXT(10)");
             }
             // F16: именованные шаблоны привязок Data_Out (имя → XML-текст, Typno → имя)
             if (!TableExists(Schema.ScadaDataOutTemplatesTable))

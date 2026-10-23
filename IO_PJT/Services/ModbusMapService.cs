@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using ClosedXML.Excel;
 using IO_PJT.Data;
 using IO_PJT.Models;
@@ -82,7 +83,7 @@ namespace IO_PJT.Services
                         Timeout = timeout,
                         PrfDesignation = CellText(ws.Cell(r, 2)),          // B
                         PlcTag = PlcTagTrimmed,
-                        ObjectTag = PlcTagTrimmed.Split('_')[0].Trim(),     // базовый тег объекта
+                        ObjectTag = DeriveObjectTag(PlcTagTrimmed),        // F37: базовый тег объекта
                         Description = CellText(ws.Cell(r, 4)),              // D
                         Units = CellText(ws.Cell(r, 5)),                    // E
                         Scale = CellText(ws.Cell(r, 6)),                    // F
@@ -115,6 +116,26 @@ namespace IO_PJT.Services
         {
             string? t = cell.GetString()?.Trim();
             return string.IsNullOrEmpty(t) ? null : t;
+        }
+
+        /// <summary>F37: вычисление ObjectTag из PlcTag — иерархия «до пробела → префикс
+        /// контроллера → до «_»»: «MCU.1120-P-203A.HE-JB - Oil heater junction box_MCCB…» →
+        /// «MCU.1120-P-203A.HE-JB» (до первого пробела) → «1120-P-203A.HE-JB» (ведущий
+        /// префикс «MCU.» срезается только когда после точки — тег «[0-9]{3,4}-») → без
+        /// суффикса после «_» (историческое поведение F9). Уровень «до точки» выполняется
+        /// при поиске строки карты (ModbusLinkService.FindMapRow → BaseDevice): сначала
+        /// пытается связаться полное имя объекта, и только если его нет в IO_LIST — базовое
+        /// устройство до точки («1120-P-203A.HE-JB» → «1120-P-203A»).</summary>
+        public static string DeriveObjectTag(string? plcTag)
+        {
+            string s = (plcTag ?? "").Trim();
+            int sp = s.IndexOfAny(new[] { ' ', '\t' });
+            if (sp > 0) s = s.Substring(0, sp).Trim();
+            var m = Regex.Match(s, @"^[A-Za-z][A-Za-z0-9_\-]*\.(?=[0-9]{3,4}-)");
+            if (m.Success) s = s.Substring(m.Length);
+            int us = s.IndexOf('_');
+            if (us >= 0) s = s.Substring(0, us);
+            return s.Trim();
         }
 
         // ================== Хранилище MODBUS_MAP (F9) ==================
@@ -253,6 +274,12 @@ namespace IO_PJT.Services
                     DcsFunctions = S(28), Note = S(29), LinkTag = S(30), LinkState = S(31)
                 });
             }
+            // F37: ObjectTag пересчитывается из PlcTag при каждом чтении (память) —
+            // старые БД с ObjectTag «до первого _» (включавшим пробелы/описание) работают
+            // по новому правилу без переимпорта карты
+            foreach (var e in result)
+                if (!string.IsNullOrWhiteSpace(e.PlcTag))
+                    e.ObjectTag = DeriveObjectTag(e.PlcTag);
             return result;
         }
 

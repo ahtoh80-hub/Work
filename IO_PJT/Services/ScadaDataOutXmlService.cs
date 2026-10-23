@@ -173,17 +173,133 @@ namespace IO_PJT.Services
             return r;
         }
 
-        // ================== Генерация ==================
+        /// <summary>F33 (этап 6): авто-размер переменной data-шаблона по числу источников
+        /// первого эталона: 4 → 32bit (4 байта), 2 → 16bit, 8 → 64bit, 1 → bit (bool-like
+        /// ключ Disc/NAME: BOOL/COIL/DI/DO/DISCRETE/BIT) либо 8bit; иначе "" — не определить.
+        /// Sources — число источников эталона (слотов DataOut/DataIn).</summary>
+        public (int Sources, string Size) DetectTemplateSize(string? body)
+        {
+            if (string.IsNullOrWhiteSpace(body)) return (0, "");
+            DataOutTemplateInfo inf;
+            try { inf = Parse(body); }
+            catch (Exception) { return (0, ""); }
+            if (!inf.Valid || inf.Exemplars.Count == 0) return (0, "");
+            var ex = inf.Exemplars.Values.First();
+            int n = ex.SourceCount;
+            string size = n switch
+            {
+                4 => "32bit", 2 => "16bit", 8 => "64bit",
+                1 => IsBoolLikeKey(ex.TypeKey) ? "bit" : "8bit",
+                _ => ""
+            };
+            return (n, size);
+        }
+
+        /// <summary>F33: bool-like ключ эталона (дискретные шаблоны: каждый DataOut — бит).</summary>
+        private static bool IsBoolLikeKey(string key) =>
+            key.IndexOf("BOOL", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            key.IndexOf("COIL", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            key.IndexOf("DISCRETE", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            key.IndexOf("BIT", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            key.StartsWith("DI", StringComparison.OrdinalIgnoreCase) ||
+            key.StartsWith("DO", StringComparison.OrdinalIgnoreCase);
+
+        // ===== F33 (этап 7): объекты data-шаблонов (переменные) =====
+
+        /// <summary>F33 (этап 7): объект data-шаблона — блок-переменная эталона: константа
+        /// (GROBJTYPE 34) или тег (31) вне цепочки DataOut/DataIn и без имени приёмника.</summary>
+        public sealed class TemplateObject
+        {
+            /// <summary>Ключ эталона (Disc/NAME OnePOU).</summary>
+            public string ExemplarKey { get; set; } = "";
+
+            /// <summary>Имя переменной (Info блока).</summary>
+            public string Name { get; set; } = "";
+
+            /// <summary>GROBJTYPE блока: 34 — константа, 31 — тег.</summary>
+            public int GrobjType { get; set; }
+
+            /// <summary>Значение по умолчанию (для константы 34 — Info/T11Text шаблона).</summary>
+            public string DefaultValue { get; set; } = "";
+        }
+
+        /// <summary>F33 (этап 7): перечислить объекты-переменные data-шаблона: блоки
+        /// GROBJTYPE 31/34, НЕ источники (.DataOut[/.DataIn[), НЕ тег-корень цепочки;
+        /// функции-блоки (36 и др.) не включаются. F34: блок-приёмник (TargetTpl, напр.
+        /// DCSTAG) тоже включается — его Info можно переопределить маппингом объектов;
+        /// при пустом теге привязки сохраняется Info шаблона (не пустая строка).</summary>
+        public List<TemplateObject> ParseTemplateObjects(string? body)
+        {
+            var list = new List<TemplateObject>();
+            if (string.IsNullOrWhiteSpace(body)) return list;
+            DataOutTemplateInfo inf;
+            try { inf = Parse(body); }
+            catch (Exception) { return list; }
+            foreach (var kv in inf.Exemplars)
+            {
+                var ex = kv.Value;
+                foreach (var blk in ex.Blocks)
+                {
+                    string gt = blk.Attribute("GROBJTYPE")?.Value ?? "";
+                    if (gt != "31" && gt != "34") continue;
+                    if (Exemplar.IsSourceBlock(blk) || Exemplar.IsDataInBlock(blk)) continue;
+                    if (ReferenceEquals(blk, ex.SourceTpl)) continue;
+                    string name = (blk.Attribute("Info")?.Value ?? "").Trim();
+                    if (name.Length == 0) continue;
+                    list.Add(new TemplateObject
+                    {
+                        ExemplarKey = kv.Key,
+                        Name = name,
+                        GrobjType = int.Parse(gt),
+                        DefaultValue = gt == "34" ? name : ""
+                    });
+                }
+            }
+            return list;
+        }
+
+        /// <summary>F38: перечислить текстовые объекты основного шаблона — примитивы
+        /// &lt;OnePrim&gt; с параметром [TEXT]=, идентификатор — ПЕРВОЕ СЛОВО значения
+        /// (до пробела/запятой): «[TEXT]=LOOPComment, AdressComment…» → «LOOPComment(Text)».
+        /// Всё значение [TEXT] при экспорте заменяется результатом резолва строки маппинга
+        /// (см. ScadaTemplateXmlService.ApplyPrimTextSubstitution); дубли имён между
+        /// примитивами отбрасываются (IgnoreCase), порядок — появления в документе.</summary>
+        public List<string> ParseTextObjects(string? templateXml)
+        {
+            var list = new List<string>();
+            if (string.IsNullOrWhiteSpace(templateXml)) return list;
+            XDocument doc;
+            try { doc = XDocument.Parse(templateXml!); }
+            catch (Exception) { return list; }
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var prim in doc.Root?.Element("POUS")?.Element("OnePOU")?
+                         .Element("GrObj")?.Elements("OnePrim") ?? Enumerable.Empty<XElement>())
+            {
+                string txt = prim.Element("PARAMS")?.Value ?? "";
+                var m = Regex.Match(txt, @"(?m)^\[TEXT\]=([^\r\n]*)");
+                if (!m.Success) continue;
+                string ident = (m.Groups[1].Value.Trim()
+                    .Split(new[] { ' ', '\t', ',' }, StringSplitOptions.RemoveEmptyEntries)
+                    .FirstOrDefault() ?? "").Trim();
+                if (ident.Length == 0) continue;
+                if (seen.Add(ident + "(Text)"))
+                    list.Add(ident + "(Text)");
+            }
+            return list;
+        }
+
+        // ===== Генерация =====
 
         /// <summary>F13.1: собрать BufScadaPOUS привязок: на каждый пакет — OnePOU (NAME = имя
         /// блока мастера), внутри — цепочка эталона на каждую привязку с подстановкой блока/
         /// индекса/тега. masterMeta — (cardId, IV) блоков мастера из основной генерации.
-        /// F14/F16: typnoMap — «Typno → (шаблон, эталон)» (SCADA_TYPNO_MAP): при наличии
-        /// строки для привязки эталон выбирается по Typno (приоритет над M_DataType); F16:
-        /// указанное имя шаблона (Template) ищется в namedTemplates (имя → XML-текст всех
-        /// сохранённых SCADA_DATAOUT_TEMPLATES) — цепочка клонируется из него; пустое
-        /// имя/шаблон не найден — основной (текущий редактор). Typno не сопоставлен —
-        /// исторический выбор по M_DataType + предупреждение.
+        /// F14/F16: typnoMap — «Typno → (шаблон, эталон)» (SCADA_TYPNO_MAP): эталон выбирается
+        /// по правилу Typno; указанное имя шаблона (Template) ищется в namedTemplates —
+        /// цепочка клонируется из него, не найден/невалиден — пропуск (F33).
+        /// F33 (этап 5): typnoMap != null → маппинг Typno обязателен: точка без правила,
+        /// правило с ненайденным шаблоном или отсутствие эталона типа — привязка
+        /// ПРОПУСКАЕТСЯ с предупреждением (исторические fallback «по M_DataType»/«INT»/
+        /// «основной шаблон» отключены); typnoMap == null — историческое поведение F13.
         /// F30: dataInTemplates — именованные DataIn-шаблоны (SCADA_DATAIN_TEMPLATES) для
         /// привязок записи (пакеты FC05/06/15/16): эталон ищется по правилу Typno среди
         /// datain, затем по typeKey среди datain (см. ChooseWriteTemplate); без write-эталона —
@@ -191,9 +307,12 @@ namespace IO_PJT.Services
         public string Write(IReadOnlyList<MbPacketPlan> packets, string templateXml,
             IReadOnlyDictionary<string, (int CardId, string Iv)> masterMeta, ScadaMbGenSettings s,
             List<string>? warnings = null,
-            IReadOnlyDictionary<string, (string Template, string Exemplar)>? typnoMap = null,
+            IReadOnlyDictionary<string, (string Template, string Exemplar, string Size)>? typnoMap = null,
             IReadOnlyDictionary<string, string>? namedTemplates = null,
-            IReadOnlyDictionary<string, string>? dataInTemplates = null)
+            IReadOnlyDictionary<string, string>? dataInTemplates = null,
+            // F33 (этап 7): маппинг объектов data-шаблонов «имя шаблона → объект → (колонка, литерал)»
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal)>>? dataVars = null,
+            string dataVarsTemplateKey = "")
         {
             if (packets == null) throw new ArgumentNullException(nameof(packets));
             if (s == null) throw new ArgumentNullException(nameof(s));
@@ -234,49 +353,70 @@ namespace IO_PJT.Services
 
             var outPous = new XElement("POUS");
             var usedPouNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // F17: уникальность NAME POU
+            // F35: предупреждение «маппинг шаблона не найден» — один раз на ключ
+            var noMappingWarned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // F35: предупреждение «приёмник без строки маппинга» — один раз на (пакет, объект)
+            var noMapWarned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var outCards = new List<XElement>();   // карточки тегов + мастеров
             var seenCards = new HashSet<int>();
             int pouId = Math.Max(20000, T11Of(tplRoot.Element("POUS")?.Element("OnePOU")?.Attribute("ID")?.Value));
 
-            foreach (var p in packets)
+            // F38: пакеты data группируются по N на один POU (файл привязок): пакет АТОМАРЕН
+            // (все его цепочки целиком на одном POU, между POU не рвётся); чанки по N пакетов
+            // подряд, имя POU — по первому пакету чанка; N=1 — историческое «один POU на
+            // пакет» (F13). Зазор +100 между пакетами чанка — цепочки не налагаются
+            int packetsPerPou = Math.Max(1, s.DataPacketsPerPage);
+            for (int pi = 0; pi < packets.Count; pi += packetsPerPou)
             {
+                var chunk = packets.Skip(pi).Take(packetsPerPou).ToList();
                 var pouBlocks = new XElement("Blocks");
                 var pouLinks = new XElement("Links");
                 int yBase = 200;
+                foreach (var p in chunk)
+                {
+                // F37.4: один data-объект на адрес — несколько привязок одного пакета с одним
+                // DataOutExpr (DO-биты одного регистра, 1115-MHS-…A/B/C/F) клонируют цепочку
+                // ОДИН раз по первой привязке (данные — из первого попавшегося по адресу тега);
+                // M_BusBlock/M_BusDataOut в IO_LIST пишутся для всех тегов адреса (WriteBindings)
+                var seenExpr = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
                 foreach (var b in p.Bindings)
                 {
+                    if (b.DataOutExpr != null && b.DataOutExpr.Length > 0 &&
+                        !seenExpr.Add(b.DataOutExpr)) continue;
+
                     // F14/F16: приоритет — сопоставление «Typno → (шаблон, эталон)» (SCADA_TYPNO_MAP)
-                    string typeKey;
                     string? mappedEx = null;
                     string mappedTplName = "";
-                    (string Template, string Exemplar) rule = default;
+                    (string Template, string Exemplar, string Size) rule = default;
                     bool haveRule = typnoMap != null &&
                                     !string.IsNullOrWhiteSpace(b.Typno) &&
                                     typnoMap.TryGetValue(b.Typno.Trim(), out rule);
+
+                    // F33 (этап 5): при активных правилах (typnoMap != null) маппинг Typno
+                    // ОБЯЗАТЕЛЕН — точка без правила не генерится (исторический выбор эталона
+                    // по M_DataType отключён); typnoMap == null — историческое F13/F14
+                    if (typnoMap != null && !haveRule)
+                    {
+                        warnings.Add($"F33: {b.Tag}: Typno «{b.Typno}» не сопоставлен в " +
+                                     "SCADA_TYPNO_MAP — привязка пропущена (добавьте правило " +
+                                     "«Typno → шаблон привязок»)");
+                        continue;
+                    }
+
                     if (haveRule)
                     {
                         mappedEx = rule.Exemplar;
                         mappedTplName = (rule.Template ?? "").Trim();
                     }
 
-                    // F16/F30: активный шаблон выбирается ПОСЛЕ typeKey — см. ниже
-                    // (для записи нужен typeKey, чтобы найти write-эталон среди DataIn-шаблонов)
+                    // F33: тип эталона — из правила Typno; правило без эталона → тип точки
+                    // (подсказка для единственного эталона шаблона)
+                    string typeKey = !string.IsNullOrWhiteSpace(mappedEx)
+                        ? mappedEx!.Trim()
+                        : MapTypeKey(b.DataType);
 
-                    if (haveRule && !string.IsNullOrWhiteSpace(mappedEx))
-                    {
-                        typeKey = mappedEx!.Trim();
-                    }
-                    else
-                    {
-                        if (typnoMap != null && !string.IsNullOrWhiteSpace(b.Typno))
-                            warnings.Add($"F13: {b.Tag}: Typno «{b.Typno}» не сопоставлен " +
-                                         $"в SCADA_TYPNO_MAP — эталон по M_DataType");
-                        typeKey = MapTypeKey(b.DataType);
-                    }
-
-                    // F16/F30: активный шаблон — именованный из правила Typno (чтение);
-                    // F30: для записи — только DataIn-шаблоны/шаблоны с write-эталоном
+                    // F16/F30: активный шаблон выбирается по типу/шаблону правила
                     var active = info;
                     if (b.IsWrite)
                     {
@@ -289,13 +429,19 @@ namespace IO_PJT.Services
                         }
                         active = wact;
                     }
-                    else if (haveRule && mappedTplName.Length > 0)
+                    else if (mappedTplName.Length > 0)
                     {
                         if (namedInfo.TryGetValue(mappedTplName, out var ni) && ni.Valid)
                             active = ni;
                         else
-                            warnings.Add($"F16: {b.Tag}: шаблон привязок «{mappedTplName}» не найден " +
-                                         "среди сохранённых или невалиден — основной шаблон");
+                        {
+                            // F33: правило указало шаблон — без него привязка НЕ генерится
+                            // (раньше — fallback на основной шаблон)
+                            warnings.Add($"F33: {b.Tag}: шаблон привязок «{mappedTplName}» из " +
+                                         "правила Typno не найден среди сохранённых или невалиден " +
+                                         "— привязка пропущена");
+                            continue;
+                        }
                     }
 
                     Exemplar ex;
@@ -321,38 +467,23 @@ namespace IO_PJT.Services
                     {
                         ex = rex;
                     }
+                    else if (active.Exemplars.Count == 1)
+                    {
+                        // F18: в шаблоне ровно один эталон (набор «шаблон на один тип
+                        // сигнала» — напр. Data_Out_шаблоны_32-Bit Floating_V2) —
+                        // берём его для всех типов точек
+                        ex = active.Exemplars.Values.First();
+                        warnings.Add($"F18: {b.Tag}: эталон «{typeKey}» не найден — взят " +
+                                     $"единственный эталон шаблона «{ex.TypeKey}» " +
+                                     $"(источников/байт: {ex.SourceCount})");
+                    }
                     else
                     {
-                        // F16: в указанном шаблоне нет такого эталона → основной, затем INT
-                        if (!ReferenceEquals(active, info))
-                        {
-                            warnings.Add($"F16: {b.Tag}: в шаблоне «{mappedTplName}» нет эталона «{typeKey}» " +
-                                         "— основной шаблон");
-                            active = info;
-                        }
-                        if (active.Exemplars.TryGetValue(typeKey, out var rex2))
-                            ex = rex2;
-                        else if (active.Exemplars.TryGetValue("INT", out var intEx))
-                        {
-                            ex = intEx;
-                            warnings.Add($"F13: {b.Tag}: тип «{b.DataType}» → эталон «{typeKey}» не найден, взят INT");
-                        }
-                        else if (active.Exemplars.Count == 1)
-                        {
-                            // F18: в шаблоне ровно один эталон (набор «шаблон на один тип
-                            // сигнала» — напр. Data_Out_шаблоны_32-Bit Floating_V2) —
-                            // берём его для всех типов точек
-                            ex = active.Exemplars.Values.First();
-                            warnings.Add($"F18: {b.Tag}: эталон «{typeKey}» не найден — взят " +
-                                         $"единственный эталон шаблона «{ex.TypeKey}» " +
-                                         $"(источников/байт: {ex.SourceCount})");
-                        }
-                        else
-                        {
-                            warnings.Add($"F13: {p.MasterName}.DataOut[{b.Offset}] ({b.Tag}): " +
-                                         $"нет эталона «{typeKey}» и «INT» — пропущено");
-                            continue;
-                        }
+                        // F33: без эталона типа привязка не генерится (исторические
+                        // fallback «основной шаблон»/«взят INT» отключены)
+                        warnings.Add($"F33: {p.MasterName}.DataOut[{b.Offset}] ({b.Tag}): " +
+                                     $"в шаблоне нет эталона «{typeKey}» — привязка пропущена");
+                        continue;
                     }
 
                     // F30: направление эталона должно совпадать с привязкой — read-эталон
@@ -367,20 +498,58 @@ namespace IO_PJT.Services
                     }
 
                     int nSrc = ex.SourceCount;
-                    // F18: граница привязки — в БАЙТАХ: DataOut мастера массив байт
-                    // (MB_USINT_0_249); смещение привязки в адресации пакета (регистры
-                    // FC03/04, биты FC01/02) → базовый байт, эталон занимает nSrc байт
+
+                    // F33 (этап 6): валидация Size правила Typno — размер должен соответствовать
+                    // эталону шаблона (число источников = байт/слотов) и типу функции пакета;
+                    // расхождение — предупреждение (клонирование идёт по шаблону — эталон истины)
+                    if (haveRule)
+                    {
+                        string ruleSize = MbTypnoMapRule.NormalizeSize(rule.Size);
+                        if (ruleSize == "bit" && !p.IsBit)
+                            warnings.Add($"F33: {b.Tag}: Size=bit (каждый DataOut — бит), а пакет " +
+                                         $"регистровый (FC{p.FuncCode}) — проверьте правило Typno");
+                        else if (ruleSize != "" && ruleSize != "bit" && p.IsBit)
+                            warnings.Add($"F33: {b.Tag}: Size={ruleSize}, а пакет битовый " +
+                                         $"(FC{p.FuncCode}) — проверьте правило Typno");
+                        else if (ruleSize != "" && ruleSize != "bit" &&
+                                 MbTypnoMapRule.SizeBytes(ruleSize) != nSrc)
+                            warnings.Add($"F33: {b.Tag}: Size={ruleSize} " +
+                                         $"({MbTypnoMapRule.SizeBytes(ruleSize)} байт/слотов), а эталон " +
+                                         $"«{ex.TypeKey}» в шаблоне — {nSrc} источников(а) — " +
+                                         "проверьте правило Typno/шаблон");
+                    }
+                    // F18: граница привязки — DataOut мастера массив байт (MB_USINT_0_249);
+                    // F33: для битовых функций каждый элемент dataOut — bool по АДРЕСУ пакета
+                    // (индекс = адрес), граница — в адресах (Count); для регистров — байты
                     int byteBase = ModbusBlockPlannerService.DataOutByteIndex(b.Offset, p.IsBit);
-                    int bytesAvail = p.IsBit ? (p.Count + 7) / 8 : p.Count * 2;
+                    int bytesAvail = p.IsBit ? p.Count : p.Count * 2;
                     if (byteBase + nSrc - 1 >= bytesAvail)
                     {
-                        warnings.Add($"F18: {p.MasterName}: привязка {b.Tag} (байт {byteBase}, эталон " +
-                                     $"{ex.TypeKey} на {nSrc} байт(ов)) выходит за данные пакета " +
-                                     $"({bytesAvail} байт, Count={p.Count}) — пропущено");
+                        warnings.Add(p.IsBit
+                            ? $"F18: {p.MasterName}: привязка {b.Tag} (адрес {byteBase}, эталон " +
+                              $"{ex.TypeKey} на {nSrc} элемент(ов)) выходит за данные пакета " +
+                              $"({bytesAvail} адресов, Count={p.Count}) — пропущено"
+                            : $"F18: {p.MasterName}: привязка {b.Tag} (байт {byteBase}, эталон " +
+                              $"{ex.TypeKey} на {nSrc} байт(ов)) выходит за данные пакета " +
+                              $"({bytesAvail} байт, Count={p.Count}) — пропущено");
                         continue;
                     }
 
                     // клон цепочки эталона (T11ID перенумеровываются, Y смещается на строку)
+                    // F33 (этап 7): маппинг объектов активного шаблона — переменные-объекты
+                    // (блоки 31/34) получают значение колонки/шаблона/литерала
+                    // F35: строго по ключу — правило Typno (Template), иначе настройка
+                    // шаблона; ключ не найден — подстановок НЕТ (fallback «единственного
+                    // шаблона» F34 удалён — недопустимы скрытые подстановки)
+                    string activeTplName = mappedTplName.Length > 0 ? mappedTplName : dataVarsTemplateKey;
+                    IReadOnlyDictionary<string, (string IoColumn, string Literal)>? dv = null;
+                    if (dataVars != null && activeTplName.Length > 0 &&
+                        dataVars.TryGetValue(activeTplName, out var dvFound))
+                        dv = dvFound;
+                    if (dv == null && dataVars != null && dataVars.Count > 0 &&
+                        noMappingWarned.Add(activeTplName))
+                        warnings.Add($"F35: {activeTplName}: маппинг объектов data-шаблона " +
+                            "не найден — подстановки не выполняются");
                     var t11Map = new Dictionary<int, int>();
                     foreach (var blk in ex.Blocks)
                     {
@@ -392,7 +561,7 @@ namespace IO_PJT.Services
                         clone.Element("Graphics")?.SetAttributeValue("Y",
                             (int.TryParse((string?)blk.Element("Graphics")?.Attribute("Y"), out int by) ? by : 0) + yBase);
                         ApplyBindingSubstitutions(clone, blk, p, b, ex, masterMeta,
-                            ref nextCard, outCards, seenCards);
+                            ref nextCard, outCards, seenCards, dv, warnings, noMapWarned);
                         pouBlocks.Add(clone);
                     }
                     foreach (var l in ex.Links)
@@ -407,14 +576,20 @@ namespace IO_PJT.Services
                     yBase += ChainStep(ex);
                 }
 
+                    // F38: следующий пакет чанка размещается ниже цепочек предыдущего (+ зазор,
+                    // чтобы цепочки пакетов не наложились друг на друга)
+                    yBase += 100;
+                }
+
                 if (pouBlocks.Elements("Block").Any())
                 {
-                    // F17: имя POU пакета — по DataOutPouNamePattern (контекст пакета);
-                    // пусто/не разрешилось — историческое «имя блока мастера»; дубликаты
-                    // внутри файла → суффиксы _2, _3 (SCADA требует уникальности POU)
+                    // F17/F38: имя POU чанка — по DataOutPouNamePattern (контекст — первый
+                    // пакет чанка); пусто/не разрешилось — историческое «имя блока мастера»;
+                    // дубликаты внутри файла → суффиксы _2, _3 (SCADA требует уникальности POU)
+                    var first = chunk[0];
                     string pouName = ScadaTemplateXmlService.BuildPouName(
-                        s.DataOutPouNamePattern, p.MasterName, p);
-                    if (pouName.Length == 0) pouName = p.MasterName;
+                        s.DataOutPouNamePattern, first.MasterName, first);
+                    if (pouName.Length == 0) pouName = first.MasterName;
                     pouName = MakeUniquePouName(pouName, usedPouNames);
                     outPous.Add(BuildPacketPou(pouId++, tplRoot, pouBlocks, pouLinks, pouName));
                 }
@@ -489,14 +664,96 @@ namespace IO_PJT.Services
             return v.Length > 0 && !v.StartsWith("_") ? "_" + v : v;
         }
 
+        /// <summary>F35: колонки IO_LIST точки привязки — источник разрешения маппинга
+        /// «Объекты data-шаблонов» для ЭТОЙ привязки (пер-точечные значения: M_Marka
+        /// адреса 579 ≠ M_Marka адреса 580); пусто — колонки первой точки пакета
+        /// (историческое поведение F23/F33).</summary>
+        private static IReadOnlyDictionary<string, string> BindColumns(MbBinding b, MbPacketPlan p) =>
+            b.ColumnValues != null && b.ColumnValues.Count > 0 ? b.ColumnValues : p.ColumnValues;
+
         /// <summary>F13.1/F18: подстановки в клон цепочки: источник(и) — «{Block}.DataOut[{byteBase+j}]»
         /// (байтовый индекс: byteBase по смещению привязки + позиция источника в эталоне),
-        /// cardId/IV от мастера пакета; приёмник — тег (+член эталона «.Xin») и новая карточка.</summary>
+        /// cardId/IV от мастера пакета; приёмник — тег (+член эталона «.Xin») и новая карточка.
+        /// F33 (этап 7): dataVars — маппинг объектов шаблона — переменные-объекты (блоки 31/34
+        /// вне цепочки источников/приёмника). F36: канал подстановки определяется типом
+        /// источника маппинга — колонка/строковый шаблон «{}» → ИМЯ (Info = TagNameFor(значение),
+        /// IV шаблона не трогается; константа 34 — Info/T11Text её значения, как и литерал);
+        /// литерал → ЗНАЧЕНИЕ (&lt;IV&gt; тега, Info шаблонный). Тот же разделитель — у приёмника.</summary>
         private void ApplyBindingSubstitutions(XElement clone, XElement blk, MbPacketPlan p,
             MbBinding b, Exemplar ex,
             IReadOnlyDictionary<string, (int CardId, string Iv)> masterMeta,
-            ref int nextCard, List<XElement> outCards, HashSet<int> seenCards)
+            ref int nextCard, List<XElement> outCards, HashSet<int> seenCards,
+            IReadOnlyDictionary<string, (string IoColumn, string Literal)>? dataVars = null,
+            List<string>? warnings = null,
+            // F35: дедупликация предупреждений «приёмник без строки маппинга»
+            HashSet<string>? noMapWarned = null)
         {
+            // F33 (этап 7): переменная data-шаблона — блок-константа (34) или тег (31),
+            // не источник/приёмник цепочки; подстановка значения из маппинга объектов
+            // F34: приёмник (TargetTpl) тоже участвует — его строка маппинга имеет приоритет
+            // над тегом привязки (см. ветку «блок-приёмник» ниже)
+            if (dataVars != null)
+            {
+                string gtVar = clone.Attribute("GROBJTYPE")?.Value ?? "";
+                bool isVarBlock = (gtVar == "31" || gtVar == "34") &&
+                    !Exemplar.IsSourceBlock(blk) && !Exemplar.IsDataInBlock(blk) &&
+                    !ReferenceEquals(blk, ex.SourceTpl) && !ReferenceEquals(blk, ex.TargetTpl);
+                if (isVarBlock)
+                {
+                    string objName = (blk.Attribute("Info")?.Value ?? "").Trim();
+                    if (objName.Length > 0 && dataVars.TryGetValue(objName, out var drow))
+                    {
+                        string dval = ResolveDataVarValue(drow.IoColumn, drow.Literal,
+                            BindColumns(b, p), out string? dUnresolved, out bool dFromName);
+                        if (dUnresolved != null)
+                            warnings?.Add($"F33: {b.Tag}: объект шаблона «{objName}» — " +
+                                $"колонка/шаблон «{dUnresolved}» не разрешился — значение не подставлено");
+                        if (dval.Length > 0)
+                        {
+                            if (gtVar == "34")
+                            {
+                                // F36: константа — её значение и есть Info/T11Text: замена
+                                // и для колонки (имя константы), и для литерала — без изменений
+                                clone.SetAttributeValue("Info", dval);
+                                clone.Element("Params")?.SetAttributeValue("T11Text", dval);
+                            }
+                            else if (dFromName)
+                            {
+                                // F36: колонка/строковый шаблон «{}» — канал ИМЕНИ: Info тега
+                                // переименовывается по правилу F12 (TagNameFor, как у приёмника),
+                                // <IV> шаблона НЕ трогается; карточка — с новым именем
+                                string newNameV = TagNameFor(dval);
+                                clone.SetAttributeValue("Info", newNameV);
+                                int newCardV = nextCard;
+                                nextCard += 10;
+                                clone.Element("Params")?.SetAttributeValue("cardId", newCardV);
+                                if (seenCards.Add(newCardV))
+                                    outCards.Add(NewCard(newCardV, newNameV));
+                            }
+                            else
+                            {
+                                // F36: литерал — канал ЗНАЧЕНИЯ: подстановка в <IV> тега,
+                                // Info шаблонный без изменений
+                                var prVar = clone.Element("Params");
+                                var ivVar = prVar?.Element("IV");
+                                if (ivVar != null) ivVar.Value = dval;
+                                else prVar?.Add(new XElement("IV", dval));
+                            }
+                        }
+                    }
+                    else if (warnings != null && objName.Length > 0 &&
+                             (noMapWarned == null || noMapWarned.Add($"var|{objName}")))
+                    {
+                        // F37.1: var-объект без строки маппинга — подстановка НЕ выполняется;
+                        // раньше молчало (в отличие от приёмника F35) — баг «литерал не пишется
+                        // в <IV>» оставался невидимым: проверьте имя объекта/ключ шаблона
+                        warnings.Add($"F37: объект шаблона «{objName}» — в маппинге «Объекты " +
+                            $"data-шаблонов» нет строки объекта — подстановка не выполнена " +
+                            "(имя строки маппинга должно совпадать с Info блока шаблона точно, " +
+                            "например SLAVE_BYTES_ORGER — как в шаблоне)");
+                    }
+                }
+            }
             // F30: write-эталон — направление инвертировано: блок-приёмник «.DataIn[…]»
             // подставляет путь записи мастера, тег-корень — имя тега IO_LIST
             if (ex.IsWrite)
@@ -560,15 +817,100 @@ namespace IO_PJT.Services
             // блок-приёмник (тег/член тега)
             if (ReferenceEquals(blk, ex.TargetTpl))
             {
-                string tag = TagNameFor(b.Tag);
                 string suffix = MemberSuffixOf(ex.TargetTpl); // напр. «.Xin» из T11Text
-                clone.SetAttributeValue("Info", tag + suffix);
+                // F35: приёмник — подстановка ТОЛЬКО по строке маппинга «Объекты
+                // data-шаблонов» (колонка/строковый шаблон/литерал, значение — по колонкам
+                // СВОЕЙ точки привязки). Тег привязки НЕ подставляется — скрытых подстановок
+                // нет; без маппинга Info шаблона не изменяется.
+                string objName = (blk.Attribute("Info")?.Value ?? "").Trim();
+                string? mappedName = null;
+                bool mappedFromName = false;
+                if (dataVars != null && objName.Length > 0 &&
+                    dataVars.TryGetValue(objName, out var drowT))
+                {
+                    mappedName = ResolveDataVarValue(drowT.IoColumn, drowT.Literal,
+                        BindColumns(b, p), out string? dUnT, out mappedFromName);
+                    if (dUnT != null)
+                        warnings?.Add($"F35: {b.Tag}: приёмник «{objName}» — колонка/шаблон " +
+                            $"«{dUnT}» не разрешился — значение не подставлено");
+                    if (string.IsNullOrEmpty(mappedName)) mappedName = null;
+                }
+                if (mappedName != null && mappedFromName)
+                {
+                    // F36: колонка/строковый шаблон «{}» — канал ИМЕНИ: значение маппинга —
+                    // имя тега по правилу F12 («1130-MXA-…» → «_1130_MXA_…», уже подчёркнутое —
+                    // без изменений) + член эталона (.Xin); <IV> приёмника НЕ трогается
+                    clone.SetAttributeValue("Info", TagNameFor(mappedName) + suffix);
+                }
+                else if (mappedName != null)
+                {
+                    // F36: литерал — канал ЗНАЧЕНИЯ: подстановка в <IV> приёмника,
+                    // Info шаблонный («DCSTAG» + член эталона) без изменений
+                    var prLit = clone.Element("Params");
+                    var ivLit = prLit?.Element("IV");
+                    if (ivLit != null) ivLit.Value = mappedName;
+                    else prLit?.Add(new XElement("IV", mappedName));
+                }
+                else
+                {
+                    // F35: маппинг не задан/не разрешился — Info клона остаётся шаблонным
+                    // БЕЗ изменений (в т.ч. шаблонный Info может уже содержать член, как
+                    // «…_FAIL.Xin»); предупреждение — только когда таблица маппинга передана,
+                    // но без строки объекта
+                    if (dataVars != null &&
+                        (noMapWarned == null || noMapWarned.Add($"{p.MasterName}|{objName}")))
+                        warnings?.Add($"F35: {p.MasterName}: блок-приёмник «{objName}» — в маппинге " +
+                            "«Объекты data-шаблонов» нет строки объекта — Info шаблона оставлен без изменений");
+                }
                 int newCard = nextCard;
                 nextCard += 10;
                 clone.Element("Params")?.SetAttributeValue("cardId", newCard);
                 if (seenCards.Add(newCard))
-                    outCards.Add(NewCard(newCard, tag));
+                    // F36: карточка называется по ИМЕНИ приёмника: колонка/шаблон — новое имя
+                    // (TagNameFor), литерал/отсутствие маппинга — шаблонное имя объекта
+                    outCards.Add(NewCard(newCard,
+                        mappedName != null && mappedFromName ? TagNameFor(mappedName) : objName));
             }
+        }
+
+        /// <summary>F33 (этап 7)/F36: значение маппинга объекта data-шаблона — строка с «{}» →
+        /// рендер по ColumnValues пакета (F32, неизвестный токен → unresolved); имя колонки →
+        /// значение колонки СВОЕЙ точки привязки; иначе литерал. Пусто — значение не подставить.
+        /// F36: fromName=true — значение из колонки/строкового шаблона «{}» (канал ИМЕНИ —
+        /// переименование Info по правилу F12, IV шаблона не трогается); fromName=false —
+        /// литерал (канал ЗНАЧЕНИЯ — подстановка в &lt;IV&gt;, Info шаблонный).
+        /// F38: public — резолв переиспользуется ScadaTemplateXmlService для текстов
+        /// примитивов ([TEXT] — только канал значения, без TagNameFor).</summary>
+        public static string ResolveDataVarValue(string? ioColumn, string? literal,
+            IReadOnlyDictionary<string, string>? columnValues, out string? unresolved,
+            out bool fromName)
+        {
+            unresolved = null;
+            fromName = false;
+            string col = (ioColumn ?? "").Trim();
+            if (col.Length > 0 && columnValues != null)
+            {
+                if (col.IndexOf('{') >= 0)
+                {
+                    string rendered = ModbusBlockPlannerService.RenderVarTemplate(
+                        col, columnValues, out var unres);
+                    if (unres.Count > 0) unresolved = string.Join(",", unres);
+                    if (unresolved == null || rendered != col)
+                    {
+                        fromName = true;
+                        return rendered;
+                    }
+                }
+                else if (columnValues.TryGetValue(col, out var cv) &&
+                         !string.IsNullOrWhiteSpace(cv))
+                {
+                    fromName = true;
+                    return cv.Trim();
+                }
+                else
+                    unresolved = col; // колонка не найдена/пуста у точки пакета
+            }
+            return (literal ?? "").Trim();
         }
 
         /// <summary>F13.1: индекс DataOut из T11Text/Info блока-источника эталона («.DataOut[k]»).</summary>

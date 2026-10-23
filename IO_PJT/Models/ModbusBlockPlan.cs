@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 
 namespace IO_PJT.Models
 {
@@ -62,34 +64,71 @@ namespace IO_PJT.Models
         /// SCADA_TYPNO_MAP (Typno → эталон шаблона привязок). Пуст — точка не участвует
         /// в генерации F14 (отфильтрована в BuildPlan).</summary>
         public string Typno { get; set; } = "";
+
+        /// <summary>F35: колонки IO_LIST СВОЕЙ точки привязки (ColumnValuesOf(IoPoint),
+        /// заполняются в BuildPlan) — источник разрешения маппинга «Объекты data-шаблонов»
+        /// для этой привязки (пер-точечные значения: адрес 579 → _1130_MXA_01301A из
+        /// M_Marka этой точки, а не первой точки пакета). Пусто — колонки пакета.</summary>
+        public Dictionary<string, string> ColumnValues { get; set; } =
+            new(StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>F13: план одного запроса (пакета) — ровно один блок мастера из XML-шаблона,
-    /// размноженный по пакетам (имя — от имени мастера шаблона + номер пакета).</summary>
-    public sealed class MbPacketPlan
+    /// размноженный по пакетам (имя — от имени мастера шаблона + номер пакета).
+    /// F34: INPC — параметры пакета редактируются в превью (SlaveId/FuncCode/Address/Count/
+    /// TimeoutMs/IP:порт), правки применяются при экспорте.</summary>
+    public sealed class MbPacketPlan : INotifyPropertyChanged
     {
-        /// <summary>Порядковый номер пакета (с 1).</summary>
-        public int No { get; set; }
+        public event PropertyChangedEventHandler? PropertyChanged;
 
+        private void OnChanged([CallerMemberName] string? name = null) =>
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
+        private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
+        {
+            if (EqualityComparer<T>.Default.Equals(field, value)) return false;
+            field = value;
+            OnChanged(name);
+            return true;
+        }
+
+        private int _no;
+        /// <summary>Порядковый номер пакета (с 1).</summary>
+        public int No { get => _no; set => Set(ref _no, value); }
+
+        private string _station = "";
         /// <summary>Станция Modbus (M_SlaveStation) — для отображения/группировки.</summary>
-        public string Station { get; set; } = "";
+        public string Station { get => _station; set => Set(ref _station, value ?? ""); }
+
+        private string _controller = "";
+        /// <summary>F37: контроллер IO_LIST (Identification.Controller) — ключ группировки
+        /// пакетов (Controller, Station, Typno, IP, порт, функция): одна станция в разных
+        /// контроллерах даёт раздельные пакеты и своё адресное пространство.</summary>
+        public string Controller { get => _controller; set => Set(ref _controller, value ?? ""); }
 
         // —— параметры запроса (входы MB_TCP_MASTER) ——
+        private int _ip1;
         /// <summary>IP-адрес устройства (первый октет из M_SlaveIdMain).</summary>
-        public int Ip1 { get; set; }
-        public int Ip2 { get; set; }
-        public int Ip3 { get; set; }
-        public int Ip4 { get; set; }
+        public int Ip1 { get => _ip1; set { if (Set(ref _ip1, value)) OnChanged(nameof(Endpoint)); } }
+        private int _ip2;
+        public int Ip2 { get => _ip2; set { if (Set(ref _ip2, value)) OnChanged(nameof(Endpoint)); } }
+        private int _ip3;
+        public int Ip3 { get => _ip3; set { if (Set(ref _ip3, value)) OnChanged(nameof(Endpoint)); } }
+        private int _ip4;
+        public int Ip4 { get => _ip4; set { if (Set(ref _ip4, value)) OnChanged(nameof(Endpoint)); } }
 
+        private int _port = 502;
         /// <summary>Порт Modbus TCP (из M_SlaveIdMain, иначе настройка DefaultPort).</summary>
-        public int Port { get; set; } = 502;
+        public int Port { get => _port; set { if (Set(ref _port, value)) OnChanged(nameof(Endpoint)); } }
 
+        private int _slaveId = 1;
         /// <summary>SlaveId (1-255) — по правилу «станция → SlaveId», иначе DefaultSlaveId.</summary>
-        public int SlaveId { get; set; } = 1;
+        public int SlaveId { get => _slaveId; set => Set(ref _slaveId, value); }
 
+        private string _protocol = "TCP";
         /// <summary>F21: протокол станции из SCADA_MB_SLAVE_RULES («TCP»/«RTU»; без правила —
         /// «TCP»). Определяет, какой мастер-шаблон использовать при генерации (F22).</summary>
-        public string Protocol { get; set; } = "TCP";
+        public string Protocol { get => _protocol; set => Set(ref _protocol, value ?? "TCP"); }
 
         /// <summary>F21: true — станция Modbus RTU (COM-порт/шина вместо TCP/IP).</summary>
         public bool IsRtu => string.Equals(Protocol, "RTU", StringComparison.OrdinalIgnoreCase);
@@ -100,31 +139,45 @@ namespace IO_PJT.Models
         public Dictionary<string, string> ColumnValues { get; set; } =
             new(StringComparer.OrdinalIgnoreCase);
 
-        /// <summary>F23: подстановки входов мастера (имя входа → значение из колонки IO_LIST
-        /// или литерал, SCADA_TEMPLATE_VARS) — заполняются в VM при экспорте; пусто —
-        /// источник значения из плана (SlaveId/Mode/Address/Count/TimeOut).</summary>
-        public Dictionary<string, string> VarValues { get; set; } =
-            new(StringComparer.OrdinalIgnoreCase);
+        // F35: VarValues (маппинг входов мастера F23, приоритет в MasterInputValue) удалён —
+        // недопустимы скрытые подстановки; входы мастера строго из плана (превью)
 
+        private int _funcCode = 3;
         /// <summary>Код функции чтения (1/2/3/4) — Mode блока MB_TCP_MASTER.</summary>
-        public int FuncCode { get; set; } = 3;
+        public int FuncCode
+        {
+            get => _funcCode;
+            set
+            {
+                if (!Set(ref _funcCode, value)) return;
+                // F34: вычисляемые от кода функции — обновляются в превью при правке
+                OnChanged(nameof(Mode));
+                OnChanged(nameof(IsBit));
+                OnChanged(nameof(IsWrite));
+                OnChanged(nameof(Direction));
+            }
+        }
 
         /// <summary>Mode входа блока (= код функции чтения).</summary>
         public int Mode => FuncCode;
 
+        private int _address;
         /// <summary>Начальный адрес пакета (минимальный адрес точек пакета).</summary>
-        public int Address { get; set; }
+        public int Address { get => _address; set => Set(ref _address, value); }
 
+        private string _addressInput = "";
         /// <summary>F14: значение входа Address блока в формате «регистр + адрес»
         /// (FormatBlockAddress при включённой настройке FormatAddress); заполняется
         /// в BuildPlan для отображения в превью.</summary>
-        public string AddressInput { get; set; } = "";
+        public string AddressInput { get => _addressInput; set => Set(ref _addressInput, value ?? ""); }
 
+        private int _count;
         /// <summary>Число адресов в пакете (Count блока; регистры или биты).</summary>
-        public int Count { get; set; }
+        public int Count { get => _count; set => Set(ref _count, value); }
 
+        private int _timeoutMs = 200;
         /// <summary>Таймаут ответа, мс (общий тег MB_*_TIMEOUT; min по точкам группы).</summary>
-        public int TimeoutMs { get; set; } = 200;
+        public int TimeoutMs { get => _timeoutMs; set => Set(ref _timeoutMs, value); }
 
         /// <summary>true — битовая функция (01/02), Count в битах; false — регистровая (03/04).
         /// F30: 05/15 (запись битов) тоже битовые.</summary>
@@ -138,11 +191,13 @@ namespace IO_PJT.Models
         public string Direction => IsWrite ? "запись" : "чтение";
 
         // —— имена/привязки ——
+        private string _masterName = "";
         /// <summary>Имя блока мастера пакета (от имени мастера шаблона: MB_TCP_MASTER_4_1 → _4_2, …).</summary>
-        public string MasterName { get; set; } = "";
+        public string MasterName { get => _masterName; set => Set(ref _masterName, value ?? ""); }
 
+        private string _firstTag = "";
         /// <summary>Объект-подпись пакета (PLC Tag первого объекта).</summary>
-        public string FirstTag { get; set; } = "";
+        public string FirstTag { get => _firstTag; set => Set(ref _firstTag, value ?? ""); }
 
         /// <summary>PLC-теги, попавшие в пакет (M_PlcTag, по порядку адресов).</summary>
         public List<string> Tags { get; } = new();
@@ -153,8 +208,23 @@ namespace IO_PJT.Models
         /// <summary>Число точек IO_LIST в пакете.</summary>
         public int PointCount => Tags.Count;
 
-        /// <summary>Строка «a.b.c.d:port» для отображения.</summary>
-        public string Endpoint => $"{Ip1}.{Ip2}.{Ip3}.{Ip4}:{Port}";
+        /// <summary>Строка «a.b.c.d:port» для отображения/редактирования (F34: сеттер
+        /// парсит введённый адрес — Ip1..Ip4/Port; невалидная строка игнорируется).</summary>
+        public string Endpoint
+        {
+            get => $"{Ip1}.{Ip2}.{Ip3}.{Ip4}:{Port}";
+            set
+            {
+                var parts = (value ?? "").Trim().Split(':', 2);
+                var oct = parts[0].Split('.');
+                if (parts.Length != 2 || oct.Length != 4) return;
+                if (!int.TryParse(parts[1], out int port) || port < 0 || port > 65535) return;
+                var ip = new int[4];
+                for (int i = 0; i < 4; i++)
+                    if (!int.TryParse(oct[i], out ip[i]) || ip[i] < 0 || ip[i] > 255) return;
+                Ip1 = ip[0]; Ip2 = ip[1]; Ip3 = ip[2]; Ip4 = ip[3]; Port = port;
+            }
+        }
     }
 
     /// <summary>F13: результат планирования блоков (пакеты + статистика/предупреждения).</summary>
@@ -201,6 +271,10 @@ namespace IO_PJT.Models
         /// <summary>ID строки в SCADA_MB_SLAVE_RULES (COUNTER); 0 — ещё не сохранено.</summary>
         public long Id { get; set; }
 
+        /// <summary>F37: контроллер IO_LIST (Identification.Controller); пусто — правило
+        /// универсальное (действует для всех контроллеров станции). Сравнение IgnoreCase.</summary>
+        public string Controller { get; set; } = "";
+
         /// <summary>Станция Modbus (M_SlaveStation, напр. «IMCS EBSM102»); сравнение IgnoreCase.</summary>
         public string Station { get; set; } = "";
 
@@ -246,25 +320,98 @@ namespace IO_PJT.Models
         public string MasterTemplate { get; set; } = "";
     }
 
-    /// <summary>F14/F16: правило ручного сопоставления «Typno → (шаблон привязок, эталон)» —
-    /// таблица SCADA_TYPNO_MAP. Typno выбирает, из какого именованного шаблона Data_Out
+    /// <summary>F14/F16/F33: правило ручного сопоставления «Typno → (шаблон привязок, эталон,
+    /// размер)» — таблица SCADA_TYPNO_MAP. Typno выбирает, из какого именованного шаблона Data_Out
     /// (F16, пусто — основной/текущий шаблон редактора) и какой эталон (Disc OnePOU)
     /// клонировать для сигналов этого алгоритма; все Tag с тем же Typno получают цепочки
-    /// этого эталона (по одной цепочке на тег).</summary>
-    public sealed class MbTypnoMapRule
+    /// этого эталона (по одной цепочке на тег). F33: Size — размер переменной шаблона
+    /// (32bit = 4 байта = DataOut[0..3], 16bit = 2, 8bit, bit = каждый DataOut[i] — бит
+    /// 0/1, 64bit = 8); заполняется автоматически по выбранному шаблону, пусто — авто по
+    /// M_DataType.</summary>
+    public sealed class MbTypnoMapRule : INotifyPropertyChanged
     {
+        // F33: INPC — колонка «Размер» обновляется в гриде при автозаполнении из шаблона
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        private void OnChanged([CallerMemberName] string? name = null) =>
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
+        private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
+        {
+            if (EqualityComparer<T>.Default.Equals(field, value)) return false;
+            field = value;
+            OnChanged(name);
+            return true;
+        }
+
+        private long _id;
         /// <summary>ID строки в SCADA_TYPNO_MAP (COUNTER); 0 — ещё не сохранено.</summary>
-        public long Id { get; set; }
+        public long Id { get => _id; set => Set(ref _id, value); }
 
+        private string _typno = "";
         /// <summary>Типовой алгоритм (IO_LIST Typno, напр. «PID1200-01R»); сравнение IgnoreCase.</summary>
-        public string Typno { get; set; } = "";
+        public string Typno { get => _typno; set => Set(ref _typno, value ?? ""); }
 
+        private string _template = "";
         /// <summary>F16: имя шаблона привязок из SCADA_DATAOUT_TEMPLATES (IgnoreCase);
         /// пусто — основной шаблон (файл/вставленный код редактора).</summary>
-        public string Template { get; set; } = "";
+        public string Template { get => _template; set => Set(ref _template, value ?? ""); }
 
+        private string _exemplar = "";
         /// <summary>Ключ эталона в шаблоне привязок (Disc/NAME OnePOU: BOOL/INT/DINT/REAL).</summary>
-        public string Exemplar { get; set; } = "";
+        public string Exemplar { get => _exemplar; set => Set(ref _exemplar, value ?? ""); }
+
+        private string _size = "";
+        /// <summary>F33: размер переменной (колонка Size): 32bit/16bit/8bit/bit/64bit;
+        /// пусто — авто по M_DataType. Автозаполняется при выборе шаблона привязок.</summary>
+        public string Size { get => _size; set => Set(ref _size, value ?? ""); }
+
+        /// <summary>F33: допустимые значения размера (первая — пустая = авто по M_DataType).</summary>
+        public static readonly string[] ValidSizes = { "", "bit", "8bit", "16bit", "32bit", "64bit" };
+
+        /// <summary>F33: нормализация размера (trim + lower; недопустимое значение → "").</summary>
+        public static string NormalizeSize(string? size)
+        {
+            string v = (size ?? "").Trim().ToLowerInvariant();
+            return Array.IndexOf(ValidSizes, v) >= 0 ? v : "";
+        }
+
+        /// <summary>F33: размер → число байтов данных (слотов DataOut/DataIn); bit → 1 элемент.</summary>
+        public static int SizeBytes(string? size) => NormalizeSize(size) switch
+        {
+            "8bit" => 1, "16bit" => 2, "32bit" => 4, "64bit" => 8,
+            "bit" => 1, _ => 0
+        };
+
+        /// <summary>F33: размер → число регистров в запросе (FC03/04/06/16);
+        /// bit/пусто → 0 (для битовых функций ширина всегда 1 адрес).</summary>
+        public static int SizeRegisters(string? size) => NormalizeSize(size) switch
+        {
+            "8bit" => 1, "16bit" => 1, "32bit" => 2, "64bit" => 4, _ => 0
+        };
+    }
+
+    /// <summary>F33 (этап 7): строка маппинга объекта data-шаблона — «переменная шаблона
+    /// (блок-константа 34 / тег 31, кроме источников .DataOut[/.DataIn[ и приёмника-тега)
+    /// → колонка IO_LIST / строковый шаблон «{Кол}…» / литерал». Хранится в
+    /// SCADA_TEMPLATE_VARS (Scope=dataout для чтения, datain для записи;
+    /// TemplateName — имя data-шаблона, Var — имя объекта).</summary>
+    public sealed class MbDataTemplateVarRow
+    {
+        /// <summary>Имя data-шаблона (SCADA_DATAOUT_/SCADA_DATAIN_TEMPLATES).</summary>
+        public string TemplateName { get; set; } = "";
+
+        /// <summary>Направление шаблона для UI: «чтение»/«запись» (scope dataout/datain).</summary>
+        public string Direction { get; set; } = "";
+
+        /// <summary>Имя переменной-объекта в шаблоне (Info блока 31/34).</summary>
+        public string Var { get; set; } = "";
+
+        /// <summary>Колонка IO_LIST или строковый шаблон «{M_DcsTag} …» (F32).</summary>
+        public string IoColumn { get; set; } = "";
+
+        /// <summary>Фиксированный текст (используется, если колонка/шаблон не заданы).</summary>
+        public string Literal { get; set; } = "";
     }
 
     /// <summary>F16: именованный шаблон привязок Data_Out — таблица SCADA_DATAOUT_TEMPLATES.
@@ -375,6 +522,24 @@ namespace IO_PJT.Models
         /// <summary>Станция (M_SlaveStation, ключ группировки пакетов).</summary>
         public string Station { get; set; } = "";
 
+        /// <summary>F37: контроллер IO_LIST — ключ фильтра (Controller|Station): одна станция
+        /// у разных контроллеров — независимые пункты фильтра.</summary>
+        public string Controller { get; set; } = "";
+
+        /// <summary>F37: ключ пункта фильтра «Controller|Station» (IgnoreCase при сравнении).</summary>
+        public string Key => (Controller ?? "").Trim() + "|" + (Station ?? "").Trim();
+
+        /// <summary>F37: подпись в UI — «Контроллер / Станция» (без контроллера — только станция).</summary>
+        public string Display
+        {
+            get
+            {
+                string ct = (Controller ?? "").Trim();
+                string st = Station ?? "";
+                return ct.Length > 0 ? $"{ct} / {st}" : st;
+            }
+        }
+
         /// <summary>true — станция генерится (по умолчанию все выбранные).</summary>
         public bool IsSelected { get; set; } = true;
 
@@ -407,35 +572,81 @@ namespace IO_PJT.Models
     /// <summary>F13: настройки генерации блоков Modbus (XML) — персистятся в SCADA_MB_SETTINGS
     /// (Name/Value), переживают перезапуск. Значения по умолчанию сняты с образца
     /// «MB_TCP_MASTER_пример.xml» и документации блока (IO_PJT/Modbus RTU_TCP block.md).</summary>
-    public sealed class ScadaMbGenSettings
+    public sealed class ScadaMbGenSettings : INotifyPropertyChanged
     {
-        // —— пакетирование ——
-        /// <summary>Политика пакетирования (по умолчанию — непрерывные диапазоны).</summary>
-        public MbPacketPolicy Policy { get; set; } = MbPacketPolicy.Contiguous;
+        // F33: уведомление UI об изменении свойства — TwoWay-привязки окна F13 («Обзор»,
+        // выбор шаблонов) сразу отражаются в полях формы
+        public event PropertyChangedEventHandler? PropertyChanged;
 
+        private void OnChanged([CallerMemberName] string? name = null) =>
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
+        private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
+        {
+            if (EqualityComparer<T>.Default.Equals(field, value)) return false;
+            field = value;
+            OnChanged(name);
+            return true;
+        }
+
+        // —— пакетирование ——
+        private MbPacketPolicy _policy = MbPacketPolicy.Contiguous;
+        /// <summary>Политика пакетирования (по умолчанию — непрерывные диапазоны).</summary>
+        public MbPacketPolicy Policy { get => _policy; set => Set(ref _policy, value); }
+
+        private int _maxCountRegisters = 100;
         /// <summary>F20: максимум регистров в пакете (FC03/04); фактический лимит =
         /// min(MaxCountRegisters, 123 — лимит блока). 0 — без ограничения пользователя
         /// (= константа блока). Валидация: 0..123 (подрезка min с MaxRegisters).</summary>
-        public int MaxCountRegisters { get; set; } = 100;
+        public int MaxCountRegisters { get => _maxCountRegisters; set => Set(ref _maxCountRegisters, value); }
 
+        private int _maxCountBits = 100;
         /// <summary>F20: максимум битов в пакете (FC01/02); фактический лимит =
         /// min(MaxCountBits, 246 — лимит блока). 0 — без ограничения пользователя
         /// (= константа блока). Валидация: 0..246 (подрезка min с MaxBits).</summary>
-        public int MaxCountBits { get; set; } = 100;
+        public int MaxCountBits { get => _maxCountBits; set => Set(ref _maxCountBits, value); }
 
+        private int _maxGap = 0;
         /// <summary>F13.1: допустимый промежуток адресов внутри пакета (политика Gap):
         /// разрыв ≤ MaxGap — сигналы в одном блоке (прореха читается вхолостую),
         /// > MaxGap — новый блок. 0 — без промежутков (= Contiguous).</summary>
-        public int MaxGap { get; set; } = 0;
+        public int MaxGap { get => _maxGap; set => Set(ref _maxGap, value); }
 
+        private bool _splitByControllerStation = true;
+        /// <summary>F37: экспорт отдельными файлами «Контроллер_Станция_№» (блоки Modbus) +
+        /// «Контроллер_Станция_Typno_№» (data-объекты по Typno) в выбранную папку;
+        /// false — исторический сводный экспорт (один PousXml + «_bindings.xml» рядом
+        /// с файлом из диалога сохранения).</summary>
+        public bool SplitByControllerStation
+        {
+            get => _splitByControllerStation;
+            set => Set(ref _splitByControllerStation, value);
+        }
+
+        private int _dataPacketsPerPage = 1;
+        /// <summary>F38: сколько пакетов data (файл привязок) помещается на одном POU
+        /// (странице). Пакет атомарен — целиком размещается на одном POU; пакеты
+        /// группируются по N подряд в один OnePOU (имя POU — по первому пакету чанка,
+        /// зазор между пакетами не даёт цепочкам наложиться). 1 — историческое
+        /// «один POU на пакет» (F13). Минимум функционально — 1 (все данные одного
+        /// Modbus-пакета на одном POU выполняются всегда).</summary>
+        public int DataPacketsPerPage
+        {
+            get => _dataPacketsPerPage;
+            set => Set(ref _dataPacketsPerPage, value);
+        }
+
+        private int _defaultPort = 502;
         /// <summary>Порт по умолчанию, если в M_SlaveIdMain не указан (Modbus TCP — 502).</summary>
-        public int DefaultPort { get; set; } = 502;
+        public int DefaultPort { get => _defaultPort; set => Set(ref _defaultPort, value); }
 
+        private int _defaultSlaveId = 1;
         /// <summary>SlaveId по умолчанию, если станция не описана правилом SCADA_MB_SLAVE_RULES.</summary>
-        public int DefaultSlaveId { get; set; } = 1;
+        public int DefaultSlaveId { get => _defaultSlaveId; set => Set(ref _defaultSlaveId, value); }
 
+        private int _defaultTimeoutMs = 200;
         /// <summary>Таймаут по умолчанию, мс, если M_Timeout пуст (ивалон — 200).</summary>
-        public int DefaultTimeoutMs { get; set; } = 200;
+        public int DefaultTimeoutMs { get => _defaultTimeoutMs; set => Set(ref _defaultTimeoutMs, value); }
 
         /// <summary>F22: копия настроек — для второго прохода Write по RTU-шаблону
         /// (с BaseT11Id/BaseCardId, сдвинутыми за пределы первого результата).</summary>
@@ -443,6 +654,7 @@ namespace IO_PJT.Models
         {
             Policy = Policy, MaxCountRegisters = MaxCountRegisters, MaxCountBits = MaxCountBits,
             MaxGap = MaxGap, DefaultPort = DefaultPort, DefaultSlaveId = DefaultSlaveId,
+            SplitByControllerStation = SplitByControllerStation, // F37
             DefaultTimeoutMs = DefaultTimeoutMs, TemplateMode = TemplateMode,
             TemplateFilePath = TemplateFilePath, DataOutTemplateMode = DataOutTemplateMode,
             DataOutTemplateFilePath = DataOutTemplateFilePath, DataOutTemplateName = DataOutTemplateName,
@@ -450,83 +662,101 @@ namespace IO_PJT.Models
             BlockNamePattern = BlockNamePattern, BlockNamePatternRtu = BlockNamePatternRtu,
             PouNamePattern = PouNamePattern, DataOutPouNamePattern = DataOutPouNamePattern,
             FormatAddress = FormatAddress, BaseT11Id = BaseT11Id, BaseCardId = BaseCardId,
-            ColumnsPerRow = ColumnsPerRow, RowStep = RowStep, ColumnStep = ColumnStep
+            ColumnsPerRow = ColumnsPerRow, RowStep = RowStep, ColumnStep = ColumnStep,
+            DataPacketsPerPage = DataPacketsPerPage // F38
         };
 
         // —— XML-шаблон ——
+        private MbTemplateMode _templateMode = MbTemplateMode.File;
         /// <summary>Источник шаблона: файл (File) или вставленный код (Inline, SCADA_MB_TEMPLATE).</summary>
-        public MbTemplateMode TemplateMode { get; set; } = MbTemplateMode.File;
+        public MbTemplateMode TemplateMode { get => _templateMode; set => Set(ref _templateMode, value); }
 
+        private string _templateFilePath = "";
         /// <summary>Путь к файлу шаблона; пуст — авто-поиск «MB_TCP_MASTER_пример_new.xml»
         /// (каталог exe, потом Work\, затем встроенная копия).</summary>
-        public string TemplateFilePath { get; set; } = "";
+        public string TemplateFilePath { get => _templateFilePath; set => Set(ref _templateFilePath, value ?? ""); }
 
+        private string _masterTcpTemplateName = "";
         /// <summary>F22: имя мастер-шаблона Modbus TCP из SCADA_MASTER_TEMPLATES, которым
         /// генерируются пакеты TCP; пуст — текущий шаблон редактора (историческое).</summary>
-        public string MasterTcpTemplateName { get; set; } = "";
+        public string MasterTcpTemplateName { get => _masterTcpTemplateName; set => Set(ref _masterTcpTemplateName, value ?? ""); }
 
+        private string _masterRtuTemplateName = "";
         /// <summary>F22: имя мастер-шаблона Modbus RTU из SCADA_MASTER_TEMPLATES для пакетов
         /// RTU-станций; пуст — RTU-пакеты пропускаются с предупреждением.</summary>
-        public string MasterRtuTemplateName { get; set; } = "";
+        public string MasterRtuTemplateName { get => _masterRtuTemplateName; set => Set(ref _masterRtuTemplateName, value ?? ""); }
 
         // —— F13.1: шаблон привязок (out → tagname) и имя блока ——
+        private MbTemplateMode _dataOutTemplateMode = MbTemplateMode.File;
         /// <summary>Источник шаблона привязок: файл или вставленный код (SCADA_MB_TEMPLATE,
         /// строка Name='dataout'). Пуст/нет шаблона — простые привязки «блок 31 на пару
         /// (блок, индекс)» (историческое поведение).</summary>
-        public MbTemplateMode DataOutTemplateMode { get; set; } = MbTemplateMode.File;
+        public MbTemplateMode DataOutTemplateMode { get => _dataOutTemplateMode; set => Set(ref _dataOutTemplateMode, value); }
 
+        private string _dataOutTemplateFilePath = "";
         /// <summary>Путь к файлу шаблона привязок; пуст — авто-поиск
         /// «Data_Out_пример.xml» (каталог exe → Work\ → встроенная копия).</summary>
-        public string DataOutTemplateFilePath { get; set; } = "";
+        public string DataOutTemplateFilePath { get => _dataOutTemplateFilePath; set => Set(ref _dataOutTemplateFilePath, value ?? ""); }
 
+        private string _dataOutTemplateName = "";
         /// <summary>F16: имя текущего шаблона привязок в редакторе (SCADA_DATAOUT_TEMPLATES).
         /// Идентифицирует шаблон при «Сохранить под именем…»; пусто — имя ещё не присвоено
         /// (для файла подсказывается имя файла без расширения).</summary>
-        public string DataOutTemplateName { get; set; } = "";
+        public string DataOutTemplateName { get => _dataOutTemplateName; set => Set(ref _dataOutTemplateName, value ?? ""); }
 
+        private string _blockNamePattern = "";
         /// <summary>F13.1: шаблон имени блока мастера. Пуст — историческое правило
         /// (цифры имени шаблона + номер пакета). Иначе — маска с токенами:
         /// {Seq} — номер пакета, {Slave} — SlaveId, {Station} — станция M_SlaveStation,
         /// {Ip} — IP через «_», {Func} — код функции. Пример: «MB_TCP_Master_{Slave}_{Seq}».</summary>
-        public string BlockNamePattern { get; set; } = "";
+        public string BlockNamePattern { get => _blockNamePattern; set => Set(ref _blockNamePattern, value ?? ""); }
 
+        private string _blockNamePatternRtu = "";
         /// <summary>F14: шаблон имени блока для Modbus RTU (мастер шаблона с «RTU» в имени).
         /// Пуст — fallback на BlockNamePattern. Токены те же.</summary>
-        public string BlockNamePatternRtu { get; set; } = "";
+        public string BlockNamePatternRtu { get => _blockNamePatternRtu; set => Set(ref _blockNamePatternRtu, value ?? ""); }
 
+        private string _pouNamePattern = "";
         /// <summary>F17: шаблон имени POU в основном файле BufScadaPOUS (мастер-блоки).
         /// Пуст — историческое поведение: NAME из шаблона (MB_Master_4). Токены:
         /// {Master} — имя мастера шаблона, {Station}/{Slave}/{Ip}/{Port}/{Func}/{Seq} —
         /// контекст ПЕРВОГО пакета (POU один на все пакеты), {Date}/{Time} — момент экспорта.</summary>
-        public string PouNamePattern { get; set; } = "";
+        public string PouNamePattern { get => _pouNamePattern; set => Set(ref _pouNamePattern, value ?? ""); }
 
+        private string _dataOutPouNamePattern = "";
         /// <summary>F17: шаблон имени POU в файле привязок (dataout) — один POU на пакет.
         /// Пуст — историческое поведение: NAME = имя блока мастера пакета
         /// (MB_TCP_MASTER_4_1). Токены: {Master} — имя блока мастера пакета, {Seq} — №
         /// пакета, {Slave}, {Station}, {Ip}, {Port}, {Func}, {Date}/{Time}; дубли имени
         /// внутри файла получают суффиксы _2, _3 (SCADA требует уникальности POU).</summary>
-        public string DataOutPouNamePattern { get; set; } = "";
+        public string DataOutPouNamePattern { get => _dataOutPouNamePattern; set => Set(ref _dataOutPouNamePattern, value ?? ""); }
 
+        private bool _formatAddress = true;
         /// <summary>F14: формат входа Address блока: true (default) — «регистр + адрес»
         /// (FC3: 1 → 4001, 602 → 4602, 1506 → 41506; адрес ≥ 10000 — как есть);
         /// false — сырой адрес M_Address.</summary>
-        public bool FormatAddress { get; set; } = true;
+        public bool FormatAddress { get => _formatAddress; set => Set(ref _formatAddress, value); }
 
         // —— графика/раскладка ——
+        private int _baseT11Id = 1000000;
         /// <summary>Стартовый T11ID для клонов шаблона (уникальность — счётчиком от максимума шаблона).</summary>
-        public int BaseT11Id { get; set; } = 1000000;
+        public int BaseT11Id { get => _baseT11Id; set => Set(ref _baseT11Id, value); }
 
+        private int _baseCardId = 500000;
         /// <summary>Стартовый cardId для клонов (уникальность — счётчиком, шаг 10).</summary>
-        public int BaseCardId { get; set; } = 500000;
+        public int BaseCardId { get => _baseCardId; set => Set(ref _baseCardId, value); }
 
+        private int _columnsPerRow = 2;
         /// <summary>Число запросов в строке раскладки POU (ивалон — 2).</summary>
-        public int ColumnsPerRow { get; set; } = 2;
+        public int ColumnsPerRow { get => _columnsPerRow; set => Set(ref _columnsPerRow, value); }
 
+        private int _rowStep = 560;
         /// <summary>Шаг по вертикали между запросами, px.</summary>
-        public int RowStep { get; set; } = 560;
+        public int RowStep { get => _rowStep; set => Set(ref _rowStep, value); }
 
+        private int _columnStep = 1150;
         /// <summary>Шаг по горизонтали между запросами, px.</summary>
-        public int ColumnStep { get; set; } = 1150;
+        public int ColumnStep { get => _columnStep; set => Set(ref _columnStep, value); }
     }
 }
 
