@@ -57,12 +57,15 @@ CREATE TABLE [{ScadaTypeMapTable}] (
   [Target] TEXT(255)
 )";
 
-        /// <summary>DDL F12: настройки генерации перечня (значения параметров).</summary>
+        /// <summary>DDL F12: настройки генерации перечня (значения параметров);
+        /// F57: колонка Profile — именованные варианты настроек (строки без профиля
+        /// читаются как «По умолчанию»).</summary>
         public static string CreateScadaSettingsTable => $@"
 CREATE TABLE [{ScadaSettingsTable}] (
   ID COUNTER PRIMARY KEY,
   [Name] TEXT(255),
-  [Value] TEXT(255)
+  [Value] TEXT(255),
+  [Profile] TEXT(255)
 )";
 
         /// <summary>F13: настройки окна «Генерация блоков Modbus (XML)» — параметры пакетирования
@@ -104,6 +107,71 @@ CREATE TABLE [{ScadaSettingsTable}] (
         /// (Scope: master/dataout/datain; применяется при генерации).</summary>
         public const string ScadaTemplateVarsTable = "SCADA_TEMPLATE_VARS";
 
+        // ================== F65: генерация экземпляров типовых алгоритмов ==================
+
+        /// <summary>F65: настройки окна «Генерация экземпляров типовых алгоритмов»
+        /// (Name/Value): InstancesPerFile, FilePattern, IdStride, OutDir, TemplateName.</summary>
+        public const string ScadaAlgoSettingsTable = "SCADA_ALGO_SETTINGS";
+
+        /// <summary>F65: именованные XML-шаблоны логических схем (имя → тело BufScadaPOUS;
+        /// FilePath — путь файла-источника, справочно).</summary>
+        public const string ScadaAlgoTemplatesTable = "SCADA_ALGO_TEMPLATES";
+
+        /// <summary>F65: привязки «сигнал шаблона → строка TYPNO» (Template+Signal — ключ):
+        /// Mask/Suffix/ObjType копируются из выбранной строки TYPNO, Constructor — дополнение
+        /// к марке (структуры {ИмяКолонки} по первой строке контура).</summary>
+        public const string ScadaAlgoBindingsTable = "SCADA_ALGO_BINDINGS";
+
+        /// <summary>F65: таблица описаний TYPNO (Typno → объекты/маски/суффиксы/шаблоны).
+        /// В рабочей базе уже заполнена (188 строк); при отсутствии создаётся пустая
+        /// с теми же колонками (кириллические имена — как в таблице пользователя).</summary>
+        public const string TypnoTable = "TYPNO";
+
+        /// <summary>DDL F65: настройки генерации экземпляров (значения параметров).</summary>
+        public static string CreateScadaAlgoSettingsTable => @"
+CREATE TABLE [SCADA_ALGO_SETTINGS] (
+  ID COUNTER PRIMARY KEY,
+  [Name] TEXT(255),
+  [Value] TEXT(255)
+)";
+
+        /// <summary>DDL F65: именованные шаблоны логических схем (имя → XML-тело).</summary>
+        public static string CreateScadaAlgoTemplatesTable => @"
+CREATE TABLE [SCADA_ALGO_TEMPLATES] (
+  ID COUNTER PRIMARY KEY,
+  [Name] TEXT(255),
+  [Body] MEMO,
+  [FilePath] TEXT(255)
+)";
+
+        /// <summary>DDL F65: привязки «сигнал шаблона → строка TYPNO».</summary>
+        public static string CreateScadaAlgoBindingsTable => @"
+CREATE TABLE [SCADA_ALGO_BINDINGS] (
+  ID COUNTER PRIMARY KEY,
+  [Template] TEXT(255),
+  [Signal] TEXT(255),
+  [Mask] TEXT(255),
+  [Suffix] TEXT(255),
+  [ObjType] TEXT(255),
+  [Constructor] TEXT(255)
+)";
+
+        /// <summary>DDL F65: таблица описаний TYPNO (колонки — как в рабочей базе
+        /// пользователя, кириллические имена; создаётся только при отсутствии).</summary>
+        public static string CreateTypnoTable => @"
+CREATE TABLE [TYPNO] (
+  ID COUNTER PRIMARY KEY,
+  [№] TEXT(50),
+  [TYPNO] TEXT(255),
+  [Маска] TEXT(255),
+  [Суффикс] TEXT(255),
+  [Тип объекта] TEXT(255),
+  [TYPNO описание] TEXT(255),
+  [Шаблон] TEXT(255),
+  [Шаблон описание] TEXT(255),
+  [Подпись] TEXT(255)
+)";
+
         /// <summary>DDL F13: настройки генерации блоков (значения параметров).</summary>
         public static string CreateScadaMbSettingsTable => $@"
 CREATE TABLE [{ScadaMbSettingsTable}] (
@@ -130,7 +198,8 @@ CREATE TABLE [{ScadaMbSlaveRulesTable}] (
   [Reverse] YESNO,
   [Timeout] LONG,
   [MaxLength] LONG,
-  [MasterTemplate] TEXT(255)
+  [MasterTemplate] TEXT(255),
+  [Generate] YESNO
 )";
 
         /// <summary>DDL F13: вставленный шаблон генерации (код окна; MEMO — до 64 КБ).</summary>

@@ -92,6 +92,20 @@ namespace IO_PJT.Models
         public int RowsInserted { get; set; }
     }
 
+    /// <summary>F59: режим связывания IO_LIST ↔ MODBUS_MAP — полное обновление (всё
+    /// пересчитывается, LinkTag/DcsTag/LinkState строк карты затираются расчётом, ручные
+    /// правки теряются) либо только пустые связи (строки с уже заполненной привязкой
+    /// не трогаются — вручную привязанные сигналы сохраняются).</summary>
+    public enum ModbusLinkMode
+    {
+        /// <summary>Полное обновление связей (предупреждение о перезаписи всех полей).</summary>
+        Full,
+
+        /// <summary>F59: заполнить только пустые — строки с непустым LinkTag/DcsTag
+        /// сохраняются как есть (ручные привязки не сбрасываются).</summary>
+        FillEmpty
+    }
+
     /// <summary>F9: итог связывания IO_LIST с картой Modbus.
     /// F9.4: при импорте M_-поля в IO_LIST НЕ записываются — только связь (LinkTag/LinkState/DcsTag);
     /// запись адресации выполняется кнопкой «Обновить адресацию Modbus» (UpdateAddressing).</summary>
@@ -118,6 +132,27 @@ namespace IO_PJT.Models
         /// <summary>F9.11: точек связано ручными правилами MODBUS_LINK_RULES (правила приоритетнее DetectRole).</summary>
         public int LinkedByRule { get; set; }
 
+        /// <summary>F55: точек связано на фазе полного совпадения имени — их строки закреплены
+        /// и на втором проходе не получают тегов от других точек.</summary>
+        public int LinkedFullMatch { get; set; }
+
+        /// <summary>F59: режим прогона (Full — полное обновление; FillEmpty — только пустые связи).</summary>
+        public ModbusLinkMode Mode { get; set; } = ModbusLinkMode.Full;
+
+        /// <summary>F59: строк карты с уже заполненной привязкой (непустой LinkTag/DcsTag),
+        /// сохранённых без изменений — режим FillEmpty.</summary>
+        public int PreservedFilled { get; set; }
+
+        /// <summary>F59: точек пропущено — их теги уже есть в заполненных связях строк карты
+        /// (режим FillEmpty: сигнал не перенаправляется на другую строку); F66: также теги,
+        /// уже привязанные к другой строке карты («один сигнал — один адрес»).</summary>
+        public int SkippedAlreadyLinked { get; set; }
+
+        /// <summary>F66: точек привязано с отклонением от полного совпадения имени —
+        /// в LinkState строки карты записано «привязано не по полным совпадением!»
+        /// (фаза 2: усечённое имя/базовое устройство; фазы R/1 дают «привязано»).</summary>
+        public int LinkedApprox { get; set; }
+
         /// <summary>F9.11: срабатывания правил: имя правила → количество связанных точек.</summary>
         public Dictionary<string, int> RuleHits { get; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -131,13 +166,19 @@ namespace IO_PJT.Models
         /// <summary>F9.3: строки карты без привязки (до 10 PlcTag) — для превью окна.</summary>
         public List<string> MapUnlinkedSamples { get; } = new();
 
-        /// <summary>Итоговый текст (F9.4: без «обновлено в БД» — M_-поля пишет кнопка обновления адресации).</summary>
+        /// <summary>Итоговый текст (F9.4: без «обновлено в БД» — M_-поля пишет кнопка обновления адресации;
+        /// F59: режим прогона + сохранённые ручные связи).</summary>
         public string Summary =>
+            "Режим: " + (Mode == ModbusLinkMode.FillEmpty ? "только пустые связи (F59)" : "полное обновление (F59)") + "; " +
             $"Проверено: {Examined}; связано: {Linked}; " +
             $"строк карты найдено: {MapRowsMatched}; не связано: {Unlinked}; " +
             $"карта: привязано {MapRowsLinked}, без привязки {MapRowsUnlinked}" +
+            (PreservedFilled > 0 ? $"; сохранено заполненных связей: {PreservedFilled}" : "") +
+            (SkippedAlreadyLinked > 0 ? $"; точек уже привязано (не тронуты): {SkippedAlreadyLinked}" : "") +
             (Errors.Count > 0 ? $"; ошибок: {Errors.Count}" : "") +
             (LinkedByRule > 0 ? $"; правилом F9.11: {LinkedByRule}" : "") +
+            (LinkedFullMatch > 0 ? $"; полных совпадений F55: {LinkedFullMatch}" : "") +
+            (LinkedApprox > 0 ? $"; с отклонением F66: {LinkedApprox}" : "") +
             "; M_-поля не записаны (кнопка «Обновить адресацию Modbus»)";
     }
 

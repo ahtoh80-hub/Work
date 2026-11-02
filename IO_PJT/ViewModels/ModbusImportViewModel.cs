@@ -125,7 +125,11 @@ namespace IO_PJT.ViewModels
                 ModbusLinkResult linkResult;
                 try
                 {
-                    linkResult = _s.ModbusLink.Link();
+                    // F59: после импорта строки свежие (LinkTag пуст), но колонка DcsTag файла
+                    // (S) — авторитетные привязки: режим FillEmpty заполняет только пустое и
+                    // не затирает файловые/ручные значения; повторный импорт других файлов
+                    // также не сбрасывает связи уже импортированных строк
+                    linkResult = _s.ModbusLink.Link(ModbusLinkMode.FillEmpty);
                 }
                 catch (Exception ex)
                 {

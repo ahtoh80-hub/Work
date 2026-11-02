@@ -117,7 +117,11 @@ namespace IO_PJT.Services
         public void EnsureServiceTables()
         {
             if (!DatabaseExists()) return;
-            if (!TableExists("IO_LIST_Audit"))
+            // F45: одно перечисление таблиц (GetTableNames) вместо ~20 отдельных TableExists —
+            // каждый открывал соединение и запрашивал GetSchema (медленно у ACE OLEDB); окно F13
+            // зовёт EnsureTables на каждом чтении настроек/правил/маппинга шаблонов
+            var tables = new HashSet<string>(GetTableNames(), StringComparer.OrdinalIgnoreCase);
+            if (!tables.Contains("IO_LIST_Audit"))
             {
                 Execute(Schema.CreateAuditTable);
             }
@@ -129,9 +133,9 @@ namespace IO_PJT.Services
                     if (!auditCols.Contains(col))
                         Execute($"ALTER TABLE [IO_LIST_Audit] ADD COLUMN [{col}] TEXT(255)");
             }
-            if (!TableExists("MappingTemplates"))
+            if (!tables.Contains("MappingTemplates"))
                 Execute(Schema.CreateMappingTemplatesTable);
-            if (!TableExists(Schema.ModbusMapTable))
+            if (!tables.Contains(Schema.ModbusMapTable))
             {
                 Execute(Schema.CreateModbusMapTable);
             }
@@ -145,20 +149,28 @@ namespace IO_PJT.Services
                     Execute($"ALTER TABLE [{Schema.ModbusMapTable}] ADD COLUMN [LinkState] TEXT(255)");
             }
             // F9.11: ручные правила связывания IO_LIST ↔ MODBUS_MAP (окно «Правила связывания Modbus…»)
-            if (!TableExists(Schema.ModbusLinkRulesTable))
+            if (!tables.Contains(Schema.ModbusLinkRulesTable))
                 Execute(Schema.CreateModbusLinkRulesTable);
             // F12: таблицы генерации перечня «Тех.объекты» (SCADA → меню SCADA)
-            if (!TableExists(Schema.ScadaTypeMapTable))
+            if (!tables.Contains(Schema.ScadaTypeMapTable))
             {
                 Execute(Schema.CreateScadaTypeMapTable);
                 SeedScadaTypeMap();
             }
-            if (!TableExists(Schema.ScadaSettingsTable))
+            if (!tables.Contains(Schema.ScadaSettingsTable))
                 Execute(Schema.CreateScadaSettingsTable);
+            else
+            {
+                // F57: миграция старых баз — колонка Profile (именованные варианты настроек)
+                var stCols = new HashSet<string>(GetColumns(Schema.ScadaSettingsTable),
+                    StringComparer.OrdinalIgnoreCase);
+                if (!stCols.Contains("Profile"))
+                    Execute($"ALTER TABLE [{Schema.ScadaSettingsTable}] ADD COLUMN [Profile] TEXT(255)");
+            }
             // F13: таблицы генерации блоков Modbus (XML) (окно «Генерация блоков Modbus (XML)…»)
-            if (!TableExists(Schema.ScadaMbSettingsTable))
+            if (!tables.Contains(Schema.ScadaMbSettingsTable))
                 Execute(Schema.CreateScadaMbSettingsTable);
-            if (!TableExists(Schema.ScadaMbSlaveRulesTable))
+            if (!tables.Contains(Schema.ScadaMbSlaveRulesTable))
                 Execute(Schema.CreateScadaMbSlaveRulesTable);
             else
             {
@@ -173,15 +185,16 @@ namespace IO_PJT.Services
                     ("Speed", "TEXT(50)"), ("Parity", "YESNO"), ("StopBit", "LONG"),
                     ("DataBit", "LONG"), ("Reverse", "YESNO"), ("Timeout", "LONG"),
                     ("MaxLength", "LONG"),
-                    ("MasterTemplate", "TEXT(255)") // F29: шаблон пакетов станции
+                    ("MasterTemplate", "TEXT(255)"), // F29
+                    ("Generate", "YESNO") // F53: галочка «Генерировать» (NULL → true при чтении): шаблон пакетов станции
                 })
                     if (!srCols.Contains(col))
                         Execute($"ALTER TABLE [{Schema.ScadaMbSlaveRulesTable}] ADD COLUMN [{col}] {type}");
             }
-            if (!TableExists(Schema.ScadaMbTemplateTable))
+            if (!tables.Contains(Schema.ScadaMbTemplateTable))
                 Execute(Schema.CreateScadaMbTemplateTable);
             // F14: ручное сопоставление «Typno → эталон шаблона привязок Data_Out»
-            if (!TableExists(Schema.ScadaTypnoMapTable))
+            if (!tables.Contains(Schema.ScadaTypnoMapTable))
                 Execute(Schema.CreateScadaTypnoMapTable);
             else
             {
@@ -194,16 +207,27 @@ namespace IO_PJT.Services
                     Execute($"ALTER TABLE [{Schema.ScadaTypnoMapTable}] ADD COLUMN [Size] TEXT(10)");
             }
             // F16: именованные шаблоны привязок Data_Out (имя → XML-текст, Typno → имя)
-            if (!TableExists(Schema.ScadaDataOutTemplatesTable))
+            if (!tables.Contains(Schema.ScadaDataOutTemplatesTable))
                 Execute(Schema.CreateScadaDataOutTemplatesTable);
             // F22: мастер-шаблоны блоков (TCP/RTU) и шаблоны привязок DataIn
-            if (!TableExists(Schema.ScadaMasterTemplatesTable))
+            if (!tables.Contains(Schema.ScadaMasterTemplatesTable))
                 Execute(Schema.CreateScadaMasterTemplatesTable);
-            if (!TableExists(Schema.ScadaDataInTemplatesTable))
+            if (!tables.Contains(Schema.ScadaDataInTemplatesTable))
                 Execute(Schema.CreateScadaDataInTemplatesTable);
             // F23: маппинг «переменная шаблона → колонка IO_LIST/литерал»
-            if (!TableExists(Schema.ScadaTemplateVarsTable))
+            if (!tables.Contains(Schema.ScadaTemplateVarsTable))
                 Execute(Schema.CreateScadaTemplateVarsTable);
+            // F65: генерация экземпляров типовых алгоритмов — настройки, шаблоны, привязки,
+            // таблица описаний TYPNO (создаётся только при отсутствии — в рабочих базах
+            // уже заполнена, существующие строки не трогаются)
+            if (!tables.Contains(Schema.ScadaAlgoSettingsTable))
+                Execute(Schema.CreateScadaAlgoSettingsTable);
+            if (!tables.Contains(Schema.ScadaAlgoTemplatesTable))
+                Execute(Schema.CreateScadaAlgoTemplatesTable);
+            if (!tables.Contains(Schema.ScadaAlgoBindingsTable))
+                Execute(Schema.CreateScadaAlgoBindingsTable);
+            if (!tables.Contains(Schema.TypnoTable))
+                Execute(Schema.CreateTypnoTable);
         }
 
         /// <summary>F12: сидирование маппинга типов IO List → SCADA по умолчанию

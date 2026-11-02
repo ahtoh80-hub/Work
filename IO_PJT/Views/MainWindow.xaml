@@ -18,8 +18,10 @@
                 <MenuItem Header="Импорт из Excel..." Command="{Binding ImportCommand}" />
                 <MenuItem Header="Карта Modbus..." Command="{Binding ImportModbusCommand}"
                           ToolTip="Импорт карты адресации Modbus (Register Table Function 02/03/06) и связывание строк карты с IO_LIST (LinkTag/DcsTag) — F9" />
-                <MenuItem Header="Обновить связи Modbus (DcsTag)" Command="{Binding UpdateModbusLinksCommand}"
-                          ToolTip="Повторное связывание текущей таблицы с уже сохранённой картой MODBUS_MAP без импорта файлов (для ручных правок сигналов в Access) — F9.9" />
+                <MenuItem Header="Обновить связи Modbus (DcsTag) — полное..." Command="{Binding UpdateModbusLinksCommand}"
+                          ToolTip="F59: полное обновление связей — LinkTag/DcsTag/LinkState ВСЕХ строк MODBUS_MAP перезаписываются расчётом; перед запуском — предупреждение и подтверждение (ручные привязки теряются). Повторное связывание без импорта файлов — F9.9/F59" />
+                <MenuItem Header="Заполнить пустые связи Modbus..." Command="{Binding FillEmptyModbusLinksCommand}"
+                          ToolTip="F59: заполняются только строки карты без привязки (пустой LinkTag и DcsTag) — вручную привязанные сигналы не сбрасываются и не перенаправляются на другие строки" />
                 <MenuItem Header="Обновить адресацию Modbus" Command="{Binding UpdateModbusAddressCommand}"
                           ToolTip="Записать M_-поля IO_LIST по парам MODBUS_MAP.DcsTag ↔ IO_LIST.Tag (только Modbus-сигналы) — F9.4" />
                 <MenuItem Header="Правила связывания Modbus..." Command="{Binding ModbusLinkRulesCommand}"
@@ -39,6 +41,8 @@
                           ToolTip="Формирование перечня технологических объектов для импорта в SCADA по образцу «ТехОбъекты_простой.xls»: строки с адресацией Modbus, редактируемые поля-источники/константы, таблица маппинга типов IO List → SCADA — F12" />
                 <MenuItem Header="Генерация блоков Modbus (XML)..." Command="{Binding ScadaModbusBlocksCommand}"
                           ToolTip="Формирование BufScadaPOUS XML с блоками опроса MB_TCP_MASTER по точкам с адресацией Modbus: пакеты адресов по политике (непрерывные диапазоны/покрытие/фиксированные), IP/порт из M_SlaveIdMain, SlaveId по правилам «станция → SlaveId» — F13" />
+                <MenuItem Header="Генерация экземпляров типовых алгоритмов..." Command="{Binding ScadaAlgoInstancesCommand}"
+                          ToolTip="Генерация XML логических схем по шаблону (BufScadaPOUS): экземпляр = контур Loop IO_LIST, привязки «сигнал шаблона → строка TYPNO» задают марку, пагинация по InstancesPerFile экземпляров на файл — F65" />
             </MenuItem>
             <MenuItem Header="_Справка">
                 <MenuItem Header="Руководство пользователя..." Click="Help_Click" />
@@ -56,7 +60,7 @@
                 <Separator />
                 <Button Content="📥 Импорт Excel" Command="{Binding ImportCommand}" />
                 <Button Content="🔗 Modbus связи" Command="{Binding UpdateModbusLinksCommand}"
-                        ToolTip="Обновить связи Modbus (DcsTag): повторно связать текущую таблицу с картой MODBUS_MAP без импорта файлов (F9.9)" />
+                        ToolTip="F9.9/F59: обновить связи Modbus (DcsTag) — полный пересчёт с подтверждением о перезаписи ручных привязок; режим «заполнить только пустые» — в меню «Импорт → Заполнить пустые связи Modbus...»" />
                 <Button Content="📡 Modbus адресация" Command="{Binding UpdateModbusAddressCommand}"
                         ToolTip="Обновить M_-поля IO_LIST по DcsTag ↔ Tag (F9.4)" />
                 <Button Content="🕘 История" Command="{Binding HistoryCommand}" />

@@ -32,8 +32,21 @@ namespace IO_PJT.Models
     /// (MB_TCP_MASTER_4_1.DataOut[0] — индекс = адрес точки − Address пакета).</summary>
     public sealed class MbBinding
     {
-        /// <summary>Тег точки IO_LIST (Tag).</summary>
+        /// <summary>Тег точки IO_LIST (Tag) — представитель адреса (F56: первый попавшийся).</summary>
         public string Tag { get; set; } = "";
+
+        /// <summary>F56: остальные теги IO_LIST с ТЕМ ЖЕ адресом этой точки (несколько
+        /// сигналов на одном адресе — одна точка): при записи привязок получают тот же
+        /// путь M_BusBlock/M_BusDataOut.</summary>
+        public List<string> SharedTags { get; } = new();
+
+        /// <summary>F61: ссылка на пакет привязки (MbPacketPlan) — мастер-detail превью F13:
+        /// колонки «Пакет/Контроллер/Станция» таблицы «Привязки DataOut» и фильтр привязок
+        /// по выбранному в превью пакету. Заполняется в BuildPlan.</summary>
+        public MbPacketPlan? Packet { get; set; }
+
+        /// <summary>F61: направление привязки для превью («чтение»/«запись»).</summary>
+        public string Direction => IsWrite ? "запись" : "чтение";
 
         /// <summary>Адрес точки в устройстве (M_Address).</summary>
         public int Address { get; set; }
@@ -205,7 +218,8 @@ namespace IO_PJT.Models
         /// <summary>Привязки точек пакета к выходам DataOut блока мастера.</summary>
         public List<MbBinding> Bindings { get; } = new();
 
-        /// <summary>Число точек IO_LIST в пакете.</summary>
+        /// <summary>Число точек пакета (F56: по адресному пространству — сигналы, делящие
+        /// один адрес, считаются одной точкой).</summary>
         public int PointCount => Tags.Count;
 
         /// <summary>Строка «a.b.c.d:port» для отображения/редактирования (F34: сеттер
@@ -254,6 +268,10 @@ namespace IO_PJT.Models
         /// <summary>F14: точек без Typno — вне генерации (не в пакетах, не в привязках).</summary>
         public int SkippedNoTypno { get; set; }
 
+        /// <summary>F56: сигналов, схлопнутых по совпадающей адресации (вторая и последующие
+        /// точки одного адреса — одна точка, тег-представитель — первый попавшийся).</summary>
+        public int DedupedSignals { get; set; }
+
         /// <summary>Предупреждения (разные таймауты в группе, усечённые имена, …).</summary>
         public List<string> Warnings { get; } = new();
 
@@ -261,22 +279,114 @@ namespace IO_PJT.Models
         public int TotalPoints { get { int n = 0; foreach (var p in Packets) n += p.PointCount; return n; } }
     }
 
+    /// <summary>F58: строка превью «все теги выбранной станции» — привязка одной точки пакета
+    /// (либо один из её общих адресных тегов F56) плюс контекст пакета через ссылку Packet.
+    /// Пакетные колонки грида биндятся путём Packet.* — F34-правки пакета (IP:порт, SlaveId,
+    /// FuncCode, Address, Count, Тайм. мс) из этого превью продолжают работать.</summary>
+    public sealed class MbStationTagRow
+    {
+        /// <summary>Пакет-владелец привязки (тот же экземпляр MbPacketPlan, что в плане).</summary>
+        public MbPacketPlan Packet { get; set; } = null!;
+
+        /// <summary>Тег IO_LIST (Tag привязки либо общий адресный тег F56).</summary>
+        public string Tag { get; set; } = "";
+
+        /// <summary>Роль строки: «точка» — тег-представитель адреса; «общий адрес» —
+        /// остальные теги того же адреса (F56, одна точка адресного пространства).</summary>
+        public string Role { get; set; } = "точка";
+
+        /// <summary>Типовой алгоритм точки (IO_LIST Typno).</summary>
+        public string Typno { get; set; } = "";
+
+        /// <summary>Тип значения точки (M_DataType, напр. «32-Bit Floating»).</summary>
+        public string DataType { get; set; } = "";
+
+        /// <summary>Ширина точки в регистрах (1/2).</summary>
+        public int Width { get; set; } = 1;
+
+        /// <summary>Адрес точки в устройстве (M_Address).</summary>
+        public int Address { get; set; }
+
+        /// <summary>Смещение адреса внутри пакета (индекс DataOut).</summary>
+        public int Offset { get; set; }
+
+        /// <summary>Имя блока мастера пакета (M_BusBlock).</summary>
+        public string BlockName { get; set; } = "";
+
+        /// <summary>Путь привязки данных (M_BusDataOut: Block.DataOut[i] / DataIn[байт]).</summary>
+        public string Path { get; set; } = "";
+    }
+
     /// <summary>F13/F21: правило «станция Modbus (M_SlaveStation) → SlaveId и параметры
     /// станции» — таблица SCADA_MB_SLAVE_RULES. Числовой SlaveId в IO_LIST отсутствует,
     /// поэтому задаётся правилом или значением по умолчанию. F21: станция хранит параметры
     /// подключения (IP main/reserve, протокол, скорость, UART, таймаут, макс. длина) —
     /// авто-поля заполняются из IO_LIST («Заполнить из IO_LIST»), редактируются вручную.</summary>
-    public sealed class MbSlaveIdRule
+    public sealed class MbSlaveIdRule : INotifyPropertyChanged
     {
+        // F53: INPC — колонка «Генерировать» уведомляет VM (подсказка «Генерить станций X из Y»)
+        public event PropertyChangedEventHandler? PropertyChanged;
+
         /// <summary>ID строки в SCADA_MB_SLAVE_RULES (COUNTER); 0 — ещё не сохранено.</summary>
         public long Id { get; set; }
 
-        /// <summary>F37: контроллер IO_LIST (Identification.Controller); пусто — правило
-        /// универсальное (действует для всех контроллеров станции). Сравнение IgnoreCase.</summary>
-        public string Controller { get; set; } = "";
+        private int _no;
+        /// <summary>F53: порядковый номер строки в гриде (только UI, в БД не пишется);
+        /// INPC — перенумерация после добавления/удаления строк видна в гриде сразу.</summary>
+        public int No
+        {
+            get => _no;
+            set
+            {
+                if (_no == value) return;
+                _no = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(No)));
+            }
+        }
 
-        /// <summary>Станция Modbus (M_SlaveStation, напр. «IMCS EBSM102»); сравнение IgnoreCase.</summary>
-        public string Station { get; set; } = "";
+        private bool _generate = true;
+        /// <summary>F53: галочка «Генерировать» — пакеты станции участвуют в экспорте/записи
+        /// привязок; снятие галочки исключает станцию (SCADA_MB_SLAVE_RULES.Generate;
+        /// у старых строк NULL читается как true).</summary>
+        public bool Generate
+        {
+            get => _generate;
+            set
+            {
+                if (_generate == value) return;
+                _generate = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Generate)));
+            }
+        }
+
+        private string _controller = "";
+        /// <summary>F37: контроллер IO_LIST (Identification.Controller); пусто — правило
+        /// универсальное (действует для всех контроллеров станции). Сравнение IgnoreCase.
+        /// F58: INPC — правка ячейки в гриде пересобирает превью тегов выбранной станции.</summary>
+        public string Controller
+        {
+            get => _controller;
+            set
+            {
+                if (_controller == value) return;
+                _controller = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Controller)));
+            }
+        }
+
+        private string _station = "";
+        /// <summary>Станция Modbus (M_SlaveStation, напр. «IMCS EBSM102»); сравнение IgnoreCase.
+        /// F58: INPC — правка ячейки в гриде пересобирает превью тегов выбранной станции.</summary>
+        public string Station
+        {
+            get => _station;
+            set
+            {
+                if (_station == value) return;
+                _station = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Station)));
+            }
+        }
 
         /// <summary>SlaveId устройства (1-255) — вход SlaveId блока MB_TCP_MASTER.</summary>
         public int SlaveId { get; set; } = 1;
@@ -515,38 +625,6 @@ namespace IO_PJT.Models
         public string FilePath { get; set; } = "";
     }
 
-    /// <summary>F28: строка фильтра станций в окне генерации блоков — галочка «генерить/не генерить»
-    /// при экспорте XML и записи привязок (пункт 4 ТЗ). Счётчик пакетов — из плана превья.</summary>
-    public sealed class MbStationFilterItem
-    {
-        /// <summary>Станция (M_SlaveStation, ключ группировки пакетов).</summary>
-        public string Station { get; set; } = "";
-
-        /// <summary>F37: контроллер IO_LIST — ключ фильтра (Controller|Station): одна станция
-        /// у разных контроллеров — независимые пункты фильтра.</summary>
-        public string Controller { get; set; } = "";
-
-        /// <summary>F37: ключ пункта фильтра «Controller|Station» (IgnoreCase при сравнении).</summary>
-        public string Key => (Controller ?? "").Trim() + "|" + (Station ?? "").Trim();
-
-        /// <summary>F37: подпись в UI — «Контроллер / Станция» (без контроллера — только станция).</summary>
-        public string Display
-        {
-            get
-            {
-                string ct = (Controller ?? "").Trim();
-                string st = Station ?? "";
-                return ct.Length > 0 ? $"{ct} / {st}" : st;
-            }
-        }
-
-        /// <summary>true — станция генерится (по умолчанию все выбранные).</summary>
-        public bool IsSelected { get; set; } = true;
-
-        /// <summary>Число пакетов станции в построенном плане (для подсказки в UI).</summary>
-        public int PacketCount { get; set; }
-    }
-
     /// <summary>F13: итог записи привязок в IO_LIST (M_BusBlock / M_BusDataOut) —
     /// кнопка «Записать привязки в IO_LIST».</summary>
     public sealed class MbBindingsWriteResult
@@ -636,6 +714,49 @@ namespace IO_PJT.Models
             set => Set(ref _dataPacketsPerPage, value);
         }
 
+        private int _dataChainGap = 0;
+        /// <summary>F61: дополнительный зазор между цепочками data (шаблонами привязок)
+        /// внутри POU файла привязок, px: к вертикальному шагу цепочки (ChainStep — высота
+        /// bbox эталона + отступ) прибавляется этот зазор. 0 (default) — историческая
+        /// плотная раскладка (цепочки вплотную, XML байт-в-байт как раньше).</summary>
+        public int DataChainGap { get => _dataChainGap; set => Set(ref _dataChainGap, value); }
+
+        private int _dataPacketGap = 10;
+        /// <summary>F63: вертикальный зазор между пакетами чанка (несколькими пакетами
+        /// data на одном POU файла привязок, F38), px. 0 — пакеты вплотную (без наложения).
+        /// До F63 был жёсткими +100; теперь default 10, настраивается.</summary>
+        public int DataPacketGap { get => _dataPacketGap; set => Set(ref _dataPacketGap, value); }
+
+        private int _dataChainStep = 0;
+        /// <summary>F64: вертикальный шаг между цепочками data (шаблонами привязок) внутри
+        /// POU файла привязок, px. 0 (default) — естественный шаг шаблона (высота bbox
+        /// эталона + отступ, историческое поведение); > 0 — жёсткий шаг, задаётся глобально
+        /// для всех цепочек. Зазор DataChainGap прибавляется сверх шага.</summary>
+        public int DataChainStep { get => _dataChainStep; set => Set(ref _dataChainStep, value); }
+
+        private string _pouCommentPattern = "";
+        /// <summary>F61: шаблон комментария (Disc) POU основного файла BufScadaPOUS.
+        /// Пусто (default) — Disc шаблона (историческое поведение). Токены те же, что в
+        /// PouNamePattern: {Master}, {Seq}, {Slave}, {Station}, {Controller}, {Ip},
+        /// {Port}, {Func}, {Date}, {Time}, {ИмяКолонки}; текст — свободный (пробелы
+        /// допустимы, санитизации имени нет).</summary>
+        public string PouCommentPattern
+        {
+            get => _pouCommentPattern;
+            set => Set(ref _pouCommentPattern, value ?? "");
+        }
+
+        private string _dataOutPouCommentPattern = "";
+        /// <summary>F61: шаблон комментария (Disc) POU файла привязок (один на POU чанка,
+        /// контекст — первый пакет чанка, как у имени POU). Пусто (default) — Disc=""
+        /// (слово «Обработка» захардкожено больше не ставится). Токены те же, что в
+        /// DataOutPouNamePattern.</summary>
+        public string DataOutPouCommentPattern
+        {
+            get => _dataOutPouCommentPattern;
+            set => Set(ref _dataOutPouCommentPattern, value ?? "");
+        }
+
         private int _defaultPort = 502;
         /// <summary>Порт по умолчанию, если в M_SlaveIdMain не указан (Modbus TCP — 502).</summary>
         public int DefaultPort { get => _defaultPort; set => Set(ref _defaultPort, value); }
@@ -663,7 +784,11 @@ namespace IO_PJT.Models
             PouNamePattern = PouNamePattern, DataOutPouNamePattern = DataOutPouNamePattern,
             FormatAddress = FormatAddress, BaseT11Id = BaseT11Id, BaseCardId = BaseCardId,
             ColumnsPerRow = ColumnsPerRow, RowStep = RowStep, ColumnStep = ColumnStep,
-            DataPacketsPerPage = DataPacketsPerPage // F38
+            DataPacketsPerPage = DataPacketsPerPage, // F38
+            DataChainGap = DataChainGap, // F61
+            DataPacketGap = DataPacketGap, // F63
+            DataChainStep = DataChainStep, // F64
+            PouCommentPattern = PouCommentPattern, DataOutPouCommentPattern = DataOutPouCommentPattern // F61
         };
 
         // —— XML-шаблон ——

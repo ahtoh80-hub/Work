@@ -36,7 +36,8 @@ namespace IO_PJT.ViewModels
             set { if (Set(ref _selectedSystem, value, nameof(SelectedSystem))) Refresh(); }
         }
 
-        public ObservableCollection<IoPoint> Points { get; } = new();
+        /// <summary>F45: AddRange одним Reset — грид на тысячах строк не дёргается построчно.</summary>
+        public RangeObservableCollection<IoPoint> Points { get; } = new();
         public ObservableCollection<string> Tables { get; } = new();
         /// <summary>Список систем: «Все» + уникальные значения System из текущей таблицы (F3.4; обновляется в Refresh).</summary>
         public ObservableCollection<string> Systems { get; } = new() { "Все" };
@@ -80,8 +81,12 @@ namespace IO_PJT.ViewModels
 
         /// <summary>F9.9: «Обновить связи Modbus (DcsTag)» — повторное связывание текущей таблицы
         /// с уже сохранённой картой MODBUS_MAP (без импорта файлов); для ручных правок/добавления
-        /// сигналов в Access.</summary>
+        /// сигналов в Access. F59: полное обновление (подтверждение с предупреждением о перезаписи).</summary>
         public RelayCommand UpdateModbusLinksCommand { get; }
+
+        /// <summary>F59: «Заполнить пустые связи Modbus» — связывание только незаполненных строк
+        /// карты MODBUS_MAP: строки с уже заданным LinkTag/DcsTag (ручные привязки) не сбрасываются.</summary>
+        public RelayCommand FillEmptyModbusLinksCommand { get; }
 
         /// <summary>F9.11: редактор ручных правил связывания MODBUS_LINK_RULES.</summary>
         public RelayCommand ModbusLinkRulesCommand { get; }
@@ -92,6 +97,9 @@ namespace IO_PJT.ViewModels
         /// <summary>F13: генерация блоков Modbus (BufScadaPOUS XML) для SCADA.</summary>
         public RelayCommand ScadaModbusBlocksCommand { get; }
 
+        /// <summary>F65: генерация экземпляров типовых алгоритмов (логические схемы XML).</summary>
+        public RelayCommand ScadaAlgoInstancesCommand { get; }
+
         /// <summary>Хуки открытия дочерних окон (назначаются code-behind главного окна).</summary>
         public Action? OpenImportWindow { get; set; }
         public Action? OpenModbusImportWindow { get; set; }
@@ -100,6 +108,8 @@ namespace IO_PJT.ViewModels
         public Action? OpenScadaTechObjectsWindow { get; set; }
         /// <summary>F13: окно генерации блоков Modbus (XML) (меню SCADA).</summary>
         public Action? OpenScadaModbusBlocksWindow { get; set; }
+        /// <summary>F65: окно генерации экземпляров типовых алгоритмов (меню SCADA).</summary>
+        public Action? OpenScadaAlgoInstancesWindow { get; set; }
         public Action? OpenHistoryWindow { get; set; }
         public Action<IoPoint, bool>? OpenCardWindow { get; set; }
         public Action<string>? OpenCreateTableDialog { get; set; }
@@ -120,7 +130,10 @@ namespace IO_PJT.ViewModels
             ImportModbusCommand = new RelayCommand(() => OpenModbusImportWindow?.Invoke());
             UpdateModbusAddressCommand = new RelayCommand(UpdateModbusAddress,
                 () => _services.Creator.TableExists(_services.CurrentTable));
-            UpdateModbusLinksCommand = new RelayCommand(UpdateModbusLinks,
+            UpdateModbusLinksCommand = new RelayCommand(() => UpdateModbusLinks(ModbusLinkMode.Full),
+                () => _services.Creator.TableExists(_services.CurrentTable));
+            // F59: заполнение только пустых связей — безопасный режим (ручные привязки не трогаются)
+            FillEmptyModbusLinksCommand = new RelayCommand(() => UpdateModbusLinks(ModbusLinkMode.FillEmpty),
                 () => _services.Creator.TableExists(_services.CurrentTable));
             // F9.11: редактор правил доступен всегда (таблица правил — служебная, создаётся сама)
             ModbusLinkRulesCommand = new RelayCommand(() => OpenModbusLinkRulesWindow?.Invoke());
@@ -128,6 +141,8 @@ namespace IO_PJT.ViewModels
             ScadaTechObjectsCommand = new RelayCommand(() => OpenScadaTechObjectsWindow?.Invoke());
             // F13: генерация блоков Modbus (XML) всегда доступна (предупредит, если нет пакетов)
             ScadaModbusBlocksCommand = new RelayCommand(() => OpenScadaModbusBlocksWindow?.Invoke());
+            // F65: генерация экземпляров типовых алгоритмов (логические схемы XML)
+            ScadaAlgoInstancesCommand = new RelayCommand(() => OpenScadaAlgoInstancesWindow?.Invoke());
             HistoryCommand = new RelayCommand(() => OpenHistoryWindow?.Invoke());
             CreateTableCommand = new RelayCommand(() => OpenCreateTableDialog?.Invoke(_services.CurrentTable));
             NewPointCommand = new RelayCommand(
@@ -222,12 +237,17 @@ namespace IO_PJT.ViewModels
             }
         }
 
-        /// <summary>F9.9: «Обновить связи Modbus (DcsTag)» — повторное связывание текущей таблицы
+        /// <summary>F9.9/F59: «Обновить связи Modbus (DcsTag)» — повторное связывание текущей таблицы
         /// с уже сохранённой картой MODBUS_MAP (без импорта файлов): пересчёт LinkTag/DcsTag/LinkState
-        /// строк карты по кандидатам Service/Loop точек. Для случая ручных правок/добавления сигналов
-        /// в Access. M_-поля не записываются — их пишет «Обновить адресацию Modbus» (F9.4).</summary>
-        private void UpdateModbusLinks()
+        /// строк карты по кандидатам Service/Loop точек. F59: два режима — Full (полное обновление;
+        /// перед запуском предупреждение о перезаписи всех полей и запрос подтверждения) и
+        /// FillEmpty (заполняются только пустые связи — ручные привязки не сбрасываются).
+        /// M_-поля не записываются ни одним режимом — их пишет «Обновить адресацию Modbus» (F9.4).</summary>
+        private void UpdateModbusLinks(ModbusLinkMode mode)
         {
+            string title = mode == ModbusLinkMode.Full
+                ? "Обновить связи Modbus (DcsTag) — полное обновление"
+                : "Заполнить пустые связи Modbus";
             try
             {
                 if (_services.ModbusMaps.LoadFromDb().Count == 0)
@@ -239,7 +259,23 @@ namespace IO_PJT.ViewModels
                     return;
                 }
 
-                var r = _services.ModbusLink.Link();
+                // F59: полное обновление затирает LinkTag/DcsTag/LinkState всех строк карты —
+                // предупреждаем и запрашиваем подтверждение (в т.ч. ручные правки в Access)
+                if (mode == ModbusLinkMode.Full)
+                {
+                    var yes = MessageBox.Show(
+                        "ПОЛНОЕ обновление связей Modbus.\n\n" +
+                        "Все поля LinkTag / DcsTag / LinkState строк карты MODBUS_MAP будут " +
+                        "перезаписаны результатом расчёта — ручные привязки будут потеряны.\n\n" +
+                        "Продолжить?\n\n" +
+                        "(Чтобы сохранить ручные привязки, используйте режим «Заполнить пустые связи».)",
+                        title,
+                        MessageBoxButton.YesNo, MessageBoxImage.Warning,
+                        MessageBoxResult.No);
+                    if (yes != MessageBoxResult.Yes) return;
+                }
+
+                var r = _services.ModbusLink.Link(mode);
                 string? lockWarn = ModbusMapService.TakeLockWarning();
                 if (lockWarn != null)
                     _services.Log.Warn($"F9.9: {lockWarn}");
@@ -267,7 +303,7 @@ namespace IO_PJT.ViewModels
                     foreach (var s in r.MapUnlinkedSamples.Take(10))
                         sb.AppendLine("  " + s);
                 }
-                MessageBox.Show(sb.ToString(), "Обновить связи Modbus (DcsTag)",
+                MessageBox.Show(sb.ToString(), title,
                     MessageBoxButton.OK,
                     r.Errors.Count > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
                 Refresh(); // сетка обновляется (связь пишется в MODBUS_MAP, M_-поля — нет)
@@ -276,7 +312,7 @@ namespace IO_PJT.ViewModels
             {
                 string msg = DbProbe.ClassifyMessage(ex.Message);
                 _services.Log.Error($"F9.9: ошибка обновления связей Modbus: {msg}");
-                MessageBox.Show(msg, "Обновить связи Modbus (DcsTag)",
+                MessageBox.Show(msg, title,
                     MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -360,7 +396,9 @@ namespace IO_PJT.ViewModels
                 else
                     list = _services.Repo.GetAll();
 
-                foreach (var p in list) Points.Add(p);
+                // F45: батч-заполнение одним Reset вместо N CollectionChanged (грид на
+                // тысячах строк получал по уведомлению на строку); Clear — на строке 348
+                Points.AddRange(list);
                 InfoText = $"База: {System.IO.Path.GetFileName(_services.DbPath)} | " +
                            $"Таблица: {_services.CurrentTable} | Записей: {_services.Repo.Count()} (показано: {Points.Count})";
             }

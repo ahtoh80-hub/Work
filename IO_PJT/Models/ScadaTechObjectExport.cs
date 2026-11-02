@@ -1,4 +1,7 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
+
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 
 namespace IO_PJT.Models
 {
@@ -46,7 +49,6 @@ namespace IO_PJT.Models
         public string PlcGr { get; set; } = "1";
         /// <summary>TEMPLATE (Шаблон) — всегда «простой».</summary>
         public string Template { get; set; } = "простой";
-
         /// <summary>F27: Tag точки-источника IO_LIST (служебное поле для «Записать Марку в IO_LIST»;
         /// в Excel не экспортируется).</summary>
         public string SourceTag { get; set; } = "";
@@ -70,53 +72,65 @@ namespace IO_PJT.Models
     /// → её значение точки; (2) структура с подстановками {ИмяКолонки} (как у Доп.параметра,
     /// напр. «{Service} ({Loop})») → составное значение из полей; (3) любой другой текст → константа.
     /// Персистятся в SCADA_TEHOBJ_SETTINGS (Name/Value).</summary>
-    public sealed class ScadaGenSettings
+    public sealed class ScadaGenSettings : INotifyPropertyChanged
     {
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        private void OnChanged([CallerMemberName] string? name = null) =>
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
+        private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
+        {
+            if (EqualityComparer<T>.Default.Equals(field, value)) return false;
+            field = value;
+            OnChanged(name);
+            return true;
+        }
+
         // —— поля-источники (или константы) ——
         /// <summary>Источник MARKA: Tag (по умолчанию) / Loop / любое поле / константа.</summary>
-        public string MarkaField { get; set; } = "Tag";
+        private string _markaField = "Tag";         public string MarkaField { get => _markaField; set => Set(ref _markaField, value ?? ""); }
 
         /// <summary>Источник NAME (Наименование): Service.</summary>
-        public string NameField { get; set; } = "Service";
+        private string _nameField = "Service";         public string NameField { get => _nameField; set => Set(ref _nameField, value ?? ""); }
 
         /// <summary>Источник DISC (Описание): Loop.</summary>
-        public string DiscField { get; set; } = "Loop";
+        private string _discField = "Loop";         public string DiscField { get => _discField; set => Set(ref _discField, value ?? ""); }
 
         /// <summary>Источник KKS: Tag.</summary>
-        public string KksField { get; set; } = "Tag";
+        private string _kksField = "Tag";         public string KksField { get => _kksField; set => Set(ref _kksField, value ?? ""); }
 
         /// <summary>Источник PLCNAME (КОНТРОЛЛЕР): Controller (FCS).</summary>
-        public string ControllerField { get; set; } = "Controller";
+        private string _controllerField = "Controller";         public string ControllerField { get => _controllerField; set => Set(ref _controllerField, value ?? ""); }
 
         /// <summary>Шаблон OBJDPARAM (Доп.параметр) — подстановки {ИмяКолонки} из IO_LIST/M_*,
         /// результат обрезается до 50 символов (спецификация: «не более 50 символов»);
         /// обрезка — специфика только этого поля, остальные поля со структурами не усекаются.</summary>
-        public string DParamTemplate { get; set; } = "FC{M_FuncCode} {M_RegType}{M_Address} {M_SlaveStation}";
+        private string _dparamTemplate = "FC{M_FuncCode} {M_RegType}{M_Address} {M_SlaveStation}";         public string DParamTemplate { get => _dparamTemplate; set => Set(ref _dparamTemplate, value ?? ""); }
 
         // —— константы ——
         /// <summary>Mode (Раздел): TEHOBJ.</summary>
-        public string Section { get; set; } = "TEHOBJ";
+        private string _section = "TEHOBJ";         public string Section { get => _section; set => Set(ref _section, value ?? ""); }
 
         /// <summary>ARH_PER (Период архив): 0.</summary>
-        public string ArhPer { get; set; } = "0";
+        private string _arhPer = "0";
+        public string ArhPer { get => _arhPer; set => Set(ref _arhPer, value ?? ""); }
 
         /// <summary>SREZCONTROL (Маска упр. в срезах): 1 (по образцу).</summary>
-        public string SrezControl { get; set; } = "1";
+        private string _srezControl = "1";
+        public string SrezControl { get => _srezControl; set => Set(ref _srezControl, value ?? ""); }
 
         /// <summary>USERGROUP (Классификатор): по умолчанию «[Все]\[Все технологические]» (спецификация).</summary>
         public string UserGroup { get; set; } = "[Все]\\[Все технологические]";
 
         /// <summary>EVGROUP (Группа событий): заполняется вручную.</summary>
-        public string EvGroup { get; set; } = "";
+        private string _evGroup = "";
+        public string EvGroup { get => _evGroup; set => Set(ref _evGroup, value ?? ""); }
 
         /// <summary>PLC_ADRESS (Адрес): 0.</summary>
-        public string PlcAdress { get; set; } = "0";
-
-        /// <summary>PLC_GR (№ ресурса или группа): 1.</summary>
-        public string PlcGr { get; set; } = "1";
-
-        /// <summary>TEMPLATE (Шаблон): простой.</summary>
-        public string Template { get; set; } = "простой";
+        private string _plcAdress = "0";         public string PlcAdress { get => _plcAdress; set => Set(ref _plcAdress, value ?? ""); }         /// <summary>PLC_GR (№ ресурса или группа): 1.</summary>
+        private string _plcGr = "1";         public string PlcGr { get => _plcGr; set => Set(ref _plcGr, value ?? ""); }         /// <summary>TEMPLATE (Шаблон): простой.</summary>
+        private string _template = "простой";         public string Template { get => _template; set => Set(ref _template, value ?? ""); }
     }
 
     /// <summary>F12: результат построения перечня (строки + статистика/предупреждения).</summary>

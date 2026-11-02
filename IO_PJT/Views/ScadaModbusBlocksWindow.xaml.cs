@@ -37,21 +37,44 @@ namespace IO_PJT.Views
             Top = wa.Top + Math.Max(0, (wa.Height - Height) / 2);
         }
 
-        /// <summary>F28: клик по чекбоксу станции — обновить подсказку «Генерить станций: X из Y»
-        /// (IsSelected уже записан TwoWay-привязкой в момент Click).</summary>
-        private void StationFilter_Click(object sender, RoutedEventArgs e)
-        {
-            if (DataContext is ViewModels.ScadaModbusBlocksViewModel vm)
-                vm.NotifyStationFilterChanged();
-        }
-
-        /// <summary>F34: окончание редактирования ячейки превью пакета — пересчёт зависимых
-        /// полей (AddressInput/привязки) в VM (данные уже записаны TwoWay-привязкой).</summary>
+        /// <summary>F34/F58/F61: окончание редактирования ячейки превью — пересчёт
+        /// зависимых полей (AddressInput/привязки) в VM (данные уже записаны
+        /// TwoWay-привязкой). F61: строка превью — MbPacketPlan (пакет станций
+        /// «Генерировать»); правки применяются к тому же экземпляру плана.</summary>
         private void PreviewGrid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
         {
-            if (DataContext is ViewModels.ScadaModbusBlocksViewModel vm &&
-                e.Row?.Item is Models.MbPacketPlan packet)
-                vm.NotifyPacketEdited(packet);
+            if (DataContext is not ViewModels.ScadaModbusBlocksViewModel vm) return;
+            if (e.Row?.Item is Models.MbPacketPlan p) vm.NotifyPacketEdited(p);
+        }
+
+        /// <summary>F61: повторный клик по уже выбранной строке превью (по read-only
+        /// ячейке) снимает выбор — «Привязки DataOut» внизу показывают все привязки
+        /// пакетов превью. Клики по редактируемым ячейкам (IP:порт/SlaveId/…) не
+        /// трогаются — они начинают правку значения пакета (F34).</summary>
+        private void PreviewGrid_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is not DataGrid grid || e.OriginalSource is not DependencyObject src) return;
+            var cell = FindAncestor<DataGridCell>(src);
+            if (cell?.Column != null && !cell.Column.IsReadOnly) return; // правка ячейки — не снимаем выбор
+            if (FindAncestor<DataGridRow>(src) is { IsSelected: true })
+            {
+                grid.SelectedItem = null;
+                e.Handled = true;
+            }
+        }
+
+        /// <summary>F61: ближайший предок указанного типа в визуальном дереве ячейки
+        /// (учитывает и текстовые FrameworkContentElement — Run в ячейке).</summary>
+        private static T? FindAncestor<T>(DependencyObject? from) where T : DependencyObject
+        {
+            for (DependencyObject? d = from; d != null;)
+            {
+                if (d is T t) return t;
+                d = d is Visual or System.Windows.Media.Media3D.Visual3D
+                    ? VisualTreeHelper.GetParent(d)
+                    : d is FrameworkContentElement fce ? LogicalTreeHelper.GetParent(fce) : null;
+            }
+            return null;
         }
 
         /// <summary>F18.1: «залипшее» колёсико внутренней таблицы левой колонки →

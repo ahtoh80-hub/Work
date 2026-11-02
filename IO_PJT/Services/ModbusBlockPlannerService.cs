@@ -29,15 +29,23 @@ namespace IO_PJT.Services
 
         private readonly string _dbPath;
 
+        /// <summary>F45: схема уже гарантирована для этого инстанса (сервис живёт в AppServices
+        /// весь сеанс, переинстанцируется при смене БД) — повторные EnsureTables пропускаются.</summary>
+        private bool _ensured;
+
         public ModbusBlockPlannerService(string dbPath) => _dbPath = dbPath;
 
         private string ConnStr => DbProbe.ConnStrWithTimeout(_dbPath);
 
-        /// <summary>Гарантия таблиц SCADA_MB_SETTINGS / SCADA_MB_SLAVE_RULES (идемпотентно).</summary>
+        /// <summary>Гарантия таблиц SCADA_MB_SETTINGS / SCADA_MB_SLAVE_RULES (идемпотентно).
+        /// F45: после первого успешного вызова повторные — пропуск (окно F13 зовёт EnsureTables
+        /// на каждом Load*; EnsureServiceTables перечисляет метаданные каталога — узкое место).</summary>
         public void EnsureTables()
         {
             if (string.IsNullOrEmpty(_dbPath) || !File.Exists(_dbPath)) return;
+            if (_ensured) return;
             new TableCreator(_dbPath).EnsureServiceTables();
+            _ensured = true;
         }
 
         // ================== Парсы M_-полей ==================
@@ -127,7 +135,8 @@ namespace IO_PJT.Services
         /// внутри группы — сортировка по M_Address и разбивка по политике
         /// settings.Policy с лимитом min(MaxCountRegisters/MaxCountBits — F20, лимит блока).
         /// F30: FC05/06/15/16 (запись) включаются в план — привязка DataIn[bайт];
-        /// FC05/06 — пакет ровно на одну операцию (одиночная запись Modbus).
+        /// F56: FC05/06 пакетируются по адресному пространству (блок записи по документации
+        /// пишет все регистры Address..Count), одинаковая адресация сигналов — одна точка.
         /// SlaveId — по правилу «станция → SlaveId».
         /// Имя блока мастера и привязки DataOut/DataIn считаются от имени мастера шаблона
         /// (ScadaTemplateXmlService.MasterNameFor).</summary>
@@ -241,6 +250,26 @@ namespace IO_PJT.Services
                                  .ThenBy(g => g.Key.Controller, StringComparer.OrdinalIgnoreCase))
             {
                 var items = g.OrderBy(r => r.Address).ThenBy(r => r.PlcTag).ToList();
+                // F56: несколько сигналов с одинаковой адресацией — ОДНА точка (по адресному
+                // пространству с учётом типа данных, а не по числу сигналов): остаётся первый
+                // попавшийся тег, Width — максимум по точкам адреса; все теги адреса —
+                // в sharedByAddr (M_BusBlock/M_BusDataOut пишется каждому сигналу адреса)
+                var sharedByAddr = new Dictionary<int, List<string>>();
+                var dedupedItems = new List<RawPoint>();
+                foreach (var addrGroup in items.GroupBy(r => r.Address))
+                {
+                    var first = addrGroup.First();
+                    int maxW = addrGroup.Max(r => r.Width);
+                    if (maxW != first.Width) first = first with { Width = maxW };
+                    var addrTags = addrGroup.Select(r => r.Tag)
+                        .Where(t => !string.IsNullOrWhiteSpace(t))
+                        .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                    if (addrTags.Count > 0) sharedByAddr[addrGroup.Key] = addrTags;
+                    if (addrGroup.Count() > 1)
+                        result.DedupedSignals += addrGroup.Count() - 1;
+                    dedupedItems.Add(first);
+                }
+                items = dedupedItems;
                 int gfc = g.Key.FuncCode;
                 bool isBitFunc = gfc == 1 || gfc == 2 || gfc == 5 || gfc == 15;
                 // F20: раздельные лимиты — FC01/02/05/15 (бит) по MaxCountBits, FC03/04/06/16
@@ -250,8 +279,9 @@ namespace IO_PJT.Services
                 int userLimit = isBitFunc ? settings.MaxCountBits : settings.MaxCountRegisters;
                 int limit = Math.Min(userLimit, blockLimit);
                 if (limit < 1) limit = blockLimit;
-                // F30: FC05/FC06 — одиночная запись Modbus (ровно 1 операция на запрос)
-                if (gfc == 5 || gfc == 6) limit = 1;
+                // F56: FC05/FC06 — пакет по адресному пространству (бывш. «ровно 1 операция
+                // на запрос»): блок записи пишет все регистры Address..Count, соседние адреса
+                // объектов остаются в одном пакете/блоке мастера — как при чтении FC03
                 int groupTimeout = items.Min(r => r.Timeout);
                 if (items.Any(r => r.Timeout != groupTimeout))
                     result.Warnings.Add(
@@ -328,6 +358,7 @@ namespace IO_PJT.Services
                             Address = m.Address,
                             Offset = offset,
                             BlockName = packet.MasterName,
+                            Packet = packet, // F61: мастер-detail превью (фильтр/колонки «Привязки DataOut»)
                             // F18/F33: индекс по DataOutByteIndex: регистр → байт (2 на
                             // регистр), бит — адрес в пределах пакета (каждый dataOut — bool)
                             DataOutExpr = $"{packet.MasterName}.{exprField}[{DataOutByteIndex(offset, packet.IsBit)}]",
@@ -342,9 +373,20 @@ namespace IO_PJT.Services
                                 : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                         });
                     }
+                    // F56: сигналы того же адреса (одна точка адресного пространства) —
+                    // тот же путь привязки: каждый сигнал адреса получает M_BusBlock/M_BusDataOut
+                    foreach (var bnd in packet.Bindings)
+                        if (sharedByAddr.TryGetValue(bnd.Address, out var shTags))
+                            foreach (var shTag in shTags)
+                                if (!string.Equals(shTag, bnd.Tag, StringComparison.OrdinalIgnoreCase))
+                                    bnd.SharedTags.Add(shTag);
                     result.Packets.Add(packet);
                 }
             }
+            // F56: сигналы, схлопнутые по одинаковой адресации (одна точка — первый тег)
+            if (result.DedupedSignals > 0)
+                result.Warnings.Add($"F56: сигналов с повторяющейся адресацией учтено как " +
+                    $"одна точка: {result.DedupedSignals} (в привязке — первый тег)");
             // F14: обобщённое предупреждение по точкам без Typno (не в пакетах и не в привязках)
             if (result.SkippedNoTypno > 0)
                 result.Warnings.Add(
@@ -484,7 +526,10 @@ namespace IO_PJT.Services
             "DataOutTemplateMode", "DataOutTemplateFilePath", "BlockNamePattern",
             "BlockNamePatternRtu", "FormatAddress", "DataOutTemplateName",
             "PouNamePattern", "DataOutPouNamePattern",
-            "BaseT11Id", "BaseCardId", "ColumnsPerRow", "RowStep", "ColumnStep"
+            "BaseT11Id", "BaseCardId", "ColumnsPerRow", "RowStep", "ColumnStep",
+            "DataChainGap", "PouCommentPattern", "DataOutPouCommentPattern", // F61
+            "DataPacketGap", // F63: зазор между пакетами чанка на одном POU
+            "DataChainStep" // F64: шаг цепочки data (0 = естественный шаг шаблона)
         };
 
         /// <summary>F13: устаревшие ключи SCADA_MB_SETTINGS (были в F13 v1 до шаблонной генерации);
@@ -567,6 +612,15 @@ namespace IO_PJT.Services
             if (values.TryGetValue("ColumnStep", out var cs) && int.TryParse(cs, out int csv)) s.ColumnStep = csv;
             if (values.TryGetValue("DataPacketsPerPage", out var dpp) && // F38
                 int.TryParse(dpp, out int dppv)) s.DataPacketsPerPage = dppv;
+            if (values.TryGetValue("DataChainGap", out var dcg) && // F61
+                int.TryParse(dcg, out int dcgv)) s.DataChainGap = dcgv;
+            if (values.TryGetValue("DataPacketGap", out var dpg) && // F63
+                int.TryParse(dpg, out int dpgv)) s.DataPacketGap = dpgv;
+            if (values.TryGetValue("DataChainStep", out var dcs) && // F64
+                int.TryParse(dcs, out int dcsv)) s.DataChainStep = dcsv;
+            if (values.TryGetValue("PouCommentPattern", out var pcp)) s.PouCommentPattern = pcp; // F61
+            if (values.TryGetValue("DataOutPouCommentPattern", out var dopc)) // F61
+                s.DataOutPouCommentPattern = dopc;
             return s;
         }
 
@@ -598,6 +652,11 @@ namespace IO_PJT.Services
                 ("FormatAddress", s.FormatAddress ? "True" : "False"),
                 ("SplitByControllerStation", s.SplitByControllerStation ? "True" : "False"), // F37
                 ("DataPacketsPerPage", Math.Max(1, s.DataPacketsPerPage).ToString()), // F38
+                ("DataChainGap", Math.Max(0, s.DataChainGap).ToString()), // F61: зазор цепочек data
+                ("DataPacketGap", Math.Max(0, s.DataPacketGap).ToString()), // F63: зазор пакетов чанка
+                ("DataChainStep", Math.Max(0, s.DataChainStep).ToString()), // F64: шаг цепочки data
+                ("PouCommentPattern", s.PouCommentPattern ?? ""), // F61
+                ("DataOutPouCommentPattern", s.DataOutPouCommentPattern ?? ""), // F61
                 ("BaseT11Id", s.BaseT11Id.ToString()),
                 ("BaseCardId", s.BaseCardId.ToString()),
                 ("ColumnsPerRow", s.ColumnsPerRow.ToString()),
@@ -661,7 +720,7 @@ namespace IO_PJT.Services
                     using var cmd = new OleDbCommand(
                         $@"SELECT ID, [Controller], [Station], [SlaveId], [IpMain], [IpReserve], [Protocol],
                                    [Speed], [Parity], [StopBit], [DataBit], [Reverse], [Timeout], [MaxLength],
-                                   [MasterTemplate]
+                                   [MasterTemplate], [Generate]
                             FROM [{Schema.ScadaMbSlaveRulesTable}] ORDER BY ID", cn);
                     cmd.CommandTimeout = DbProbe.TimeoutSeconds;
                     using var rd = cmd.ExecuteReader();
@@ -682,7 +741,9 @@ namespace IO_PJT.Services
                             Reverse = !rd.IsDBNull(11) && Convert.ToBoolean(rd.GetValue(11)),
                             Timeout = rd.IsDBNull(12) ? 0 : Convert.ToInt32(rd.GetValue(12)),
                             MaxLength = rd.IsDBNull(13) ? 0 : Convert.ToInt32(rd.GetValue(13)),
-                            MasterTemplate = rd.IsDBNull(14) ? "" : rd.GetString(14) // F29
+                            MasterTemplate = rd.IsDBNull(14) ? "" : rd.GetString(14), // F29
+                            // F53: галочка «Генерировать»; NULL у старых строк (миграция) — true
+                            Generate = rd.IsDBNull(15) || Convert.ToBoolean(rd.GetValue(15))
                         });
                     break;
                 }
@@ -717,7 +778,8 @@ namespace IO_PJT.Services
                     Reverse = r.Reverse,
                     Timeout = r.Timeout,
                     MaxLength = r.MaxLength,
-                    MasterTemplate = (r.MasterTemplate ?? "").Trim() // F29
+                    MasterTemplate = (r.MasterTemplate ?? "").Trim(), // F29
+                    Generate = r.Generate // F53: галочка «Генерировать»
                 })
                 .ToList();
             EnsureTables();
@@ -747,8 +809,8 @@ namespace IO_PJT.Services
                 using var ins = new OleDbCommand(
                     $@"INSERT INTO [{Schema.ScadaMbSlaveRulesTable}]
                        ([Controller], [Station], [SlaveId], [IpMain], [IpReserve], [Protocol], [Speed],
-                        [Parity], [StopBit], [DataBit], [Reverse], [Timeout], [MaxLength], [MasterTemplate])
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", cn, tr);
+                        [Parity], [StopBit], [DataBit], [Reverse], [Timeout], [MaxLength], [MasterTemplate], [Generate])
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", cn, tr);
                 ins.CommandTimeout = DbProbe.TimeoutSeconds;
                 foreach (var r in list)
                 {
@@ -767,6 +829,7 @@ namespace IO_PJT.Services
                     OleDbArgs.Add(ins, r.Timeout);
                     OleDbArgs.Add(ins, r.MaxLength);
                     OleDbArgs.Add(ins, r.MasterTemplate); // F29
+                    OleDbArgs.Add(ins, r.Generate); // F53
                     ins.ExecuteNonQuery();
                 }
                 tr.Commit();
@@ -780,6 +843,57 @@ namespace IO_PJT.Services
         }
 
         // ================== F21: параметры станций (protocol/автосбор из IO_LIST) ==================
+
+        /// <summary>F53: отфильтровать пакеты плана по галочке «Генерировать» правил станций
+        /// (SCADA_MB_SLAVE_RULES): пакеты станций с Generate=false отбрасываются; станция
+        /// правила сопоставляется сначала точным ключом «Controller|Station», затем
+        /// универсальным (пустой Controller в правиле — для всех контроллеров станции);
+        /// пакеты станций без правил или с Generate=true генерятся.</summary>
+        public static List<MbPacketPlan> FilterPacketsByStationRules(
+            IEnumerable<MbPacketPlan> packets, IEnumerable<MbSlaveIdRule> rules)
+        {
+            var off = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in rules)
+            {
+                string st = (r.Station ?? "").Trim();
+                if (st.Length == 0 || r.Generate) continue;
+                off.Add((r.Controller ?? "").Trim() + "|" + st);
+            }
+            var list = packets.ToList();
+            if (off.Count == 0) return list;
+            return list.Where(p =>
+            {
+                string st = (p.Station ?? "").Trim();
+                string ctrl = (p.Controller ?? "").Trim();
+                return !(off.Contains(ctrl + "|" + st) || off.Contains("|" + st));
+            }).ToList();
+        }
+
+        /// <summary>F58: пакеты одной станции для превью «все теги станции» — сопоставление
+        /// как в FilterPacketsByStationRules: сначала точный ключ «Controller|Station»
+        /// (непустой controller), затем универсальный (пустой controller — все контроллеры
+        /// станции); флаг Generate правил НЕ учитывается (показываются все теги станции,
+        /// включая станции, исключённые из генерации). Пустая station — все пакеты.</summary>
+        public static List<MbPacketPlan> StationPackets(
+            IEnumerable<MbPacketPlan> packets, string? controller, string? station)
+        {
+            string st = (station ?? "").Trim();
+            string ctrl = (controller ?? "").Trim();
+            var list = packets.ToList();
+            if (st.Length == 0) return list; // станция не выбрана — все пакеты плана
+            if (ctrl.Length > 0)
+            {
+                // точный ключ «Контроллер|Станция» приоритетнее универсального
+                var exact = list.Where(p =>
+                    string.Equals((p.Station ?? "").Trim(), st, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals((p.Controller ?? "").Trim(), ctrl, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                if (exact.Count > 0) return exact;
+            }
+            return list.Where(p =>
+                string.Equals((p.Station ?? "").Trim(), st, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
 
         /// <summary>F21: нормализация Protocol станции — «RTU» (IgnoreCase) → «RTU»,
         /// всё прочее → «TCP» (историческое поведение планировщика).</summary>
@@ -990,6 +1104,73 @@ namespace IO_PJT.Services
                 .OrderBy(v => v.Var, StringComparer.OrdinalIgnoreCase).ToList();
         }
 
+        /// <summary>F45: прочитать все строки маппинга скоупа ОДНИМ запросом и сгруппировать по
+        /// TemplateName (Trim): ключ словаря — имя шаблона своего ключа; строки с пустым именем —
+        /// легаси-строки (общий fallback). Окно F13 при открытии звало LoadTemplateVars(scope, name)
+        /// по каждому шаблону — N запросов + N EnsureTables вместо одного прохода.</summary>
+        public Dictionary<string, List<MbTemplateVar>> LoadTemplateVarsAll(string scope,
+            out List<MbTemplateVar> legacy)
+        {
+            var byName = new Dictionary<string, List<MbTemplateVar>>(StringComparer.OrdinalIgnoreCase);
+            legacy = new List<MbTemplateVar>();
+            if (string.IsNullOrEmpty(_dbPath) || !File.Exists(_dbPath)) return byName;
+            var all = new List<MbTemplateVar>();
+            for (int attempt = 1; attempt <= 3; attempt++)
+            {
+                try
+                {
+                    EnsureTables();
+                    using var cn = new OleDbConnection(ConnStr);
+                    cn.Open();
+                    string sql = $@"SELECT ID, [Scope], [TemplateName], [Var], [IoColumn], [Literal]
+                        FROM [{Schema.ScadaTemplateVarsTable}] WHERE [Scope] = ?
+                        ORDER BY [TemplateName], [Var]";
+                    using var cmd = new OleDbCommand(sql, cn);
+                    cmd.CommandTimeout = DbProbe.TimeoutSeconds;
+                    OleDbArgs.Add(cmd, scope);
+                    using var rd = cmd.ExecuteReader();
+                    while (rd.Read())
+                        all.Add(new MbTemplateVar
+                        {
+                            Id = Convert.ToInt64(rd.GetValue(0)),
+                            Scope = rd.IsDBNull(1) ? "" : rd.GetString(1),
+                            TemplateName = rd.IsDBNull(2) ? "" : rd.GetString(2),
+                            Var = rd.IsDBNull(3) ? "" : rd.GetString(3),
+                            IoColumn = rd.IsDBNull(4) ? "" : rd.GetString(4),
+                            Literal = rd.IsDBNull(5) ? "" : rd.GetString(5)
+                        });
+                    break;
+                }
+                catch (OleDbException ex) when (attempt < 3 && DbProbe.IsLockError(ex.Message))
+                {
+                    System.Threading.Thread.Sleep(300 * attempt);
+                }
+            }
+            foreach (var v in all)
+            {
+                string key = (v.TemplateName ?? "").Trim();
+                if (key.Length == 0) { legacy.Add(v); continue; }
+                if (!byName.TryGetValue(key, out var list)) byName[key] = list = new List<MbTemplateVar>();
+                list.Add(v);
+            }
+            return byName;
+        }
+
+        /// <summary>F45: мерж строк своего шаблона и легаси-строк (пустое имя) — семантика
+        /// LoadTemplateVarsCore (F25): легаси как fallback, строки ключа приоритетны;
+        /// результат упорядочен по Var.</summary>
+        public static List<MbTemplateVar> MergeTemplateVars(
+            List<MbTemplateVar> own, List<MbTemplateVar> legacy)
+        {
+            var dict = new Dictionary<string, MbTemplateVar>(StringComparer.OrdinalIgnoreCase);
+            foreach (var v in legacy)
+                if (!string.IsNullOrWhiteSpace(v.Var)) dict[v.Var] = v;
+            foreach (var v in own)
+                if (!string.IsNullOrWhiteSpace(v.Var)) dict[v.Var] = v;
+            return dict.Values
+                .OrderBy(v => v.Var, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
         /// <summary>F23: сохранить маппинг переменных в легаси-строки скоупа (пустое имя
         /// шаблона — общий fallback; строки без имени переменной отбрасываются).</summary>
         public int SaveTemplateVars(string scope, IEnumerable<MbTemplateVar> vars) =>
@@ -1109,29 +1290,32 @@ namespace IO_PJT.Services
         }
 
         /// <summary>F14/F16: сохранить сопоставление «Typno → (шаблон, эталон)» (полная замена;
-        /// строки без Typno или без эталона отбрасываются, значения обрезаются; дубли Typno —
-        /// последний выигрывает. F16: пустой Template — «основной шаблон редактора».</summary>
+        /// строки без Typno или без эталона отбрасываются, значения обрезаются). F51: один
+        /// Typno может иметь НЕСКОЛЬКО правил — по одному на шаблон привязок; дубль ключа
+        /// (Typno, Template) — выигрывает последний, но каноническое написание Typno
+        /// остаётся от первого вхождения (привязка к строке IO_LIST регистронезависима).
+        /// F16: пустой Template — «основной шаблон редактора».</summary>
         public int SaveTypnoMap(IEnumerable<MbTypnoMapRule> rules)
         {
             if (string.IsNullOrEmpty(_dbPath)) throw new InvalidOperationException("База данных не задана");
-            var byTypno = new Dictionary<string, MbTypnoMapRule>(StringComparer.OrdinalIgnoreCase);
+            var byKey = new Dictionary<string, MbTypnoMapRule>(StringComparer.OrdinalIgnoreCase);
+            var canonByTypno = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var r in rules)
             {
                 string typno = (r.Typno ?? "").Trim();
                 string exemplar = (r.Exemplar ?? "").Trim();
                 string template = (r.Template ?? "").Trim();
                 if (typno.Length == 0 || exemplar.Length == 0) continue;
-                // дубль IgnoreCase — выигрывает последний, но каноническое написание Typno
-                // остаётся от первого вхождения (привязка к строке IO_LIST регистронезависима)
-                string canon = byTypno.TryGetValue(typno, out var prev) ? prev.Typno : typno;
-                // F33: размер нормализуется (32BIT/мусор → канон/пусто)
-                byTypno[typno] = new MbTypnoMapRule
+                canonByTypno.TryGetValue(typno, out string? canon);
+                if (canon == null) canonByTypno[typno] = canon = typno;
+                string key = typno + "\u0001" + template;
+                byKey[key] = new MbTypnoMapRule
                 {
-                    Typno = canon, Exemplar = exemplar, Template = template,
+                    Typno = canon!, Exemplar = exemplar, Template = template,
                     Size = MbTypnoMapRule.NormalizeSize(r.Size)
                 };
             }
-            var list = byTypno.Values.ToList();
+            var list = byKey.Values.ToList();
             EnsureTables();
             for (int attempt = 1; ; attempt++)
             {
@@ -1619,8 +1803,15 @@ namespace IO_PJT.Services
             var wanted = new Dictionary<string, (string Block, string DataOut)>(StringComparer.OrdinalIgnoreCase);
             foreach (var packet in plan.Packets)
                 foreach (var b in packet.Bindings)
+                {
                     if (b.Tag.Length > 0)
                         wanted[b.Tag] = (b.BlockName, b.DataOutExpr);
+                    // F56: остальные сигналы того же адреса (одна точка адресного пространства) —
+                    // тот же блок/путь: их M_BusBlock/M_BusDataOut обновляются, а не очищаются
+                    foreach (var sh in b.SharedTags)
+                        if (sh.Length > 0)
+                            wanted[sh] = (b.BlockName, b.DataOutExpr);
+                }
 
             repo.BeginSession();
             try

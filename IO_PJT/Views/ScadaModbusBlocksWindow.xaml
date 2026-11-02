@@ -208,25 +208,29 @@
                     </GroupBox>
 
                     <!-- F33 (этап 7): маппинг объектов data-шаблонов — переменные-объекты
-                         (блоки 31/34, кроме источников .DataOut[/.DataIn[ и приёмника-тега)
-                         → колонка IO_LIST / строковый шаблон «{Кол}…» / литерал;
-                         хранение — SCADA_TEMPLATE_VARS scope dataout/datain -->
-                    <GroupBox Header="Объекты data-шаблонов (переменные: маппинг колонка/литерал)" Margin="0,0,0,6">
+                         (блоки 31/34, кроме источников .DataOut[/.DataIn[; F46: корни
+                         write-/simple-эталонов SLAVE_SWAP_BYTES/DCSTAG_IN тоже включаются)
+                         → колонка IO_LIST / строковый шаблон «{Кол}…» / начальное значение
+                         (F49: колонка + начальное значение — оба канала разом: имя И IV);
+                         хранение — SCADA_TEMPLATE_VARS scope dataout/datain;
+                         F46: грид отфильтрован по выделенному шаблону в перечне
+                         «Data-шаблоны» (снятие выделения — все объекты) -->
+                    <GroupBox Header="Объекты data-шаблонов (переменные: маппинг колонка / начальное значение)" Margin="0,0,0,6">
                         <StackPanel>
-                            <DataGrid ItemsSource="{Binding DataTemplateVars}"
+                            <DataGrid ItemsSource="{Binding DataTemplateVarsView}"
                                       AutoGenerateColumns="False" CanUserAddRows="False"
                                       HeadersVisibility="Column" Height="120" Margin="0,0,0,4"
-                                      ToolTip="F33: блок-переменная шаблона (константа 34 / тег 31) → значение привязки: колонка IO_LIST, строковый шаблон «{M_DcsTag} …» или литерал; подставляется при экспорте (константе — Info/T11Text, тегу — IV). F38: текстовые объекты примитивов основного шаблона ([TEXT]=LOOPComment …, объект «LOOPComment(Text)», направление «текст») — при резолве заменяется ВСЯ строка [TEXT] примитива (канал значения: колонка/шаблон/литерал)">
+                                      ToolTip="F33: блок-переменная шаблона (константа 34 / тег 31) → значение привязки: колонка IO_LIST, строковый шаблон «{M_DcsTag} …» или начальное значение; подставляется при экспорте (константе — Info/T11Text + IV, тегу — IV; F49: при заданной колонке имя И IV разом). F38: текстовые объекты примитивов основного шаблона ([TEXT]=LOOPComment …, объект «LOOPComment(Text)», направление «текст») — при резолве заменяется ВСЯ строка [TEXT] примитива (канал значения: колонка/шаблон/начальное значение)">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Шаблон" Binding="{Binding TemplateName}" Width="130" IsReadOnly="True" />
                                     <DataGridTextColumn Header="Направление" Binding="{Binding Direction}" Width="70" IsReadOnly="True" />
                                     <DataGridTextColumn Header="Объект" Binding="{Binding Var}" Width="*" IsReadOnly="True" />
                                     <DataGridTextColumn Header="Колонка / шаблон"
                                                         Binding="{Binding IoColumn, UpdateSourceTrigger=PropertyChanged}" Width="150"
-                                                        ToolTipService.ToolTip="Имя колонки IO_LIST или строковый шаблон «{M_DcsTag} Adress: {M_Address}» (F32)" />
-                                    <DataGridTextColumn Header="Литерал"
-                                                        Binding="{Binding Literal, UpdateSourceTrigger=PropertyChanged}" Width="110"
-                                                        ToolTipService.ToolTip="Фиксированный текст, если колонка/шаблон не заданы" />
+                                                        ToolTipService.ToolTip="Имя колонки IO_LIST или строковый шаблон «{M_DcsTag} Adress: {M_Address}» (F32); при заданной колонке объект переименовывается, а начальное значение пишется в IV (F49)" />
+                                    <DataGridTextColumn Header="Начальное значение"
+                                                        Binding="{Binding Literal, UpdateSourceTrigger=PropertyChanged}" Width="130"
+                                                        ToolTipService.ToolTip="Начальное значение объекта (элемент IV); при заданной колонке/шаблоне применяется вместе с переименованием (F49); если колонка/шаблон не заданы — только значение, имя остаётся шаблонным" />
                                 </DataGrid.Columns>
                             </DataGrid>
                             <StackPanel Orientation="Horizontal">
@@ -253,6 +257,8 @@
                                 <RowDefinition /><RowDefinition /><RowDefinition />
                                 <RowDefinition /><RowDefinition /><RowDefinition />
                                 <RowDefinition /><RowDefinition /><RowDefinition />
+                                <RowDefinition /><RowDefinition /><RowDefinition />
+                                <RowDefinition /><RowDefinition />
                             </Grid.RowDefinitions>
                             <Label Grid.Row="0" Grid.Column="0" Content="Политика:" />
                             <ComboBox Grid.Row="0" Grid.Column="1" Margin="4" SelectedIndex="{Binding PolicyIndex}"
@@ -312,6 +318,26 @@
                             <TextBox Grid.Row="11" Grid.Column="1" Margin="4"
                                      Text="{Binding Settings.DataPacketsPerPage, UpdateSourceTrigger=PropertyChanged}"
                                      ToolTip="F38: сколько пакетов data (файл привязок) на одном POU (странице). Пакет атомарен — все его цепочки целиком на одном POU, пакеты группируются по N подряд (имя POU — по первому пакету группы, зазор между пакетами). 1 — историческое «один POU на пакет». Минимум — все данные одного Modbus-пакета на одном POU (выполняется всегда)" />
+                            <Label Grid.Row="12" Grid.Column="0" Content="Зазор между цепочками data (px):" />
+                            <TextBox Grid.Row="12" Grid.Column="1" Margin="4"
+                                     Text="{Binding Settings.DataChainGap, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="F61: дополнительный вертикальный зазор между цепочками data (шаблонами привязок) внутри POU файла привязок; к естественному шагу цепочки (высота bbox эталона + отступ) прибавляется этот зазор. 0 — историческая плотная раскладка (XML байт-в-байт как раньше)" />
+                            <Label Grid.Row="13" Grid.Column="0" Content="Шаг цепочки data (px):" />
+                            <TextBox Grid.Row="13" Grid.Column="1" Margin="4"
+                                     Text="{Binding Settings.DataChainStep, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="F64: вертикальный шаг между цепочками data (шаблонами привязок) внутри POU файла привязок, px. 0 — естественный шаг шаблона (высота bbox эталона + отступ); > 0 — заданный шаг для всех цепочек (зазор DataChainGap прибавляется сверх шага)" />
+                            <Label Grid.Row="14" Grid.Column="0" Content="Зазор между пакетами data (px):" />
+                            <TextBox Grid.Row="14" Grid.Column="1" Margin="4"
+                                     Text="{Binding Settings.DataPacketGap, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="F63: вертикальный зазор между пакетами чанка (несколькими пакетами data на одном POU файла привязок, F38). 0 — пакеты вплотную (без наложения). До F63 зазор был жёстким +100; default теперь 10" />
+                            <Label Grid.Row="15" Grid.Column="0" Content="Комментарий POU (мастер-блоки):" />
+                            <TextBox Grid.Row="15" Grid.Column="1" Margin="4"
+                                     Text="{Binding Settings.PouCommentPattern, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="F61: шаблон комментария (Disc) POU основного файла BufScadaPOUS; токены как в имени POU: {Master}, {Seq}, {Slave}, {Station}, {Controller}, {Ip}, {Port}, {Func}, {Date}/{Time}, {ИмяКолонки}; текст может содержать пробелы («Опрос {Station}»). Пусто — Disc шаблона (без изменений)" />
+                            <Label Grid.Row="16" Grid.Column="0" Content="Комментарий POU (привязки):" />
+                            <TextBox Grid.Row="16" Grid.Column="1" Margin="4"
+                                     Text="{Binding Settings.DataOutPouCommentPattern, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="F61: шаблон комментария (Disc) POU файла привязок (контекст — первый пакет чанка, как у имени POU); токены те же. Пусто — Disc пустой (слово «Обработка» больше не ставится)" />
                         </Grid>
                     </GroupBox>
 
@@ -351,13 +377,26 @@
                                 <Button Content="Добавить" Command="{Binding AddRuleCommand}" Width="80" Margin="0,0,6,0"
                                         ToolTip="Новая станция (сохраняется кнопкой «Сохранить правила SlaveId»)" />
                                 <Button Content="Удалить" Command="{Binding DeleteRuleCommand}" Width="70" Margin="0,0,6,0" />
-                                <Button Content="Из IO_LIST" Command="{Binding FillSlaveRulesCommand}" Width="90"
+                                <Button Content="Из IO_LIST" Command="{Binding FillSlaveRulesCommand}" Width="90" Margin="0,0,6,0"
                                         ToolTip="F21: автосбор станций из IO_LIST — IP main/reserve, скорость, таймаут (merge по Station: ручные поля и SlaveId сохраняются, Protocol заполняется эвристикой «есть IPv4 → TCP, иначе RTU» для новых/пустых строк). Изменения сохраните кнопкой «Сохранить»" />
+                                <Button Content="Все" Command="{Binding SelectAllStationsCommand}" Width="46" Margin="6,0,4,0"
+                                        ToolTip="F53: включить генерацию всех станций (галочки «Генерировать»)" />
+                                <Button Content="Ни одной" Command="{Binding ClearAllStationsCommand}" Width="70" Margin="0,0,8,0"
+                                        ToolTip="F53: снять все галочки «Генерировать» — экспорт/запись привязок будут недоступны" />
+                                <TextBlock Text="{Binding StationsHint}" VerticalAlignment="Center"
+                                           Foreground="#444444"
+                                           ToolTip="F53: генерируются только станции с включённой галочкой «Генерировать» (влияет на экспорт XML и запись привязок в IO_LIST)" />
                             </StackPanel>
                             <DataGrid ItemsSource="{Binding SlaveRules}" SelectedItem="{Binding SelectedRule}"
                                       AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column"
-                                      Height="200">
+                                      Height="400">
                                 <DataGrid.Columns>
+                                    <!-- F53: № строки и галочка «Генерировать» — выбор станций экспорта -->
+                                    <DataGridTextColumn Header="№"
+                                                        Binding="{Binding No}" Width="40" IsReadOnly="True" />
+                                    <DataGridCheckBoxColumn Header="Генерировать"
+                                                            Binding="{Binding Generate, UpdateSourceTrigger=PropertyChanged}" Width="90"
+                                                            ToolTipService.ToolTip="F53: станция участвует в экспорте XML и записи привязок в IO_LIST; снятие галочки исключает её пакеты" />
                                     <DataGridTextColumn Header="Контроллер"
                                                         Binding="{Binding Controller, UpdateSourceTrigger=PropertyChanged}" Width="110"
                                                         ToolTipService.ToolTip="F37: контроллер IO_LIST (пусто — правило действует для всех контроллеров станции); точный ключ «Контроллер|Станция» приоритетнее" />
@@ -434,7 +473,7 @@
                                     <Button Content="Сохранить сопоставление Typno" Command="{Binding SaveTypnoMapCommand}" Width="210"
                                             ToolTip="Полная замена строк таблицы SCADA_TYPNO_MAP; строки без Typno/эталона отбрасываются" />
                                 </StackPanel>
-                                <TextBlock Text="Сигнал без Typno не участвует в генерации; все Tag одного Typno получают цепочки своего эталона (по одной на тег). Эталон — ключ Disc OnePOU шаблона привязок."
+                                <TextBlock Text="Сигнал без Typno не участвует в генерации; все Tag одного Typno получают цепочки каждого правила (по одной цепочке на тег). F51: один Typno может иметь НЕСКОЛЬКО правил — по одному на шаблон привязок; цепочки каждого шаблона при раздельном экспорте уходят в свой XML-файл. Эталон — ключ Disc OnePOU шаблона привязок."
                                            TextWrapping="Wrap" Foreground="#444444" />
                             </StackPanel>
                             <DataGrid ItemsSource="{Binding TypnoRules}" SelectedItem="{Binding SelectedTypnoRule}"
@@ -486,78 +525,64 @@
                     <RowDefinition Height="2*" />
                 </Grid.RowDefinitions>
 
-                <GroupBox Grid.Row="0" Header="Превью пакетов (по одному блоку мастера на пакет)">
-                    <DockPanel>
-                        <!-- F28: фильтр станций — галочки «генерить» + «выбрать все»/«снять все» -->
-                        <Border DockPanel.Dock="Top" Padding="2,3" Background="#F5F5F5" BorderBrush="#DDDDDD" BorderThickness="0,0,0,1">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="Станции:" VerticalAlignment="Center" Margin="0,0,6,0" />
-                                <Button Content="Все" Command="{Binding SelectAllStationsCommand}" Width="46" Margin="0,0,4,0"
-                                        ToolTip="Выбрать все станции для генерации" />
-                                <Button Content="Ни одной" Command="{Binding ClearAllStationsCommand}" Width="70" Margin="0,0,8,0"
-                                        ToolTip="Снять все станции" />
-                                <TextBlock Text="{Binding StationsHint}" VerticalAlignment="Center" Margin="0,0,10,0"
-                                           Foreground="#444444" />
-                                <ItemsControl ItemsSource="{Binding StationFilters}">
-                                    <ItemsControl.ItemsPanel>
-                                        <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                      Click="StationFilter_Click"
-                                                      Margin="0,0,10,0" VerticalAlignment="Center"
-                                                      ToolTipService.ToolTip="{Binding PacketCount, StringFormat={}Пакетов станции в плане: {0}}">
-                                                <TextBlock>
-                                                    <Run Text="{Binding Display, Mode=OneWay}" /><Run Text=" (" /><Run Text="{Binding PacketCount, Mode=OneWay}" /><Run Text=")" />
-                                                </TextBlock>
-                                            </CheckBox>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </StackPanel>
-                        </Border>
-                        <DataGrid x:Name="PreviewGrid" ItemsSource="{Binding Preview}" AutoGenerateColumns="False"
-                                  IsReadOnly="False" HeadersVisibility="Column" EnableRowVirtualization="True"
-                                  CellEditEnding="PreviewGrid_CellEditEnding"
-                                  ToolTip="F34: SlaveId/FuncCode/Address/Count/Тайм. мс/IP:порт — редактируются (значения применяются при экспорте XML и записи привязок); прочие столбцы — только чтение">
+                <GroupBox Grid.Row="0" Header="Превью: пакеты отмеченных «Генерировать» станций (клик по строке — привязки пакета внизу)">
+                    <!-- F61: строка превью = пакет (F58-грid тегов станции заменён);
+                         выбор строки фильтрует «Привязки DataOut» внизу, повторный клик
+                         по read-only ячейке выбранной строки снимает выбор -->
+                    <DataGrid x:Name="PreviewGrid" ItemsSource="{Binding PreviewPackets}"
+                              SelectedItem="{Binding SelectedPreviewPacket, Mode=TwoWay}"
+                              AutoGenerateColumns="False" IsReadOnly="False"
+                              HeadersVisibility="Column" EnableRowVirtualization="True"
+                              SelectionMode="Single" SelectionUnit="FullRow"
+                              CellEditEnding="PreviewGrid_CellEditEnding"
+                              PreviewMouseLeftButtonDown="PreviewGrid_PreviewMouseLeftButtonDown"
+                              ToolTip="F61/F34: по строке на пакет станций с галочкой «Генерировать»; SlaveId/FuncCode/Address/Count/Тайм. мс/IP:порт — редактируются (значения применяются при экспорте XML и записи привязок); клик по read-only ячейке уже выбранной строки снимает выбор (внизу — все привязки превью)">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="№" Binding="{Binding No}" Width="40" IsReadOnly="True" />
-                            <DataGridTextColumn Header="Контроллер" Binding="{Binding Controller}" Width="100" IsReadOnly="True"
+                            <DataGridTextColumn Header="Контроллер" Binding="{Binding Controller}" Width="95" IsReadOnly="True"
                                                 ToolTipService.ToolTip="F37: контроллер IO_LIST (Identification.Controller) — ключ группировки пакетов" />
-                            <DataGridTextColumn Header="Станция" Binding="{Binding Station}" Width="110" IsReadOnly="True" />
-                            <DataGridTextColumn Header="IP:порт" Binding="{Binding Endpoint, UpdateSourceTrigger=PropertyChanged}" Width="120"
-                                                ToolTipService.ToolTip="F34: редактируется в формате a.b.c.d:port" />
-                            <DataGridTextColumn Header="SlaveId" Binding="{Binding SlaveId, UpdateSourceTrigger=PropertyChanged}" Width="60"
-                                                ToolTipService.ToolTip="F34: редактируется — значение применяется ко входу SlaveId при экспорте" />
-                            <DataGridTextColumn Header="FuncCode" Binding="{Binding FuncCode, UpdateSourceTrigger=PropertyChanged}" Width="70"
-                                                ToolTipService.ToolTip="F34: редактируется — код функции (Mode блока); 05/06/15/16 → привязки записи DataIn[]" />
-                            <DataGridTextColumn Header="Направление" Binding="{Binding Direction}" Width="80" IsReadOnly="True"
+                            <DataGridTextColumn Header="Станция" Binding="{Binding Station}" Width="100" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Блок" Binding="{Binding MasterName}" Width="140" IsReadOnly="True"
+                                                ToolTipService.ToolTip="Имя блока мастера пакета (M_BusBlock привязок)" />
+                            <DataGridTextColumn Header="Направление" Binding="{Binding Direction}" Width="75" IsReadOnly="True"
                                                 ToolTipService.ToolTip="F30: чтение → привязка DataOut[]; запись (FC05/06/15/16) → DataIn[]" />
-                            <DataGridTextColumn Header="Address" Binding="{Binding Address, UpdateSourceTrigger=PropertyChanged}" Width="65"
+                            <DataGridTextColumn Header="IP:порт" Binding="{Binding Endpoint, UpdateSourceTrigger=PropertyChanged}" Width="115"
+                                                ToolTipService.ToolTip="F34: редактируется в формате a.b.c.d:port" />
+                            <DataGridTextColumn Header="SlaveId" Binding="{Binding SlaveId, UpdateSourceTrigger=PropertyChanged}" Width="55"
+                                                ToolTipService.ToolTip="F34: редактируется — значение применяется ко входу SlaveId при экспорте" />
+                            <DataGridTextColumn Header="FuncCode" Binding="{Binding FuncCode, UpdateSourceTrigger=PropertyChanged}" Width="65"
+                                                ToolTipService.ToolTip="F34: редактируется — код функции (Mode блока); 05/06/15/16 → привязки записи DataIn[]" />
+                            <DataGridTextColumn Header="Address (пакет)" Binding="{Binding Address, UpdateSourceTrigger=PropertyChanged}" Width="75"
                                                 ToolTipService.ToolTip="F34: редактируется — начальный адрес пакета (вход Address пересчитывается автоматически)" />
-                            <DataGridTextColumn Header="Address (вход)" Binding="{Binding AddressInput}" Width="95" IsReadOnly="True"
-                                                ToolTipService.ToolTip="F14: значение входа Address блока: регистр + адрес; пересчитывается при правке Address" />
-                            <DataGridTextColumn Header="Count" Binding="{Binding Count, UpdateSourceTrigger=PropertyChanged}" Width="55"
+                            <DataGridTextColumn Header="Address (вход)" Binding="{Binding AddressInput}" Width="90" IsReadOnly="True"
+                                                ToolTipService.ToolTip="F14: значение входа Address блока: регистр + адрес; пересчитывается при правке адреса пакета" />
+                            <DataGridTextColumn Header="Count" Binding="{Binding Count, UpdateSourceTrigger=PropertyChanged}" Width="50"
                                                 ToolTipService.ToolTip="F34: редактируется — число адресов в пакете" />
-                            <DataGridTextColumn Header="Тайм. мс" Binding="{Binding TimeoutMs, UpdateSourceTrigger=PropertyChanged}" Width="65"
+                            <DataGridTextColumn Header="Тайм. мс" Binding="{Binding TimeoutMs, UpdateSourceTrigger=PropertyChanged}" Width="55"
                                                 ToolTipService.ToolTip="F34: редактируется — таймаут ответа, мс (вход TimeOut)" />
-                            <DataGridTextColumn Header="Точек" Binding="{Binding PointCount}" Width="50" IsReadOnly="True" />
-                            <DataGridTextColumn Header="Блок" Binding="{Binding MasterName}" Width="160" IsReadOnly="True"
-                                                ToolTipService.ToolTip="Имя блока мастера в XML (от имени мастера шаблона + номер пакета)" />
-                            <DataGridTextColumn Header="Первый тег" Binding="{Binding FirstTag}" Width="*" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Привязок" Binding="{Binding Bindings.Count}" Width="60" IsReadOnly="True"
+                                                ToolTipService.ToolTip="Число привязок точек пакета (детально — в таблице «Привязки DataOut» внизу)" />
                         </DataGrid.Columns>
                     </DataGrid>
-                    </DockPanel>
                 </GroupBox>
 
                 <GroupBox Grid.Row="2" Header="Привязки (DataOut) — M_BusBlock / M_BusDataOut в IO_LIST">
                     <DataGrid ItemsSource="{Binding BindingsPreview}" AutoGenerateColumns="False" IsReadOnly="True"
-                              HeadersVisibility="Column" EnableRowVirtualization="True">
+                              HeadersVisibility="Column" EnableRowVirtualization="True"
+                              ToolTip="F61: выбран в превью пакет — привязки этого пакета; выбор снят — все привязки пакетов, отображённых в превью">
                         <DataGrid.Columns>
+                            <DataGridTextColumn Header="Пакет" Binding="{Binding Packet.MasterName}" Width="140" />
+                            <DataGridTextColumn Header="Контроллер" Binding="{Binding Packet.Controller}" Width="90" />
+                            <DataGridTextColumn Header="Станция" Binding="{Binding Packet.Station}" Width="100" />
                             <DataGridTextColumn Header="Тег IO_LIST" Binding="{Binding Tag}" Width="*" />
                             <DataGridTextColumn Header="Typno" Binding="{Binding Typno}" Width="90"
                                                 ToolTipService.ToolTip="F14: типовой алгоритм — ключ выбора эталона шаблона привязок (SCADA_TYPNO_MAP)" />
+                            <DataGridTextColumn Header="Тип" Binding="{Binding DataType}" Width="100"
+                                                ToolTipService.ToolTip="M_DataType точки (напр. «32-Bit Floating»)" />
+                            <DataGridTextColumn Header="Ширина" Binding="{Binding Width}" Width="55"
+                                                ToolTipService.ToolTip="Ширина точки в регистрах (1/2)" />
+                            <DataGridTextColumn Header="Направление" Binding="{Binding Direction}" Width="75"
+                                                ToolTipService.ToolTip="F30: чтение → привязка DataOut[]; запись (FC05/06/15/16) → DataIn[]" />
                             <DataGridTextColumn Header="Адрес" Binding="{Binding Address}" Width="70" />
                             <DataGridTextColumn Header="Смещение" Binding="{Binding Offset}" Width="80"
                                                 ToolTipService.ToolTip="Индекс DataOut = адрес точки − Address пакета" />

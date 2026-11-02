@@ -23,6 +23,16 @@ namespace IO_PJT.Services
         /// <summary>F9.3: строка карты без привязки (LinkState).</summary>
         public const string LinkStateUnlinked = "не привязано";
 
+        /// <summary>F66: строка карты привязана с отклонением от полного совпадения имени
+        /// (фаза 2 — усечённое имя/базовое устройство; фаза 1 даёт «привязано»).</summary>
+        public const string LinkStateLinkedApprox = "привязано не по полным совпадением!";
+
+        /// <summary>F66: строка считается привязанной при любом из связывающих состояний
+        /// (полное либо с отклонением) — для статистики MapRowsLinked/превью.</summary>
+        public static bool IsLinkedState(string? state) =>
+            string.Equals(state, LinkStateLinked, StringComparison.Ordinal) ||
+            string.Equals(state, LinkStateLinkedApprox, StringComparison.Ordinal);
+
         /// <summary>Прочитать файл карты. При отсутствии листов Register Table — InvalidOperationException.</summary>
         public ModbusMapImportResult Read(string path, List<ModbusMapEntry> into)
         {
@@ -284,38 +294,56 @@ namespace IO_PJT.Services
         }
 
         /// <summary>F9.3: сброс результатов привязки перед новым связыванием —
-        /// LinkTag и LinkState обнуляются у всех строк (устаревшие связи не переживают прогон).</summary>
-        public void ResetLinkResults()
+        /// LinkTag и LinkState обнуляются у всех строк (устаревшие связи не переживают прогон).
+        /// F59: includeDcsTag=true (режим полного обновления) дополнительно затирает DcsTag —
+        /// иначе у строк, оставшихся без связи после перепривязки, остаётся устаревший тег,
+        /// и «Обновить адресацию Modbus» (F9.4) адресует по нему чужую точку
+        /// (остаток F55: «1612-P-611A vs 1612-P-611A.HE-JB» — разные двигатели).</summary>
+        public void ResetLinkResults(bool includeDcsTag = false)
         {
             if (string.IsNullOrEmpty(_dbPath)) return;
             WithLockRetry(() =>
             {
                 using var cn = new System.Data.OleDb.OleDbConnection(ConnStr);
                 cn.Open();
-                using var cmd = new System.Data.OleDb.OleDbCommand(
-                    $"UPDATE [{Schema.ModbusMapTable}] SET [LinkTag] = NULL, [LinkState] = NULL", cn);
+                string sql = includeDcsTag
+                    ? $"UPDATE [{Schema.ModbusMapTable}] SET [LinkTag] = NULL, [LinkState] = NULL, [DcsTag] = NULL"
+                    : $"UPDATE [{Schema.ModbusMapTable}] SET [LinkTag] = NULL, [LinkState] = NULL";
+                using var cmd = new System.Data.OleDb.OleDbCommand(sql, cn);
                 cmd.CommandTimeout = DbProbe.TimeoutSeconds;
                 return cmd.ExecuteNonQuery();
             }, "сброс привязок MODBUS_MAP");
         }
 
         /// <summary>F9-фикс: записать все результаты связывания одной транзакцией — пакет привязок
-        /// (LinkTag + LinkState=«привязано» + DcsTag) и разметка остальных строк «не привязано».
+        /// (LinkTag + LinkState + DcsTag) и разметка остальных строк «не привязано».
+        /// F66: состояние каждой строки передаётся вызывающей стороной — «привязано» (фазы
+        /// R/1: полное совпадение имени) либо «привязано не по полным совпадением!» (фаза 2);
+        /// при нескольких записях одной строки побеждает полное совпадение.
         /// F9.4: DcsTag — ключ связи MODBUS_MAP ↔ IO_LIST (им пользуется кнопка
         /// «Обновить адресацию Modbus»); в памяти значение накоплено как «прежнее содержимое
         /// колонки (ручной ввод в Access) + новые теги через запятую без дублей».
         /// Вызывается ПОСЛЕ завершения сессии репозитория: в цикле связывания второе соединение
         /// не открывается, что устраняет ошибку «Could not update; currently locked» (JET 3260)
         /// при параллельной открытой транзакции по IO_LIST.</summary>
-        public int ApplyLinkResults(IReadOnlyList<(long Id, string? LinkTag, string? DcsTag)> linked)
+        public int ApplyLinkResults(
+            IReadOnlyList<(long Id, string? LinkTag, string? DcsTag, string LinkState)> linked)
         {
             if (string.IsNullOrEmpty(_dbPath)) return 0;
             return WithLockRetry(() =>
             {
                 int n = 0;
                 // один Id мог попасть несколько раз (теги копятся) — пишем последнее значение,
-                // оно уже содержит все накопленные LinkTag и DcsTag
-                var byId = linked.GroupBy(x => x.Id).Select(g => g.Last()).ToList();
+                // оно уже содержит все накопленные LinkTag и DcsTag; F66: полное совпадение
+                // («привязано») приоритетнее частичного — состояние берётся по верхней границе
+                var byId = linked.GroupBy(x => x.Id).Select(g =>
+                {
+                    var last = g.Last();
+                    bool full = g.Any(x => string.Equals(x.LinkState, LinkStateLinked,
+                                                StringComparison.Ordinal));
+                    return (Id: g.Key, last.LinkTag, last.DcsTag,
+                        LinkState: full ? LinkStateLinked : last.LinkState);
+                }).ToList();
                 using var cn = new System.Data.OleDb.OleDbConnection(ConnStr);
                 cn.Open();
                 using var tr = cn.BeginTransaction();
@@ -326,11 +354,11 @@ namespace IO_PJT.Services
                         using var upd = new System.Data.OleDb.OleDbCommand(
                             $"UPDATE [{Schema.ModbusMapTable}] SET [LinkTag] = ?, [LinkState] = ?, [DcsTag] = ? WHERE [ID] = ?", cn, tr);
                         upd.CommandTimeout = DbProbe.TimeoutSeconds;
-                        foreach (var (id, linkTag, dcsTag) in byId)
+                        foreach (var (id, linkTag, dcsTag, linkState) in byId)
                         {
                             upd.Parameters.Clear();
                             OleDbArgs.Add(upd, linkTag);
-                            OleDbArgs.Add(upd, LinkStateLinked);
+                            OleDbArgs.Add(upd, linkState);
                             OleDbArgs.Add(upd, dcsTag);
                             OleDbArgs.Add(upd, id);
                             n += upd.ExecuteNonQuery();

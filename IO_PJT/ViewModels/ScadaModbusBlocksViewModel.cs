@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Windows.Data;
 using IO_PJT.Models;
 using IO_PJT.Services;
 
@@ -77,18 +79,42 @@ namespace IO_PJT.ViewModels
         /// заполняются автоматически из плана.</summary>
         public ObservableCollection<MbDataTemplateVarRow> DataTemplateVars { get; } = new();
 
-        /// <summary>Превью пакетов (по одному блоку мастера на строку).</summary>
-        public ObservableCollection<MbPacketPlan> Preview { get; } = new();
+        /// <summary>F46: представление грида «Объекты data-шаблонов» — та же коллекция
+        /// DataTemplateVars с фильтром по выделенному data-шаблону в перечне «Data-шаблоны»
+        /// (SelectedDataTemplate): показываются только объекты этого шаблона; выделение
+        /// снято — все строки. Фильтр — уровень представления: «Заполнить из шаблонов» и
+        /// «Сохранить маппинг объектов» работают со всей коллекцией.</summary>
+        public ICollectionView DataTemplateVarsView { get; }
 
-        /// <summary>Превью привязок точек к выходам DataOut блоков.</summary>
-        public ObservableCollection<MbBinding> BindingsPreview { get; } = new();
+        /// <summary>Превью пакетов (по одному блоку мастера на строку). F45: AddRange одним Reset.</summary>
+        public RangeObservableCollection<MbPacketPlan> Preview { get; } = new();
 
-        /// <summary>F28: фильтр станций (галочки) — какие станции генерить при экспорте XML
-        /// и записи привязок; заполняется в Build() по станциям плана (все выбраны).</summary>
-        public ObservableCollection<MbStationFilterItem> StationFilters { get; } = new();
+        /// <summary>Превью привязок точек к выходам DataOut блоков. F45: AddRange одним Reset.</summary>
+        public RangeObservableCollection<MbBinding> BindingsPreview { get; } = new();
 
+        /// <summary>F61: превью пакетов — только станции с включённой галочкой «Генерировать»
+        /// (FilterPacketsByStationRules — тот же фильтр, что у экспорта/записи привязок;
+        /// станции без правил — генерятся). Строка превью = пакет (F58-грid тегов заменён);
+        /// F45: AddRange одним Reset.</summary>
+        public RangeObservableCollection<MbPacketPlan> PreviewPackets { get; } = new();
+
+        private MbPacketPlan? _selectedPreviewPacket;
+        /// <summary>F61: выбранный пакет превью (мастер-detail): таблица «Привязки DataOut»
+        /// внизу показывает привязки этого пакета; снятие выбора (повторный клик по строке —
+        /// PreviewGrid_PreviewMouseLeftButtonDown) — все привязки пакетов превью.</summary>
+        public MbPacketPlan? SelectedPreviewPacket
+        {
+            get => _selectedPreviewPacket;
+            set
+            {
+                if (Set(ref _selectedPreviewPacket, value, nameof(SelectedPreviewPacket)))
+                    RefreshBindingsView();
+            }
+        }
+
+        /// <summary>F53: подсказка выбора станций («генерить станций: X из Y») — по галочкам
+        /// «Генерировать» в перечне SCADA_MB_SLAVE_RULES.</summary>
         private string _stationsHint = "";
-        /// <summary>F28: подсказка выбора станций («генерить станций: X из Y»).</summary>
         public string StationsHint
         {
             get => _stationsHint;
@@ -242,7 +268,11 @@ namespace IO_PJT.ViewModels
         public MbDataTemplateRow? SelectedDataTemplate
         {
             get => _selectedDataTemplate;
-            set => Set(ref _selectedDataTemplate, value, nameof(SelectedDataTemplate));
+            set
+            {
+                if (Set(ref _selectedDataTemplate, value, nameof(SelectedDataTemplate)))
+                    DataTemplateVarsView?.Refresh(); // F46: переживаем фильтр объектов по шаблону
+            }
         }
         /// <summary>F31: «Открыть шаблон из файла…» — авто-тип (DataIn[ → запись), сохранение в БД.</summary>
         public RelayCommand OpenDataTemplateCommand { get; }
@@ -272,7 +302,16 @@ namespace IO_PJT.ViewModels
         public MbSlaveIdRule? SelectedRule
         {
             get => _selectedRule;
-            set => Set(ref _selectedRule, value, nameof(SelectedRule));
+            set
+            {
+                if (ReferenceEquals(_selectedRule, value)) return;
+                // F58: подписка на правку Контроллера/Станции выбранного правила (INPC) —
+                // превью тегов пересобирается сразу при редактировании ячейки в гриде
+                if (_selectedRule != null) _selectedRule.PropertyChanged -= OnSelectedRuleChanged;
+                if (value != null) value.PropertyChanged += OnSelectedRuleChanged;
+                Set(ref _selectedRule, value, nameof(SelectedRule));
+                RefreshPreviewPackets(); // F61: ключ правила участвует в фильтре Generate-станций
+            }
         }
 
         private MbTypnoMapRule? _selectedTypnoRule;
@@ -286,6 +325,14 @@ namespace IO_PJT.ViewModels
         public ScadaModbusBlocksViewModel(AppServices services)
         {
             _s = services;
+            // F46: фильтр грида «Объекты data-шаблонов» — только объекты выделенного
+            // data-шаблона из перечня «Data-шаблоны»; выделение снято — все строки
+            DataTemplateVarsView = CollectionViewSource.GetDefaultView(DataTemplateVars);
+            DataTemplateVarsView.Filter = o =>
+                _selectedDataTemplate == null ||
+                (o is MbDataTemplateVarRow row && string.Equals(
+                    row.TemplateName, _selectedDataTemplate.Name,
+                    StringComparison.OrdinalIgnoreCase));
             Settings = _s.ModbusBlocks.LoadSettings();
             _policyIndex = (int)Settings.Policy;
             _modeFile = Settings.TemplateMode == MbTemplateMode.File;
@@ -328,12 +375,24 @@ namespace IO_PJT.ViewModels
             LoadDataOutTemplateCommand = new RelayCommand(LoadDataOutTemplateIntoEditor);
             UpdateDataOutTemplateFileCommand = new RelayCommand(UpdateDataOutTemplateFromFile);
             DeleteDataOutTemplateCommand = new RelayCommand(DeleteDataOutTemplate);
-            LoadRules();
-            LoadTypnoRules();
-            LoadDataOutTemplateList(); // F16: список именованных шаблонов привязок
-            LoadMasterTemplateList();  // F22: список мастер-шаблонов (TCP/RTU)
-            LoadDataInTemplateList();  // F22: список шаблонов привязок DataIn
-            LoadDataTemplateVars();    // F33 (этап 7): маппинг объектов data-шаблонов
+            // F45: PERF-замеры загрузки (открытие окна F13) — этапы в журнал INFO;
+            // узкое место до оптимизации — EnsureTables на каждом Load* (см. IOclass.md F45)
+            var swPerf = System.Diagnostics.Stopwatch.StartNew();
+            var swStage = System.Diagnostics.Stopwatch.StartNew();
+            void Perf(string stage) => _s.Log.Info($"F45 PERF: конструктор F13/{stage} — " +
+                $"{swStage.ElapsedMilliseconds} мс; с начала — {swPerf.ElapsedMilliseconds} мс");
+            LoadRules();                                Perf("LoadRules");
+            swStage.Restart();
+            LoadTypnoRules();                           Perf("LoadTypnoRules");
+            swStage.Restart();
+            LoadDataOutTemplateList();                  Perf("LoadDataOutTemplateList"); // F16
+            swStage.Restart();
+            LoadMasterTemplateList();                   Perf("LoadMasterTemplateList");  // F22
+            swStage.Restart();
+            LoadDataInTemplateList();                   Perf("LoadDataInTemplateList");  // F22
+            swStage.Restart();
+            LoadDataTemplateVars();                     // F33 (этап 7): PERF — внутри метода
+            swStage.Restart();
             if (Settings.TemplateMode == MbTemplateMode.Inline)
             {
                 try { InlineTemplateText = _s.ModbusBlocks.LoadInlineTemplate() ?? ""; }
@@ -345,8 +404,10 @@ namespace IO_PJT.ViewModels
                     ModbusBlockPlannerService.InlineDataOutTemplateName) ?? ""; }
                 catch (Exception) { InlineDataOutText = ""; }
             }
-            CheckTemplate(); // автозагрузка шаблона при открытии окна
-            CheckDataOutTemplate(); // F13.1: автозагрузка шаблона привязок
+            CheckTemplate();                            Perf("CheckTemplate"); // автозагрузка шаблона
+            swStage.Restart();
+            CheckDataOutTemplate();                     Perf("CheckDataOutTemplate"); // F13.1
+            _s.Log.Info($"F45 PERF: конструктор F13 (итого) — {swPerf.ElapsedMilliseconds} мс");
             StatusText = $"Настройки загружены. Правил «станция → SlaveId»: {SlaveRules.Count}. " +
                          "Постройте превью для просмотра пакетов.";
         }
@@ -357,7 +418,13 @@ namespace IO_PJT.ViewModels
             try
             {
                 SlaveRules.Clear();
-                foreach (var r in _s.ModbusBlocks.LoadSlaveRules()) SlaveRules.Add(r);
+                foreach (var r in _s.ModbusBlocks.LoadSlaveRules())
+                {
+                    HookStationRule(r); // F53: галочка «Генерировать» → подсказка
+                    SlaveRules.Add(r);
+                }
+                RenumberSlaveRules(); // F53: колонка «№»
+                UpdateStationsHint(); // F53
             }
             catch (Exception ex)
             {
@@ -689,6 +756,7 @@ namespace IO_PJT.ViewModels
         /// <summary>F13: построить превью пакетов по текущему шаблону, настройкам и правилам.</summary>
         private void Build()
         {
+            var swPerf = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 if (_template == null || !_template.Valid) CheckTemplate();
@@ -697,7 +765,10 @@ namespace IO_PJT.ViewModels
                     StatusText = $"Превью не построено: {_template?.Error ?? "шаблон не загружен"}.";
                     return;
                 }
+                var swStage = System.Diagnostics.Stopwatch.StartNew();
                 var points = _s.Repo.GetAll();
+                _s.Log.Info($"F45 PERF: Build/Repo.GetAll ({points.Count} точек) — {swStage.ElapsedMilliseconds} мс");
+                swStage.Restart();
                 var rules = SlaveRules.Where(r => !string.IsNullOrWhiteSpace(r.Station)).ToList();
                 // F33 (этап 6): размеры переменных правил Typno (Size) — приоритет над
                 // M_DataType в ширине пакета (бит/8/16bit → 1 регистр, 32 → 2, 64 → 4)
@@ -707,17 +778,20 @@ namespace IO_PJT.ViewModels
                     if (r.Typno.Trim().Length > 0 && !sizeByTypno.ContainsKey(r.Typno.Trim()))
                         sizeByTypno[r.Typno.Trim()] = MbTypnoMapRule.NormalizeSize(r.Size);
                 var result = _s.ModbusBlocks.BuildPlan(points, Settings, rules, _template.MasterNameBase, sizeByTypno);
+                _s.Log.Info($"F45 PERF: Build/BuildPlan ({result.Packets.Count} пакетов) — {swStage.ElapsedMilliseconds} мс");
+                swStage.Restart();
                 _built = result;
+                // F45: батч-заполнение одним событием Reset вместо N CollectionChanged
                 Preview.Clear();
-                foreach (var p in result.Packets) Preview.Add(p);
-                BindingsPreview.Clear();
-                foreach (var p in result.Packets)
-                    foreach (var b in p.Bindings)
-                        BindingsPreview.Add(b);
-                RefreshStationFilters(result); // F28: галочки станций для экспорта
+                Preview.AddRange(result.Packets);
+                RefreshPreviewPackets(); // F61: превью = пакеты Generate-станций + привязки внизу
+                _s.Log.Info($"F45 PERF: Build/заполнение превью ({Preview.Count} пакетов, " +
+                            $"{BindingsPreview.Count} привязок) — {swStage.ElapsedMilliseconds} мс");
+                RefreshStationPacketsHint(); // F53: подсказка «Генерить станций X из Y» + пакетов
                 StatsText = $"Пакетов (блоков мастера): {result.Packets.Count}; " +
                             $"привязок DataOut: {BindingsPreview.Count}; " +
-                            $"точек в пакетах: {result.TotalPoints} из {result.WithAddressing} с адресацией; " +
+                            $"точек в пакетах: {result.TotalPoints} из {result.WithAddressing} с адресацией; " +
+                            $"дублей адресации (одна точка): {result.DedupedSignals}; " +
                             $"пропущено: без адресации {result.SkippedNoAddressing}, " +
                             $"без Typno {result.SkippedNoTypno}, " +
                             $"запись {result.SkippedWrite}, адрес {result.SkippedBadAddress}, " +
@@ -727,6 +801,7 @@ namespace IO_PJT.ViewModels
                 StatusText = result.Packets.Count > 0
                     ? "Превью построено. Кнопки: «Записать привязки в IO_LIST», «Сформировать XML...»."
                     : "Пакеты не сформированы — проверьте адресацию Modbus (M_PlcTag) в таблице.";
+                _s.Log.Info($"F45 PERF: Build (итого) — {swPerf.ElapsedMilliseconds} мс");
             }
             catch (Exception ex)
             {
@@ -736,71 +811,104 @@ namespace IO_PJT.ViewModels
             }
         }
 
-        /// <summary>F28: обновить галочки станций по станциям плана (новые добавляются выбранными,
-        /// состояние уже известных станций сохраняется — перестроение превью не сбрасывает выбор).</summary>
-        private void RefreshStationFilters(MbPlanResult result)
+        /// <summary>F53: подписка на правило станции — обновление подсказки при переключении
+        /// галочки «Генерировать» (Generate — INPC, TwoWay-привязка пишет напрямую).</summary>
+        private void HookStationRule(MbSlaveIdRule r)
         {
-            // F37: ключ пункта — «Controller|Station»: одна станция у разных контроллеров —
-            // независимые галочки (пакеты планируются раздельно)
-            var counts = new Dictionary<string, (string Ctrl, string St, int N)>(
-                StringComparer.OrdinalIgnoreCase);
-            foreach (var p in result.Packets)
-            {
-                string ctrl = (p.Controller ?? "").Trim();
-                string st = (p.Station ?? "").Trim();
-                string key = ctrl + "|" + st;
-                counts.TryGetValue(key, out var cur0);
-                counts[key] = (ctrl, st, cur0.N + 1);
-            }
-            foreach (var gone in StationFilters.Where(f => !counts.ContainsKey(f.Key)).ToList())
-                StationFilters.Remove(gone);
-            foreach (var kv in counts)
-            {
-                var cur = StationFilters.FirstOrDefault(f =>
-                    string.Equals(f.Key, kv.Key, StringComparison.OrdinalIgnoreCase));
-                if (cur == null) StationFilters.Add(new MbStationFilterItem
-                {
-                    Controller = kv.Value.Ctrl,
-                    Station = kv.Value.St,
-                    PacketCount = kv.Value.N
-                });
-                else cur.PacketCount = kv.Value.N;
-            }
-            UpdateStationsHint();
+            r.PropertyChanged -= OnStationRuleChanged;
+            r.PropertyChanged += OnStationRuleChanged;
         }
 
-        /// <summary>F28: «Выбрать все»/«Снять все».</summary>
+        /// <summary>F53: изменение правила станции → пересчёт подсказки; галочка
+        /// «Генерировать» дополнительно пересобирает превью пакетов (F61).</summary>
+        private void OnStationRuleChanged(object? sender,
+            System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(MbSlaveIdRule.Generate))
+            {
+                UpdateStationsHint();
+                RefreshPreviewPackets(); // F61: фильтр превью — по галочкам станций
+            }
+        }
+
+        /// <summary>F61: правка Контроллера/Станции у ВЫБРАННОГО правила (INPC) — пересборка
+        /// превью пакетов (ключи правила участвуют в FilterPacketsByStationRules).</summary>
+        private void OnSelectedRuleChanged(object? sender,
+            System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName is nameof(MbSlaveIdRule.Station) or nameof(MbSlaveIdRule.Controller))
+                RefreshPreviewPackets();
+        }
+
+        /// <summary>F53: нумерация строк перечня станций (колонка «№» грида).</summary>
+        private void RenumberSlaveRules()
+        {
+            for (int i = 0; i < SlaveRules.Count; i++) SlaveRules[i].No = i + 1;
+        }
+
+        /// <summary>F53: «Выбрать все»/«Снять все» — галочки «Генерировать» перечня станций
+        /// (SCADA_MB_SLAVE_RULES; кнопки в тулбаре грида станций).</summary>
         private void SetAllStations(bool selected)
         {
-            foreach (var f in StationFilters) f.IsSelected = selected;
+            foreach (var r in SlaveRules) r.Generate = selected;
             UpdateStationsHint();
+            RefreshPreviewPackets(); // F61: массовые галочки пересобирают превью пакетов
         }
 
-        /// <summary>F28: подсказка «генерить станций: X из Y».</summary>
+        /// <summary>F53: подсказка «генерить станций: X из Y» по галочкам перечня станций.</summary>
         private void UpdateStationsHint()
         {
-            int sel = StationFilters.Count(f => f.IsSelected);
-            StationsHint = StationFilters.Count > 0
-                ? $"Генерить станций: {sel} из {StationFilters.Count}"
-                : "Станции не определены — постройте превью.";
+            int sel = SlaveRules.Count(r => r.Generate);
+            StationsHint = SlaveRules.Count > 0
+                ? $"Генерить станций: {sel} из {SlaveRules.Count}" +
+                  (_built != null ? $"; пакетов в плане: {_built.Packets.Count}" : "")
+                : "Правила станций не заданы — генерятся все станции плана.";
         }
 
-        /// <summary>F28: обновить подсказку после клика по чекбоксу станции (из code-behind окна —
-        /// у MbStationFilterItem нет INPC, привязка IsChecked TwoWay пишет IsSelected напрямую).</summary>
-        public void NotifyStationFilterChanged() => UpdateStationsHint();
+        /// <summary>F53: обновить подсказку после построения превью.</summary>
+        private void RefreshStationPacketsHint() => UpdateStationsHint();
 
-        /// <summary>F28: пакеты плана, отфильтрованные по выбранным станциям (null — ни одна не
-        /// выбрано; пустой список фильтра = все станции, напр. превью без пакетов).</summary>
+        /// <summary>F61: превью = пакеты станций с включённой галочкой «Генерировать»
+        /// (FilterPacketsByStationRules: точный ключ «Контроллер|Станция», затем
+        /// универсальный; станции без правил — генерятся). Выбор пакета сбрасывается,
+        /// привязки внизу — все привязки пакетов превью. Пересборка — на «Построить
+        /// превью», переключении галочек/кнопок станций, смене/правке правила (F61).</summary>
+        private void RefreshPreviewPackets()
+        {
+            PreviewPackets.Clear();
+            Set(ref _selectedPreviewPacket, null, nameof(SelectedPreviewPacket));
+            if (_built == null) { BindingsPreview.Clear(); return; }
+            var packets = ModbusBlockPlannerService.FilterPacketsByStationRules(
+                _built.Packets, SlaveRules);
+            PreviewPackets.AddRange(packets);
+            RefreshBindingsView(); // F61: привязки без выбора — всех пакетов превью
+            _s.Log.Info($"F61: превью — пакетов {PreviewPackets.Count} из {_built.Packets.Count}, " +
+                        $"привязок {BindingsPreview.Count}");
+        }
+
+        /// <summary>F61: таблица «Привязки DataOut» (мастер-detail) — привязки выбранного
+        /// пакета превью; выбора нет — все привязки пакетов, отображённых в превью.</summary>
+        private void RefreshBindingsView()
+        {
+            BindingsPreview.Clear();
+            if (_built == null) return;
+            System.Collections.Generic.IEnumerable<MbBinding> binds = SelectedPreviewPacket != null
+                ? SelectedPreviewPacket.Bindings
+                : PreviewPackets.SelectMany(p => p.Bindings);
+            BindingsPreview.AddRange(binds);
+        }
+
+        /// <summary>F53: пакеты плана без станций, отключённых галочкой «Генерировать»
+        /// (ModbusBlockPlannerService.FilterPacketsByStationRules: точный ключ
+        /// «Контроллер|Станция», затем универсальный «Станция»); все станции отключены —
+        /// null (ошибка экспорта/записи привязок).</summary>
         private List<MbPacketPlan>? SelectedStationPackets()
         {
             if (_built == null) return null;
-            if (StationFilters.Count == 0) return _built.Packets.ToList();
-            var selected = new HashSet<string>(
-                StationFilters.Where(f => f.IsSelected).Select(f => f.Key),
-                StringComparer.OrdinalIgnoreCase);
-            if (selected.Count == 0) return null; // ни одной станции не выбрано — ошибка экспорта
-            return _built.Packets.Where(p => selected.Contains(
-                (p.Controller ?? "").Trim() + "|" + (p.Station ?? "").Trim())).ToList();
+            var filtered = ModbusBlockPlannerService.FilterPacketsByStationRules(
+                _built.Packets, SlaveRules);
+            if (filtered.Count == 0 && _built.Packets.Count > 0) return null;
+            return filtered;
         }
 
         /// <summary>F28: копия плана с пакетами только выбранных станций (для WriteBindings/экспорта);
@@ -836,7 +944,7 @@ namespace IO_PJT.ViewModels
                 var plan = FilteredPlan();
                 if (plan == null)
                 {
-                    StatusText = "Запись привязок невозможна: не выбрана ни одна станция (галочки выше превью).";
+                    StatusText = "Запись привязок невозможна: сняты все галочки «Генерировать» в перечне станций.";
                     return;
                 }
                 var r = _s.ModbusBlocks.WriteBindings(plan, _s.Repo);
@@ -893,14 +1001,15 @@ namespace IO_PJT.ViewModels
                     outFile = dlg.FileName;
                 }
 
-                // F28: экспорт только выбранных станций (галочки выше превью)
+                // F53: экспорт только станций с галочкой «Генерировать» (перечень правил)
                 var packets = SelectedStationPackets();
                 if (packets == null)
                 {
-                    StatusText = "Экспорт невозможен: не выбрана ни одна станция (галочки выше превью).";
+                    StatusText = "Экспорт невозможен: сняты все галочки «Генерировать» в перечне станций.";
                     return;
                 }
-                int stationsTotal = StationFilters.Count;
+                int stationsTotal = SlaveRules.Count;
+                int stSel = SlaveRules.Count(r => r.Generate); // F53
 
                 // F22: пакеты разделяются по протоколу станции (SCADA_MB_SLAVE_RULES.Protocol):
                 // RTU-пакеты генерируются по шаблону SCADA_MASTER_TEMPLATES (MasterRtuTemplateName),
@@ -978,14 +1087,13 @@ namespace IO_PJT.ViewModels
                 if (_dataOutTemplateText != null && _dataOutTemplate != null && _dataOutTemplate.Valid)
                 {
                     var warnings = new System.Collections.Generic.List<string>();
-                    bindingsXml = _dataOut.Write(packets, _dataOutTemplateText,
+                    bindingsXml = _dataOut.WriteMulti(packets, _dataOutTemplateText,
                         gen.MasterMeta, Settings, warnings, typnoMap, namedTemplates, dataInTemplates,
                         dataVars, Settings.DataOutTemplateName);
                     fromTemplate = true;
                     foreach (var w in warnings) _s.Log.Warn(w);
                 }
                 File.WriteAllText(bindingsPath, bindingsXml, new System.Text.UTF8Encoding(true));
-                int stSel = StationFilters.Count(f => f.IsSelected); // F28
                 _s.Log.Info($"F13: XML сформирован: {outFile} + привязки {bindingsPath} " +
                             $"(станций: {stSel}/{stationsTotal}, пакетов: {packets.Count}, привязок: {BindingsPreview.Count}, " +
                             (fromTemplate ? "шаблон привязок Data_Out)" : "простые привязки)"));
@@ -1045,7 +1153,11 @@ namespace IO_PJT.ViewModels
                 settings = ScadaTemplateXmlService.ShiftSettingsForNextFile(
                     settings, gen.PousXml, gen.BindingsXml);
 
-                // —— файлы data-объектов: по одному на Typno внутри пары ——
+                // —— файлы data-объектов: по одному на (Typno, шаблон привязок) внутри пары ——
+                // F51: Typno может иметь несколько правил (шаблонов) — цепочки каждого шаблона
+                // генерятся в свой отдельный XML-файл (импорт в разные POU); в WriteMulti
+                // передаётся карта только с правилами текущего шаблона (пустое имя шаблона
+                // в правиле — основной шаблон редактора, в имени файла — «main»)
                 if (dataTplValid)
                 {
                     var warnings = new System.Collections.Generic.List<string>();
@@ -1054,16 +1166,36 @@ namespace IO_PJT.ViewModels
                              .OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
                     {
                         if (tg.Key.Length == 0) continue;
-                        seq++;
-                        string typnoPart = SanitizeFilePart(tg.Key, "NoTypno");
-                        string dataXml = _dataOut.Write(tg.ToList(), _dataOutTemplateText!,
-                            gen.MasterMeta, settings, warnings, typnoMap, namedTemplates,
-                            dataInTemplates, dataVars, Settings.DataOutTemplateName);
-                        string dataPath = Path.Combine(dir,
-                            $"{ctrlPart}_{stPart}_{typnoPart}_{seq}.xml");
-                        File.WriteAllText(dataPath, dataXml, utf8);
-                        written.Add(dataPath);
-                        settings = ScadaTemplateXmlService.ShiftSettingsForNextFile(settings, dataXml);
+                        var byTpl = new Dictionary<string,
+                            List<(string Template, string Exemplar, string Size)>>(
+                            StringComparer.OrdinalIgnoreCase);
+                        if (typnoMap.TryGetValue(tg.Key, out var rulesF51))
+                            foreach (var r in rulesF51)
+                            {
+                                string tn = r.Template.Length > 0 ? r.Template : "main";
+                                if (!byTpl.TryGetValue(tn, out var listF51))
+                                    byTpl[tn] = listF51 = new List<(string Template, string Exemplar, string Size)>();
+                                listF51.Add(r);
+                            }
+                        foreach (var ftg in byTpl.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
+                        {
+                            seq++;
+                            string typnoPart = SanitizeFilePart(tg.Key, "NoTypno");
+                            string tplPart = SanitizeFilePart(ftg.Key, "main");
+                            // F51: карта только с правилами текущего шаблона — цепочки
+                            // других шаблонов Typno в этот файл не попадают
+                            var mapF51 = new Dictionary<string,
+                                List<(string Template, string Exemplar, string Size)>>(
+                                StringComparer.OrdinalIgnoreCase) { [tg.Key] = ftg.Value };
+                            string dataXml = _dataOut.WriteMulti(tg.ToList(), _dataOutTemplateText!,
+                                gen.MasterMeta, settings, warnings, mapF51, namedTemplates,
+                                dataInTemplates, dataVars, Settings.DataOutTemplateName);
+                            string dataPath = Path.Combine(dir,
+                                $"{ctrlPart}_{stPart}_{typnoPart}_{tplPart}_{seq}.xml");
+                            File.WriteAllText(dataPath, dataXml, utf8);
+                            written.Add(dataPath);
+                            settings = ScadaTemplateXmlService.ShiftSettingsForNextFile(settings, dataXml);
+                        }
                     }
                     foreach (var w in warnings) _s.Log.Warn(w);
                 }
@@ -1078,31 +1210,38 @@ namespace IO_PJT.ViewModels
                 }
             }
 
-            int stSel = StationFilters.Count(f => f.IsSelected); // F28
-            int stationsTotal = StationFilters.Count;
+            int stSel53 = SlaveRules.Count(r => r.Generate); // F53
+            int stationsTotal53 = SlaveRules.Count;
             _s.Log.Info($"F37: split-экспорт в «{dir}»: файлов {written.Count} " +
-                        $"(станций: {stSel}/{stationsTotal}, пакетов: {packets.Count}): " +
+                        $"(станций: {stSel53}/{stationsTotal53}, пакетов: {packets.Count}): " +
                         string.Join(", ", written.Select(Path.GetFileName)));
             StatusText = $"Файлов сформировано: {written.Count} в папке {dir} " +
-                         $"(станций {stSel}/{stationsTotal}, пакетов {packets.Count}; " +
+                         $"(станций {stSel53}/{stationsTotal53}, пакетов {packets.Count}; " +
                          (dataTplValid ? "блоки Modbus + data-объекты по Typno)." : "простые привязки).");
         }
 
-        /// <summary>F37: карты генерации data-привязок — «Typno → (шаблон, эталон, размер)»
-        /// (SCADA_TYPNO_MAP), именованные dataout- (F16) и datain-шаблоны (F30) и маппинг
-        /// объектов data-шаблонов (F33/F37 «шаблон → объект → (колонка, литерал)»).</summary>
-        private (Dictionary<string, (string Template, string Exemplar, string Size)> Typno,
+        /// <summary>F37: карты генерации data-привязок — «Typno → список (шаблон, эталон, размер)»
+        /// (SCADA_TYPNO_MAP; F51: несколько правил на Typno — по одному на шаблон), именованные
+        /// dataout- (F16) и datain-шаблоны (F30) и маппинг объектов data-шаблонов
+        /// (F33/F37 «шаблон → объект → (колонка, литерал)»).</summary>
+        private (Dictionary<string, List<(string Template, string Exemplar, string Size)>> Typno,
                  Dictionary<string, string> Named,
                  Dictionary<string, string> DataIn,
                  Dictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal)>> Vars)
             BuildDataMaps()
         {
+            // F51: один Typno — несколько правил (по шаблону); порядок строк сохраняется
             var typnoMap = new System.Collections.Generic.Dictionary<string,
-                (string Template, string Exemplar, string Size)>(StringComparer.OrdinalIgnoreCase);
+                List<(string Template, string Exemplar, string Size)>>(StringComparer.OrdinalIgnoreCase);
             foreach (var r in TypnoRules)
                 if (r.Typno.Trim().Length > 0 && r.Exemplar.Trim().Length > 0)
-                    typnoMap[r.Typno.Trim()] = (r.Template.Trim(), r.Exemplar.Trim(),
-                        MbTypnoMapRule.NormalizeSize(r.Size));
+                {
+                    string key = r.Typno.Trim();
+                    if (!typnoMap.TryGetValue(key, out var listRules))
+                        typnoMap[key] = listRules = new List<(string Template, string Exemplar, string Size)>();
+                    listRules.Add((r.Template.Trim(), r.Exemplar.Trim(),
+                        MbTypnoMapRule.NormalizeSize(r.Size)));
+                }
             var namedTemplates = new System.Collections.Generic.Dictionary<string, string>(
                 StringComparer.OrdinalIgnoreCase);
             foreach (var t in DataOutTemplates)
@@ -1233,7 +1372,9 @@ namespace IO_PJT.ViewModels
         private void AddRule()
         {
             var r = new MbSlaveIdRule { Station = "", SlaveId = Settings.DefaultSlaveId };
+            HookStationRule(r); // F53
             SlaveRules.Add(r);
+            RenumberSlaveRules(); // F53
             SelectedRule = r;
             StatusText = $"Правило добавлено (не сохранено): {SlaveRules.Count}. Не забудьте «Сохранить правила SlaveId».";
         }
@@ -1243,6 +1384,7 @@ namespace IO_PJT.ViewModels
             if (SelectedRule == null) return;
             SlaveRules.Remove(SelectedRule);
             SelectedRule = null;
+            RenumberSlaveRules(); // F53
             StatusText = $"Правило удалено (не сохранено): {SlaveRules.Count}. Не забудьте «Сохранить правила SlaveId».";
         }
 
@@ -1392,7 +1534,13 @@ namespace IO_PJT.ViewModels
                 var merged = ModbusBlockPlannerService.MergeSlaveRulesFromPoints(
                     SlaveRules.ToList(), _s.Repo.GetAll());
                 SlaveRules.Clear();
-                foreach (var r in merged) SlaveRules.Add(r);
+                foreach (var r in merged)
+                {
+                    HookStationRule(r); // F53
+                    SlaveRules.Add(r);
+                }
+                RenumberSlaveRules(); // F53: колонка «№»
+                UpdateStationsHint(); // F53
                 StatusText = $"Станций после автосбора: {merged.Count} (IP/скорость/таймаут — из IO_LIST, " +
                              "Protocol/UART — уточните вручную при необходимости) — сохраните кнопкой «Сохранить».";
                 _s.Log.Info($"F21: автосбор станций из IO_LIST: {merged.Count} (SCADA_MB_SLAVE_RULES)");
@@ -1746,6 +1894,7 @@ namespace IO_PJT.ViewModels
         /// ключа текущего шаблона редактора (шаблон мог не сохраняться в перечень).</summary>
         private void LoadDataTemplateVars()
         {
+            var swPerf = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 DataTemplateVars.Clear();
@@ -1756,8 +1905,13 @@ namespace IO_PJT.ViewModels
                         ? "текст"
                         : scope == "datain" ? "запись" : "чтение";
                 var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                // F45: два скоупа — два запроса (раньше: запрос на каждый шаблон + EnsureTables
+                // на каждый — N×~20 открытий соединений при открытии окна F13)
+                var outByKey = _s.ModbusBlocks.LoadTemplateVarsAll("dataout", out var outLegacy);
+                var inByKey = _s.ModbusBlocks.LoadTemplateVarsAll("datain", out var inLegacy);
                 foreach (var t in DataOutTemplates)
-                    foreach (var v in _s.ModbusBlocks.LoadTemplateVars("dataout", t.Name))
+                    foreach (var v in ModbusBlockPlannerService.MergeTemplateVars(
+                        outByKey.TryGetValue(t.Name, out var own) ? own : new(), outLegacy))
                         if (seen.Add(t.Name + "|" + v.Var))
                             DataTemplateVars.Add(new MbDataTemplateVarRow
                             {
@@ -1765,7 +1919,8 @@ namespace IO_PJT.ViewModels
                                 IoColumn = v.IoColumn, Literal = v.Literal
                             });
                 foreach (var t in DataInTemplates)
-                    foreach (var v in _s.ModbusBlocks.LoadTemplateVars("datain", t.Name))
+                    foreach (var v in ModbusBlockPlannerService.MergeTemplateVars(
+                        inByKey.TryGetValue(t.Name, out var own) ? own : new(), inLegacy))
                         if (seen.Add(t.Name + "|" + v.Var))
                             DataTemplateVars.Add(new MbDataTemplateVarRow
                             {
@@ -1777,7 +1932,8 @@ namespace IO_PJT.ViewModels
                 string cur = CurrentDataTemplateKey();
                 if (!DataOutTemplates.Any(t => string.Equals(t.Name, cur, StringComparison.OrdinalIgnoreCase)) &&
                     !DataInTemplates.Any(t => string.Equals(t.Name, cur, StringComparison.OrdinalIgnoreCase)))
-                    foreach (var v in _s.ModbusBlocks.LoadTemplateVars("dataout", cur))
+                    foreach (var v in ModbusBlockPlannerService.MergeTemplateVars(
+                        outByKey.TryGetValue(cur, out var ownCur) ? ownCur : new(), outLegacy))
                         if (seen.Add(cur + "|" + v.Var))
                             DataTemplateVars.Add(new MbDataTemplateVarRow
                             {
@@ -1790,6 +1946,8 @@ namespace IO_PJT.ViewModels
                 string msg = DbProbe.ClassifyMessage(ex.Message);
                 _s.Log.Error($"F33: ошибка чтения маппинга объектов data-шаблонов: {msg}");
             }
+            _s.Log.Info($"F45 PERF: LoadDataTemplateVars ({DataTemplateVars.Count} строк) — " +
+                        $"{swPerf.ElapsedMilliseconds} мс");
         }
 
         /// <summary>F33: дополнить перечень объектами-переменными всех data-шаблонов (блоки
@@ -1825,11 +1983,41 @@ namespace IO_PJT.ViewModels
                 if (!DataOutTemplates.Any(t => string.Equals(t.Name, cur, StringComparison.OrdinalIgnoreCase)) &&
                     !DataInTemplates.Any(t => string.Equals(t.Name, cur, StringComparison.OrdinalIgnoreCase)) &&
                     _dataOutTemplateText != null)
+                {
                     foreach (var o in _dataOut.ParseTemplateObjects(_dataOutTemplateText))
                         if (have.Add(cur + "|" + o.Name))
                         {
                             DataTemplateVars.Add(new MbDataTemplateVarRow
                             { TemplateName = cur, Direction = "чтение", Var = o.Name });
+                            added++;
+                        }
+                    // F44: текстовые объекты [TEXT] несохранённого тела редактора
+                    foreach (var o in _dataOut.ParseTextObjects(_dataOutTemplateText))
+                        if (have.Add(cur + "|" + o))
+                        {
+                            DataTemplateVars.Add(new MbDataTemplateVarRow
+                            { TemplateName = cur, Direction = "текст", Var = o });
+                            added++;
+                        }
+                }
+                // F44: текстовые объекты ([TEXT]=…) САМИХ data-шаблонов — примитивы их
+                // OnePOU клонируются с каждой цепочкой в файл привязок (см. Write);
+                // объект получает ключ ИМЕНИ своего шаблона (MB_AI_REAL32: Comment(Text)),
+                // Direction «текст»; для основного шаблона (ключ cur) — ниже, F38
+                foreach (var t in DataOutTemplates)
+                    foreach (var o in _dataOut.ParseTextObjects(t.Body))
+                        if (have.Add(t.Name + "|" + o))
+                        {
+                            DataTemplateVars.Add(new MbDataTemplateVarRow
+                            { TemplateName = t.Name, Direction = "текст", Var = o });
+                            added++;
+                        }
+                foreach (var t in DataInTemplates)
+                    foreach (var o in _dataOut.ParseTextObjects(t.Body))
+                        if (have.Add(t.Name + "|" + o))
+                        {
+                            DataTemplateVars.Add(new MbDataTemplateVarRow
+                            { TemplateName = t.Name, Direction = "текст", Var = o });
                             added++;
                         }
                 // F38: текстовые объекты примитивов ОСНОВНОГО шаблона — [TEXT]=LOOPComment…
@@ -1842,6 +2030,18 @@ namespace IO_PJT.ViewModels
                         {
                             DataTemplateVars.Add(new MbDataTemplateVarRow
                             { TemplateName = cur, Direction = "текст", Var = o });
+                            added++;
+                        }
+                // F52: объекты основного МАСТЕР-шаблона (блоки 31/34 юнита мастера, кроме
+                // самого мастера 37) — переименование по колонке ИЛИ начальное значение
+                // при экспорте пакетного файла (ScadaTemplateXmlService.Write); Direction
+                // «мастер», ключ — текущий data-шаблон (как у текстов F38)
+                if (mainTplText != null)
+                    foreach (var o in _dataOut.ParseTemplateObjects(mainTplText))
+                        if (have.Add(cur + "|" + o.Name))
+                        {
+                            DataTemplateVars.Add(new MbDataTemplateVarRow
+                            { TemplateName = cur, Direction = "мастер", Var = o.Name });
                             added++;
                         }
                 StatusText = added > 0
@@ -1906,11 +2106,9 @@ namespace IO_PJT.ViewModels
                 b.DataOutExpr = $"{packet.MasterName}.{exprField}[" +
                     $"{ModbusBlockPlannerService.DataOutByteIndex(b.Offset, packet.IsBit)}]";
             }
-            // обновить грид привязок (те же объекты MbBinding — пересоздание строк)
-            BindingsPreview.Clear();
-            foreach (var pkt in _built.Packets)
-                foreach (var b in pkt.Bindings)
-                    BindingsPreview.Add(b);
+            // F61: привязки внизу — по выбору пакета превью (те же объекты MbBinding —
+            // пересоздание строк синхронизирует смещения/пути после правки адреса)
+            RefreshBindingsView();
         }
     }
 }

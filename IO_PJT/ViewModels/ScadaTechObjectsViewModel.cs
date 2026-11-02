@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Windows;
@@ -45,6 +45,34 @@ namespace IO_PJT.ViewModels
         /// <summary>F27: «Записать Марку в IO_LIST» — колонка M_Marka по превью.</summary>
         public RelayCommand WriteMarkaCommand { get; }
         public RelayCommand SaveSettingsCommand { get; }
+
+        /// <summary>F57: «Сохранить как…» / «Удалить профиль» — именованные варианты настроек.</summary>
+        public RelayCommand SaveAsProfileCommand { get; }
+        public RelayCommand DeleteProfileCommand { get; }
+
+        /// <summary>F57: имена сохранённых профилей настроек (SCADA_TEHOBJ_SETTINGS.Profile).</summary>
+        public ObservableCollection<string> Profiles { get; } = new();
+
+        private string? _selectedProfile;
+        /// <summary>F57: выбранный профиль — смена загружает его настройки в Settings.</summary>
+        public string? SelectedProfile
+        {
+            get => _selectedProfile;
+            set
+            {
+                if (!Set(ref _selectedProfile, value, nameof(SelectedProfile))) return;
+                if (string.IsNullOrWhiteSpace(value)) return;
+                try
+                {
+                    _s.ScadaTechObjects.LoadInto(Settings, value);
+                    StatusText = $"профиль «{value}» загружен";
+                }
+                catch (Exception ex)
+                {
+                    StatusText = $"сбой загрузки профиля: {ex.Message}";
+                }
+            }
+        }
         public RelayCommand SaveMappingsCommand { get; }
         public RelayCommand AddMappingCommand { get; }
         public RelayCommand DeleteMappingCommand { get; }
@@ -60,10 +88,14 @@ namespace IO_PJT.ViewModels
         {
             _s = services;
             Settings = _s.ScadaTechObjects.LoadSettings();
+            foreach (var pr in _s.ScadaTechObjects.LoadProfiles()) Profiles.Add(pr);
+            _selectedProfile = ScadaTechObjectService.DefaultProfile; // Settings уже загружены — без перезагрузки
             BuildCommand = new RelayCommand(Build);
             ExportCommand = new RelayCommand(Export, () => Preview.Count > 0);
             WriteMarkaCommand = new RelayCommand(WriteMarkaToDb, () => Preview.Count > 0);
             SaveSettingsCommand = new RelayCommand(SaveSettings);
+            SaveAsProfileCommand = new RelayCommand(SaveAsProfile);
+            DeleteProfileCommand = new RelayCommand(DeleteProfile);
             SaveMappingsCommand = new RelayCommand(SaveMappings);
             AddMappingCommand = new RelayCommand(AddMapping);
             DeleteMappingCommand = new RelayCommand(DeleteMapping, () => SelectedMapping != null);
@@ -176,7 +208,7 @@ namespace IO_PJT.ViewModels
         {
             try
             {
-                _s.ScadaTechObjects.SaveSettings(Settings);
+                _s.ScadaTechObjects.SaveSettings(Settings, SelectedProfile);
                 _s.Log.Info($"F12: настройки генерации сохранены ({ScadaTechObjectService.SettingKeys.Length} параметров)");
                 StatusText = "Настройки сохранены в SCADA_TEHOBJ_SETTINGS.";
             }
@@ -188,7 +220,57 @@ namespace IO_PJT.ViewModels
             }
         }
 
-        /// <summary>Сохранить таблицу маппинга типов в SCADA_TYPE_MAP (полная замена).</summary>
+                /// <summary>F57: «Сохранить как…» — сохранить текущие настройки под новым именем.</summary>
+        private void SaveAsProfile()
+        {
+            string? name = IO_PJT.Views.NamePromptWindow.Ask(
+                "вариант настроек:", SelectedProfile ?? "", null, "Сохранение настроек");
+            if (string.IsNullOrWhiteSpace(name)) return;
+            name = name.Trim();
+            try
+            {
+                _s.ScadaTechObjects.SaveSettings(Settings, name);
+                if (!Profiles.Any(p => string.Equals(p, name, StringComparison.OrdinalIgnoreCase)))
+                    Profiles.Add(name);
+                SelectedProfile = name;
+                _s.Log.Info($"F57: настройки сохранены в профиль «{name}»");
+                StatusText = $"профиль «{name}» сохранён";
+            }
+            catch (Exception ex)
+            {
+                string msg = DbProbe.ClassifyMessage(ex.Message);
+                _s.Log.Error($"F57: сбой сохранения профиля: {msg}");
+                StatusText = $"сбой сохранения профиля: {msg}";
+            }
+        }
+
+        /// <summary>F57: удалить выбранный именованный профиль (по умолчанию — нельзя).</summary>
+        private void DeleteProfile()
+        {
+            string name = SelectedProfile ?? ScadaTechObjectService.DefaultProfile;
+            if (string.Equals(name, ScadaTechObjectService.DefaultProfile, StringComparison.OrdinalIgnoreCase))
+                return;
+            if (MessageBox.Show($"Удалить профиль «{name}»?", "Удаление профиля",
+                    MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                return;
+            try
+            {
+                bool removed = _s.ScadaTechObjects.DeleteProfile(name);
+                foreach (var pr in Profiles.Where(pr => string.Equals(pr, name, StringComparison.OrdinalIgnoreCase)).ToList())
+                    Profiles.Remove(pr);
+                SelectedProfile = ScadaTechObjectService.DefaultProfile;
+                _s.Log.Info($"F57: профиль «{name}» удалён: {removed}");
+                StatusText = removed ? $"профиль «{name}» удалён" : $"профиль «{name}» не найден";
+            }
+            catch (Exception ex)
+            {
+                string msg = DbProbe.ClassifyMessage(ex.Message);
+                _s.Log.Error($"F57: сбой удаления профиля: {msg}");
+                StatusText = $"сбой удаления профиля: {msg}";
+            }
+        }
+
+/// <summary>Сохранить таблицу маппинга типов в SCADA_TYPE_MAP (полная замена).</summary>
         private void SaveMappings()
         {
             try

@@ -9,9 +9,10 @@ namespace IO_PJT.Views
         /// <summary>Введённое имя (обрезанные края).</summary>
         public string EnteredName => NameBox.Text.Trim();
 
-        public NamePromptWindow(string prompt, string initial = "")
+        public NamePromptWindow(string prompt, string initial = "", string? title = null)
         {
             InitializeComponent();
+            if (title != null) Title = title;
             PromptText.Text = prompt;
             NameBox.Text = initial;
             Loaded += (_, _) => { NameBox.Focus(); NameBox.SelectAll(); };
@@ -29,9 +30,10 @@ namespace IO_PJT.Views
         }
 
         /// <summary>F16: показать диалог ввода имени; null — отмена.</summary>
-        public static string? Ask(string prompt, string initial = "", Window? owner = null)
+        public static string? Ask(string prompt, string initial = "", Window? owner = null,
+            string? title = null)
         {
-            var w = new NamePromptWindow(prompt, initial);
+            var w = new NamePromptWindow(prompt, initial, title);
             if (owner != null) w.Owner = owner;
             return w.ShowDialog() == true ? w.EnteredName : null;
         }

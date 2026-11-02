@@ -245,7 +245,28 @@ namespace IO_PJT.Services
         {
             string pat = (pattern ?? "").Trim();
             if (pat.Length == 0) return "";
-            string name = Regex.Replace(pat, @"\{([^{}]+)\}", m =>
+            return SanitizeNamePart(ResolvePouTokens(pat, masterNameBase, ctx));
+        }
+
+        /// <summary>F61: комментарий (Disc) POU по паттерну — те же токены, что в
+        /// BuildPouName, но БЕЗ санитизации итога: Disc — свободный текст, пробелы и
+        /// знаки препинания допустимы (XML-экранирование делает XElement). Пустой
+        /// паттерн — «» (вызывающий оставляет исторический Disc шаблона/пустой).</summary>
+        public static string BuildPouComment(string? pattern, string? masterNameBase, MbPacketPlan? ctx)
+        {
+            string pat = (pattern ?? "").Trim();
+            if (pat.Length == 0) return "";
+            return ResolvePouTokens(pat, masterNameBase, ctx).Trim();
+        }
+
+        /// <summary>F17/F61: резолв токенов паттерна POU: {Master}/{Date}/{Time} — без
+        /// контекста; {Seq}/{Slave}/{Station}/{Controller}/{Ip}/{Port}/{Func} и
+        /// {ИмяКолонки} — из ctx (null — токены остаются литералом); значения служебных
+        /// токенов санитизируются (как в именах блоков), сам итог — нет: его санитизирует
+        /// BuildPouName (имя) либо оставляет как есть BuildPouComment (комментарий).</summary>
+        private static string ResolvePouTokens(string pat, string? masterNameBase, MbPacketPlan? ctx)
+        {
+            return Regex.Replace(pat, @"\{([^{}]+)\}", m =>
             {
                 string key = m.Groups[1].Value.Trim();
                 switch (key) // токены без контекста пакета
@@ -272,16 +293,21 @@ namespace IO_PJT.Services
                 }
                 return m.Value; // неизвестный токен — литерал как есть
             });
-            name = SanitizeNamePart(name);
-            return name;
         }
 
-        /// <summary>F13.1: очистка имени блока — пробелы/точки/кавычки → «_», пустые края срезаются.</summary>
+        /// <summary>F13.1: очистка имени блока — пробелы/точки/кавычки → «_», «пустые»
+        /// (порождённые заменой символа на краю) края срезаются. F62: ведущий/замыкающий
+        /// «_» ИСХОДНОЙ строки сохраняется — паттерн «_MB_{M_SlaveStation}_{Typno}»
+        /// даёт имя «_MB_…», а не «MB_…».</summary>
         private static string SanitizeNamePart(string s)
         {
-            string v = (s ?? "").Trim();
-            v = Regex.Replace(v, @"[\s.""'`]+", "_");
-            return v.Trim('_', ' ');
+            string raw = (s ?? "").Trim();
+            bool keepLead = raw.StartsWith("_", StringComparison.Ordinal);
+            bool keepTrail = raw.EndsWith("_", StringComparison.Ordinal);
+            string v = Regex.Replace(raw, @"[\s.""'`]+", "_");
+            if (!keepLead) v = v.TrimStart('_');   // «_» создан заменой краевого пробела/точки
+            if (!keepTrail) v = v.TrimEnd('_');
+            return v;
         }
 
         /// <summary>F34: стандартные входы мастера, заполняемые из плана при генерации;
@@ -390,9 +416,13 @@ namespace IO_PJT.Services
         /// [TEXT] клона примитива заменяется резолвом строки текстового объекта
         /// (LOOPComment(Text) и др., идентификатор — первое слово [TEXT]); null/пусто —
         /// тексты копируются как в шаблоне (строгий режим F35).</summary>
+        /// <param name="posBase">F50: стартовая позиция кластера в текущем файле (локальный
+        /// отсчёт) — координаты блоков считаются от posBase+idx пакета, а не от глобального
+        /// p.No: каждый новый файл/POU при раздельном экспорте начинается с верхней части
+        /// листа (без «дыр» от пакетов других файлов); k=p.No остаётся для имен/ID/ключей.</param>
         public GeneratedXml Write(IReadOnlyList<MbPacketPlan> packets, string templateXml, ScadaMbGenSettings s,
             IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal)>>? dataVars = null,
-            string dataVarsTemplateKey = "")
+            string dataVarsTemplateKey = "", int posBase = 0)
         {
             if (packets == null) throw new ArgumentNullException(nameof(packets));
             if (s == null) throw new ArgumentNullException(nameof(s));
@@ -516,12 +546,19 @@ namespace IO_PJT.Services
             int cols = Math.Max(1, s.ColumnsPerRow);
             bool rtuIpWarned = false;   // F35: RTU без IP/порта в IV — один раз на экспорт
             var textWarned = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // F38: (пакет|объект)
+            // F52: предупреждения «объект мастер-шаблона без строки маппинга» — один раз на объект
+            var mainMapWarned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var p in packets)
+            for (int idx = 0; idx < packets.Count; idx++)
             {
-                int k = p.No;
-                int dx = ((k - 1) % cols) * Math.Max(1, s.ColumnStep);
-                int dy = ((k - 1) / cols) * Math.Max(1, s.RowStep);
+                var p = packets[idx];
+                int k = p.No;   // F50: только имена/ID/предупреждения — глобальная уникальность
+                // F50: координаты кластера — от локального порядкового номера пакета в файле
+                // (posBase + idx), а не от глобального p.No: новый файл/POU начинается
+                // с верхней части листа, без «дыр» и пропусков при раздельном экспорте (F37)
+                int pos = posBase + idx;
+                int dx = (pos % cols) * Math.Max(1, s.ColumnStep);
+                int dy = (pos / cols) * Math.Max(1, s.RowStep);
 
                 // F19: размножается только основной юнит — «мастер, указанный в XML-шаблоне»
                 // (units[0]); имя мастера строго из плана (превью), без сдвига за счёт
@@ -535,14 +572,28 @@ namespace IO_PJT.Services
 
                     foreach (var b in unit)
                     {
-                        int newT11 = k == 1 ? b.T11 : nextT11++;
+                        // F60: шаблонные T11ID/cardId НЕ переиспользуются ни при k=1, ни при
+                        // k>1 — каждый клон получает свежие ID (раньше пакет №1 наследовал
+                        // шаблонные ID и при импорте в проект SCADA, где шаблон уже существует,
+                        // создание экземпляра первого блока падало с ошибкой уникальности)
+                        int newT11 = nextT11++;
                         t11Map[b.T11] = newT11;
                         string name = b.T11 == master.T11 ? masterName : ShiftInstanceName(b.Info, k);
-                        int newCard = b.CardId > 0
-                            ? (k == 1 ? b.CardId : NextCardId(ref nextCard))
-                            : 0;
+                        int newCard = b.CardId > 0 ? NextCardId(ref nextCard) : 0;
 
                         var clone = new XElement(b.El);
+                        // F52: объекты основного шаблона (блоки 31/34 юнита, кроме мастера) —
+                        // подстановка по строке маппинга «Объекты data-шаблонов» (Direction
+                        // «мастер»): колонка/«{}» → канал ИМЕНИ (TagNameFor тега 31, значение
+                        // как есть у константы 34), «Начальное значение» → <IV>; без строки
+                        // маппинга — шаблонное Info без изменений. Входы мастера ПЕРЕБИВАЮТ
+                        // маппинг плановыми значениями ниже (F35)
+                        if (b.T11 != master.T11)
+                        {
+                            string? mapped52 = ApplyMainObjectMapping(clone, p, dataVars,
+                                dataVarsTemplateKey, warnings, mainMapWarned);
+                            if (mapped52 != null) name = mapped52;
+                        }
                         clone.SetAttributeValue("T11ID", newT11);
                         clone.SetAttributeValue("Info", name);
                         var g = clone.Element("Graphics");
@@ -669,18 +720,28 @@ namespace IO_PJT.Services
             string pouName = BuildPouName(s.PouNamePattern, info.MasterNameBase,
                 packets.Count > 0 ? packets[0] : null);
             if (pouName.Length > 0) pou.SetAttributeValue("NAME", pouName);
+            // F61: комментарий POU основного файла — по PouCommentPattern (контекст — первый
+            // пакет, как у имени); пусто — Disc шаблона (историческое поведение)
+            string pouDisc = BuildPouComment(s.PouCommentPattern, info.MasterNameBase,
+                packets.Count > 0 ? packets[0] : null);
+            if (pouDisc.Length > 0) pou.SetAttributeValue("Disc", pouDisc);
             pou.Element("ISAGraf")?.Remove();
             pou.Element("GrObj")?.Remove();
             var pp = pou.Element("PARAMS");
             if (pp != null && packets.Count > 0)
             {
-                int maxRow = (packets.Count - 1) / cols;
+                int maxRow = (posBase + packets.Count - 1) / cols; // F50: posBase — старт кластера
                 pp.SetAttributeValue("WIDTH",
                     Math.Max(int.TryParse((string?)pp.Attribute("WIDTH"), out int w) ? w : 0,
                         300 + cols * Math.Max(1, s.ColumnStep)));
                 pp.SetAttributeValue("HEIGHT",
                     Math.Max(int.TryParse((string?)pp.Attribute("HEIGHT"), out int h) ? h : 0,
                         300 + (maxRow + 1) * Math.Max(1, s.RowStep)));
+                // F64: печатный холст следует рабочему (PRINTWIDTH/PRINTHEIGHT = WIDTH/HEIGHT)
+                pp.SetAttributeValue("PRINTWIDTH",
+                    int.TryParse((string?)pp.Attribute("WIDTH"), out int pw) ? pw : 0);
+                pp.SetAttributeValue("PRINTHEIGHT",
+                    int.TryParse((string?)pp.Attribute("HEIGHT"), out int ph) ? ph : 0);
             }
             var iSAGraf = new XElement("ISAGraf");
             var blocksOutEl = new XElement("Blocks");
@@ -696,9 +757,9 @@ namespace IO_PJT.Services
             outRoot.Add(new XElement("POUS", pou));
             outRoot.Add(new XElement(root.Element("ISAOBJSINFO")!));
             // F19: карточки — только по блокам результата, Info rec = имя блока этого
-            // результата (устраняет старые имена вида «MB_TCP_MASTER_4_1»: при клонировании
-            // k=1 cardId не меняется и rec шаблона раньше копировался без переименования,
-            // а также rec исключённых юнитов-мастеров — как сироты)
+            // результата (устраняет старые имена вида «MB_TCP_MASTER_4_1» и rec исключённых
+            // юнитов-мастеров — как сироты); F60: rec шаблона не копируется для блоков
+            // с новым cardId — их rec добавляются из outCards с именем клона
             var cardNames = new Dictionary<int, string>();
             foreach (var b in outBlocks)
             {
@@ -858,9 +919,13 @@ namespace IO_PJT.Services
             // —— проходы по группам + склейка (вторая и далее — со сдвигом T11/cardId) ——
             GeneratedXml? acc = null;
             var settings = s;
+            // F50: локальный отсчёт позиции между группами — кластер каждой группы
+            // продолжает предыдущую группу: в склеенном POU нет ни наложений, ни «дыр»
+            int posBaseGroups = 0;
             foreach (var g in groups)
             {
-                var gen = Write(g.Value, g.Key, settings, dataVars, dataVarsTemplateKey);
+                var gen = Write(g.Value, g.Key, settings, dataVars, dataVarsTemplateKey, posBaseGroups);
+                posBaseGroups += g.Value.Count;
                 acc = acc == null ? gen : MergeSplitResults(acc, gen);
                 settings = ShiftSettingsForSecondPass(s, acc);
             }
@@ -1013,13 +1078,85 @@ namespace IO_PJT.Services
 
             // вся строка [TEXT]=… → разрешённый текст (пер-пакетно: значения ColumnValues
             // своей точки пакета); параметры [FONTID]/[HINT] и прочие не трогаются
+            ApplyTextValue(pars, m, text);
+        }
+
+        /// <summary>F52: подстановка по маппингу объектов ОСНОВНОГО шаблона (блок 31/34 юнита
+        /// мастера, кроме самого мастера). Строка маппинга ищется сначала по ключу активного
+        /// data-шаблона (dataVarsTemplateKey), затем сквозным поиском по всем ключам (как
+        /// F38-тексты; Direction «мастер», ключ — текущий data-шаблон). Найдена — константа
+        /// 34 получает Info/T11Text = разрешённое значение (канал значения F36: имя
+        /// константы — её значение), тег 31 при канале ИМЕНИ — TagNameFor(значение), начальное
+        /// значение дополнительно пишется в &lt;IV&gt; (F49); только литерал — &lt;IV&gt;,
+        /// Info без изменений. Возвращает новое имя блока или null (имя без изменений);
+        /// значение разрешается по ColumnValues первой точки привязки пакета (F38-семантика).
+        /// Входы мастера при экспорте перебивают маппинг плановыми значениями (F35, см. Write).</summary>
+        private static string? ApplyMainObjectMapping(XElement clone, MbPacketPlan p,
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal)>>? dataVars,
+            string dataVarsTemplateKey, List<string> warnings, HashSet<string> warned)
+        {
+            if (dataVars == null || dataVars.Count == 0) return null;
+            string gt = clone.Attribute("GROBJTYPE")?.Value ?? "";
+            if (gt != "31" && gt != "34") return null;
+            string objName = (clone.Attribute("Info")?.Value ?? "").Trim();
+            if (objName.Length == 0) return null;
+
+            (string IoColumn, string Literal) row = default;
+            bool found = dataVarsTemplateKey.Length > 0 &&
+                         dataVars.TryGetValue(dataVarsTemplateKey, out var byKey52) &&
+                         byKey52.TryGetValue(objName, out row);
+            if (!found)
+                foreach (var kv in dataVars)
+                    if (kv.Value.TryGetValue(objName, out row)) { found = true; break; }
+            if (!found)
+            {
+                if (warned.Add(objName))
+                    warnings.Add($"F52: объект основного шаблона «{objName}» — в маппинге " +
+                        "«Объекты data-шаблонов» нет строки объекта — подстановка не выполнена " +
+                        "(задайте колонку/шаблон или начальное значение и «Сохранить маппинг объектов»)");
+                return null;
+            }
+
+            var colVals = p.Bindings != null && p.Bindings.Count > 0
+                ? p.Bindings[0].ColumnValues : null;
+            string dval = ScadaDataOutXmlService.ResolveDataVarValue(
+                row.IoColumn, row.Literal, colVals, out string? unres, out bool fromName);
+            if (unres != null && warned.Add(objName + "|unres"))
+                warnings.Add($"F52: объект основного шаблона «{objName}» — колонка/шаблон " +
+                    $"«{row.IoColumn}» не разрешился ({unres}) — значение не подставлено");
+            if (dval.Length == 0) return null;
+
+            if (gt == "34")
+            {
+                // F36: значение константы — её Info/T11Text (канал значения)
+                clone.SetAttributeValue("Info", dval);
+                clone.Element("Params")?.SetAttributeValue("T11Text", dval);
+                return dval;
+            }
+            if (fromName)
+            {
+                // F36/F49: канал ИМЕНИ — TagNameFor(значение); начальное значение → <IV>
+                ScadaDataOutXmlService.SetIvValue(clone, (row.Literal ?? "").Trim());
+                return ScadaDataOutXmlService.TagNameFor(dval);
+            }
+            // F36: только литерал — канал ЗНАЧЕНИЯ (<IV>), Info без изменений
+            ScadaDataOutXmlService.SetIvValue(clone, dval);
+            return null;
+        }
+
+        /// <summary>F38/F44: заменить значение строки [TEXT] в &lt;PARAMS&gt; примитива на
+        /// text (общий хелпер пакетного файла F38 и файла привязок F44); m — regex-match
+        /// строки [TEXT] по pars.Value.</summary>
+        public static void ApplyTextValue(XElement pars, Match m, string text)
+        {
+            string txt = pars.Value ?? "";
             pars.Value = txt.Substring(0, m.Groups[1].Index) + text +
                          txt.Substring(m.Groups[1].Index + m.Groups[1].Length);
         }
 
-        /// <summary>F38: строка текстового объекта в словаре маппинга шаблона — Var
+        /// <summary>F38/F44: строка текстового объекта в словаре маппинга шаблона — Var
         /// «ident(Text)» (маркер объекта из грида), fallback «ident» (без суффикса).</summary>
-        private static bool FindTextRow(
+        public static bool FindTextRow(
             IReadOnlyDictionary<string, (string IoColumn, string Literal)> vars,
             string ident, out (string IoColumn, string Literal) row)
         {
@@ -1165,6 +1302,26 @@ namespace IO_PJT.Services
                 }
                 pou1.Element("GrObj")?.Add(pou2.Element("GrObj")?.Elements()
                     ?? Enumerable.Empty<XElement>());
+
+                // F50: холст объединённого POU — не уже холста каждого из документов:
+                // кластер группы 2 начинается ниже кластера группы 1 (posBase), поэтому
+                // его HEIGHT должен покрывать смещённое содержимое
+                var pp1 = pou1.Element("PARAMS");
+                var pp2 = pou2.Element("PARAMS");
+                if (pp1 != null && pp2 != null)
+                {
+                    if (int.TryParse((string?)pp2.Attribute("WIDTH"), out int w2) &&
+                        int.TryParse((string?)pp1.Attribute("WIDTH"), out int w1) && w2 > w1)
+                        pp1.SetAttributeValue("WIDTH", w2);
+                    if (int.TryParse((string?)pp2.Attribute("HEIGHT"), out int h2) &&
+                        int.TryParse((string?)pp1.Attribute("HEIGHT"), out int h1) && h2 > h1)
+                        pp1.SetAttributeValue("HEIGHT", h2);
+                    // F64: печатный холст склеенного POU следует рабочему
+                    pp1.SetAttributeValue("PRINTWIDTH",
+                        int.TryParse((string?)pp1.Attribute("WIDTH"), out int pw) ? pw : 0);
+                    pp1.SetAttributeValue("PRINTHEIGHT",
+                        int.TryParse((string?)pp1.Attribute("HEIGHT"), out int ph) ? ph : 0);
+                }
             }
 
             // —— ISAOBJSINFO: добавить rec, которых нет в первом (сравнение по тексту rec) ——

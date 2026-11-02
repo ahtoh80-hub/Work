@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Data.OleDb;
 using System.IO;
@@ -238,13 +238,40 @@ namespace IO_PJT.Services
 
         /// <summary>Прочитать настройки из SCADA_TEHOBJ_SETTINGS (нет ключа → значение по умолчанию
         /// из ScadaGenSettings; пустая таблица/ошибка чтения → defaults без падения).</summary>
-        public ScadaGenSettings LoadSettings()
+        public ScadaGenSettings LoadSettings(string? profile = null)
         {
             var s = new ScadaGenSettings();
+            foreach (var kv in LoadValues(profile)) ApplySetting(s, kv.Key, kv.Value);
+            return s;
+        }
+
+        /// <summary>F57: загрузить настройки профиля в существующий объект (смена профиля в окне).</summary>
+        public void LoadInto(ScadaGenSettings target, string? profile = null)
+        {
+            if (target == null) throw new ArgumentNullException(nameof(target));
+            foreach (var kv in LoadValues(profile)) ApplySetting(target, kv.Key, kv.Value);
+        }
+
+        /// <summary>F57: имя настройки по умолчанию (строки без Profile — устаревшие F12).</summary>
+        public const string DefaultProfile = "По умолчаню";
+
+        private static string EffectiveProfile(string? profile) =>
+            string.IsNullOrWhiteSpace(profile) ? DefaultProfile : profile.Trim();
+
+        /// <summary>F57: профиль строки равен запрошенному; без профиля — по умолчанию.</summary>
+        private static bool ProfileMatches(string? rowProfile, string effective) =>
+            string.Equals((rowProfile ?? "").Trim(), effective, StringComparison.OrdinalIgnoreCase) ||
+            (string.Equals(effective, DefaultProfile, StringComparison.OrdinalIgnoreCase) &&
+             string.IsNullOrWhiteSpace(rowProfile));
+
+        /// <summary>F57: значения ключей настроек профиля одной выборкой; ошибка чтения — пусто.</summary>
+        private Dictionary<string, string> LoadValues(string? profile)
+        {
+            string effective = EffectiveProfile(profile);
+            var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             try
             {
                 EnsureTables();
-                var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 for (int attempt = 1; ; attempt++)
                 {
                     try
@@ -252,13 +279,15 @@ namespace IO_PJT.Services
                         using var cn = new OleDbConnection(ConnStr);
                         cn.Open();
                         using var cmd = new OleDbCommand(
-                            $"SELECT [Name], [Value] FROM [{Schema.ScadaSettingsTable}]", cn);
+                            $"SELECT [Profile], [Name], [Value] FROM [{Schema.ScadaSettingsTable}]", cn);
                         cmd.CommandTimeout = DbProbe.TimeoutSeconds;
                         using var rd = cmd.ExecuteReader();
                         while (rd.Read())
                         {
-                            if (rd.IsDBNull(0)) continue;
-                            values[rd.GetString(0)] = rd.IsDBNull(1) ? "" : rd.GetString(1);
+                            if (rd.IsDBNull(1)) continue;
+                            string rowProfile = rd.IsDBNull(0) ? "" : rd.GetString(0);
+                            if (!ProfileMatches(rowProfile, effective)) continue;
+                            values[rd.GetString(1)] = rd.IsDBNull(2) ? "" : rd.GetString(2);
                         }
                         break;
                     }
@@ -267,15 +296,13 @@ namespace IO_PJT.Services
                         System.Threading.Thread.Sleep(300 * attempt);
                     }
                 }
-                foreach (var key in SettingKeys)
-                    if (values.TryGetValue(key, out string? v))
-                        ApplySetting(s, key, v);
             }
             catch
             {
-                // чтение настроек не должно ломать открытие окна — остаются значения по умолчанию
+                
+// чтение настроек не должно ломать открытие окна — остаются значения по умолчанию
             }
-            return s;
+            return values;
         }
 
         private static void ApplySetting(ScadaGenSettings s, string key, string value)
@@ -318,15 +345,16 @@ namespace IO_PJT.Services
             _ => ""
         };
 
-        /// <summary>Сохранить настройки целиком (UPDATE каждого ключа, недостающие — INSERT;
-        /// одной транзакцией, повтор при блокировке).</summary>
-        public void SaveSettings(ScadaGenSettings settings)
+                /// <summary>Сохранить настройки в профиль (null — по умолчанию): UPDATE каждого поля,
+        /// недостающие — INSERT; одна транзакция, повтор при блокировке (F57).</summary>
+        public void SaveSettings(ScadaGenSettings settings, string? profile = null)
         {
             if (string.IsNullOrEmpty(_dbPath)) throw new InvalidOperationException("База данных не задана");
             EnsureTables();
+            string effective = EffectiveProfile(profile);
             for (int attempt = 1; ; attempt++)
             {
-                try { SaveSettingsOnce(settings); return; }
+                try { SaveSettingsOnce(settings, effective); return; }
                 catch (OleDbException ex) when (attempt < 3 && DbProbe.IsLockError(ex.Message))
                 {
                     System.Threading.Thread.Sleep(300 * attempt);
@@ -334,26 +362,31 @@ namespace IO_PJT.Services
             }
         }
 
-        private void SaveSettingsOnce(ScadaGenSettings settings)
+        private void SaveSettingsOnce(ScadaGenSettings settings, string profile)
         {
             using var cn = new OleDbConnection(ConnStr);
             cn.Open();
             using var tr = cn.BeginTransaction();
             try
             {
+                bool isDefault = string.Equals(profile, DefaultProfile, StringComparison.OrdinalIgnoreCase);
                 foreach (var key in SettingKeys)
                 {
                     string value = ReadSetting(settings, key);
-                    using var upd = new OleDbCommand(
-                        $"UPDATE [{Schema.ScadaSettingsTable}] SET [Value] = ? WHERE [Name] = ?", cn, tr);
-                    upd.CommandTimeout = DbProbe.TimeoutSeconds;
-                    OleDbArgs.Add(upd, value);
-                    OleDbArgs.Add(upd, key);
-                    if (upd.ExecuteNonQuery() == 0)
+                    // обновить строки своего профиля; для умолчательного — и строки без профиля (F12)
+                    bool updated = UpdateSetting(value, key,
+                        $"UPDATE [{Schema.ScadaSettingsTable}] SET [Value] = ? WHERE [Name] = ? AND [Profile] = ?",
+                        profile, cn, tr);
+                    if (!updated && isDefault)
+                        updated = UpdateSetting(value, key,
+                            $"UPDATE [{Schema.ScadaSettingsTable}] SET [Value] = ? WHERE [Name] = ? AND ([Profile] IS NULL OR [Profile] = '')",
+                            null, cn, tr);
+                    if (!updated)
                     {
                         using var ins = new OleDbCommand(
-                            $"INSERT INTO [{Schema.ScadaSettingsTable}] ([Name], [Value]) VALUES (?, ?)", cn, tr);
+                            $"INSERT INTO [{Schema.ScadaSettingsTable}] ([Profile], [Name], [Value]) VALUES (?, ?, ?)", cn, tr);
                         ins.CommandTimeout = DbProbe.TimeoutSeconds;
+                        OleDbArgs.Add(ins, profile);
                         OleDbArgs.Add(ins, key);
                         OleDbArgs.Add(ins, value);
                         ins.ExecuteNonQuery();
@@ -363,8 +396,82 @@ namespace IO_PJT.Services
             }
             catch
             {
-                try { tr.Rollback(); } catch { /* соединение могло упасть — не мешаем исходной ошибке */ }
+                try { tr.Rollback(); } catch { /* повтор при блокировке — откат мог не понадобиться */ }
                 throw;
+            }
+        }
+
+
+        private static bool UpdateSetting(string value, string key, string sql, string? profile,
+            OleDbConnection cn, OleDbTransaction tr)
+        {
+            using var cmd = new OleDbCommand(sql, cn, tr);
+            cmd.CommandTimeout = DbProbe.TimeoutSeconds;
+            OleDbArgs.Add(cmd, value);
+            OleDbArgs.Add(cmd, key);
+            if (profile != null) OleDbArgs.Add(cmd, profile);
+            return cmd.ExecuteNonQuery() > 0;
+        }
+
+        /// <summary>F57: имена сохранённых профилей настроек (по умолчанию — всегда первый).</summary>
+        public List<string> LoadProfiles()
+        {
+            var list = new List<string> { DefaultProfile };
+            try
+            {
+                EnsureTables();
+                for (int attempt = 1; ; attempt++)
+                {
+                    try
+                    {
+                        using var cn = new OleDbConnection(ConnStr);
+                        cn.Open();
+                        using var cmd = new OleDbCommand(
+                            $"SELECT DISTINCT [Profile] FROM [{Schema.ScadaSettingsTable}]", cn);
+                        cmd.CommandTimeout = DbProbe.TimeoutSeconds;
+                        using var rd = cmd.ExecuteReader();
+                        while (rd.Read())
+                        {
+                            if (rd.IsDBNull(0)) continue;
+                            string name = rd.GetString(0).Trim();
+                            if (name.Length > 0 && !list.Contains(name, StringComparer.OrdinalIgnoreCase))
+                                list.Add(name);
+                        }
+                        break;
+                    }
+                    catch (OleDbException ex) when (attempt < 3 && DbProbe.IsLockError(ex.Message))
+                    {
+                        System.Threading.Thread.Sleep(300 * attempt);
+                    }
+                }
+            }
+            catch { /* список профилей не критичен для открытия окна */ }
+            return list;
+        }
+
+        /// <summary>F57: удалить именованный профиль (по умолчанию — нельзя). true — был и удалён.</summary>
+        public bool DeleteProfile(string? profile)
+        {
+            string effective = EffectiveProfile(profile);
+            if (string.Equals(effective, DefaultProfile, StringComparison.OrdinalIgnoreCase)) return false;
+            if (string.IsNullOrEmpty(_dbPath)) throw new InvalidOperationException("База данных не задана");
+            EnsureTables();
+            for (int attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    using var cn = new OleDbConnection(ConnStr);
+                    cn.Open();
+                    using var cmd = new OleDbCommand(
+                        $"DELETE FROM [{Schema.ScadaSettingsTable}] WHERE [Profile] = ?", cn);
+                    cmd.CommandTimeout = DbProbe.TimeoutSeconds;
+                    OleDbArgs.Add(cmd, effective);
+                    return cmd.ExecuteNonQuery() > 0;
+                }
+                catch (OleDbException ex) when (attempt < 3 && DbProbe.IsLockError(ex.Message))
+                {
+                    System.Threading.Thread.Sleep(300 * attempt);
+                }
             }
         }
 

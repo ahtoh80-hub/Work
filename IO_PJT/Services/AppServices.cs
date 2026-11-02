@@ -38,6 +38,13 @@ namespace IO_PJT.Services
         /// <summary>F13: генератор XML из шаблона (BufScadaPOUS + файл привязок DataOut).</summary>
         public ScadaTemplateXmlService ModbusBlocksXml { get; } = new();
 
+        /// <summary>F65: генерация экземпляров типовых алгоритмов (SCADA_ALGO_SETTINGS +
+        /// SCADA_ALGO_TEMPLATES + SCADA_ALGO_BINDINGS + TYPNO).</summary>
+        public ScadaAlgoService AlgoTemplates { get; private set; }
+
+        /// <summary>F65: генератор XML логических схем (замена марок, пагинация файлов).</summary>
+        public ScadaAlgoXmlService AlgoXml { get; } = new();
+
 
         /// <summary>Текущая целевая таблица (по умолчанию IO_LIST).</summary>
         public string CurrentTable { get; private set; }
@@ -56,6 +63,7 @@ namespace IO_PJT.Services
             ModbusLinkRules = new ModbusLinkRuleService(dbPath);
             ScadaTechObjects = new ScadaTechObjectService(dbPath);
             ModbusBlocks = new ModbusBlockPlannerService(dbPath);
+            AlgoTemplates = new ScadaAlgoService(dbPath);
             ModbusLink = new ModbusLinkService(Repo, ModbusMaps, Log, Audit, ModbusLinkRules);
             Log.Info($"База данных: {dbPath}");
             // Гарантия служебных таблиц (IO_LIST_Audit, MappingTemplates) при открытии базы
@@ -92,6 +100,7 @@ namespace IO_PJT.Services
             ModbusLinkRules = new ModbusLinkRuleService(dbPath);
             ScadaTechObjects = new ScadaTechObjectService(dbPath);
             ModbusBlocks = new ModbusBlockPlannerService(dbPath);
+            AlgoTemplates = new ScadaAlgoService(dbPath);
             ModbusLink = new ModbusLinkService(Repo, ModbusMaps, Log, Audit, ModbusLinkRules);
             Log.Info($"Открыта база данных: {dbPath}");
             ServiceSchema.EnsureServiceTables(dbPath);

@@ -25,6 +25,7 @@ namespace IO_PJT.Views
             _vm.OpenModbusLinkRulesWindow = ShowModbusLinkRules;
             _vm.OpenScadaTechObjectsWindow = ShowScadaTechObjects;
             _vm.OpenScadaModbusBlocksWindow = ShowScadaModbusBlocks;
+            _vm.OpenScadaAlgoInstancesWindow = ShowScadaAlgoInstances;
             _vm.OpenHistoryWindow = ShowHistory;
             _vm.OpenCardWindow = ShowCard;
             _vm.OpenCreateTableDialog = ShowCreateTable;
@@ -76,6 +77,15 @@ namespace IO_PJT.Views
             var window = new ScadaModbusBlocksWindow { DataContext = vm, Owner = this };
             window.ShowDialog();
             _vm.Refresh(); // данные не меняются — только планирование и выгрузка XML
+        }
+
+        /// <summary>F65: окно «Генерация экземпляров типовых алгоритмов» (меню SCADA).</summary>
+        private void ShowScadaAlgoInstances()
+        {
+            var vm = new ScadaAlgoInstancesViewModel(_vm.Services);
+            var window = new ScadaAlgoInstancesWindow { DataContext = vm, Owner = this };
+            window.ShowDialog();
+            _vm.Refresh(); // данные не меняются — только генерация XML
         }
 
         /// <summary>Окно истории изменений (F7) + окно «Формирование отчёта» (F7.8).</summary>
