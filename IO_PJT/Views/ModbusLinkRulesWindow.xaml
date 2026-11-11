@@ -22,6 +22,10 @@
                             ToolTip="Проверить шаблоны и поля всех правил без записи" />
                     <Button Content="Сохранить" Command="{Binding SaveCommand}" Width="100" FontWeight="SemiBold"
                             ToolTip="Записать все правила в MODBUS_LINK_RULES (полная замена)" />
+                    <TextBlock Text="Служебное поле:" VerticalAlignment="Center" Margin="8,0,4,0"
+                               ToolTip="F69: поле, из которого ExtractCandidates/DetectRole берут Service (SCADA_LINK_SETTINGS.ServiceField)" />
+                    <ComboBox Width="200" ItemsSource="{Binding ServiceFieldOptions}" SelectedItem="{Binding ServiceField}"
+                              ToolTip="Service+ServiceEnglish (по умолчанию) / Service / ServiceEnglish — влияет на кандидаты и роли при следующем связывании" />
                 </StackPanel>
             </StackPanel>
         </Border>

@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("IO_PJT")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+2d0b36f0df4f69739cca8472f0b8f8f5bd65b238")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+8f06b6e96f7a6be56608ef03e60afc36fc895cae")]
 [assembly: System.Reflection.AssemblyProductAttribute("IO_PJT")]
 [assembly: System.Reflection.AssemblyTitleAttribute("IO_PJT")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

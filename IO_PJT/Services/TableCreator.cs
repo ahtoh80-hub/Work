@@ -151,6 +151,9 @@ namespace IO_PJT.Services
             // F9.11: ручные правила связывания IO_LIST ↔ MODBUS_MAP (окно «Правила связывания Modbus…»)
             if (!tables.Contains(Schema.ModbusLinkRulesTable))
                 Execute(Schema.CreateModbusLinkRulesTable);
+            // F69: настройки связывания — поле-источник Service (SCADA_LINK_SETTINGS)
+            if (!tables.Contains(Schema.ScadaLinkSettingsTable))
+                Execute(Schema.CreateScadaLinkSettingsTable);
             // F12: таблицы генерации перечня «Тех.объекты» (SCADA → меню SCADA)
             if (!tables.Contains(Schema.ScadaTypeMapTable))
             {

@@ -56,6 +56,37 @@
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel>
 
+                    <!-- F68: набираемый фильтр по столбцам источника — условия действуют одновременно () -->
+                    <GroupBox Header="ильтр источника (условия , F68)" Margin="0,0,0,6">
+                        <StackPanel>
+                            <TextBlock TextWrapping="Wrap" Foreground="#444444" Margin="0,0,0,4"
+                                       Text="Точка попадает в превью, если текст входит в значение столбца (регистр не важен). устые условия неактивны; ввод набираемый — превью перестроится автоматически, если уже строилось." />
+                            <ItemsControl ItemsSource="{Binding FilterConditions}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <DockPanel Margin="0,2">
+                                            <Button DockPanel.Dock="Right" Content="×" Width="24" Margin="4,0,0,0"
+                                                    Command="{Binding DataContext.RemoveFilterCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}" ToolTip="брать условие" />
+                                            <ComboBox DockPanel.Dock="Left" Width="150" Margin="0,0,4,0" IsEditable="True"
+                                                      ItemsSource="{Binding DataContext.FieldNames, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                      Text="{Binding Field, UpdateSourceTrigger=PropertyChanged}"
+                                                      ToolTip="Столбец-источник IO_LIST (FieldRegistry); можно набрать руками" />
+                                            <TextBox Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}"
+                                                     ToolTip="одстрока: если входит в значение столбца — точка попадает в перечень" />
+                                        </DockPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                <Button Content="+ условие" Command="{Binding AddFilterCommand}" Width="90" Margin="0,0,6,0"
+                                        ToolTip="овое условие фильтра (условия действуют одновременно — )" />
+                                <Button Content="Сброс" Command="{Binding ClearFiltersCommand}" Width="70"
+                                        ToolTip="чистить все условия фильтра" />
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
+
                     <!-- Поля-источники (поле IO List | структура {Колонка} | текст-константа) -->
                     <GroupBox Header="Поля-источники (поле | структура {Колонка} | текст)" Margin="0,0,0,6">
                         <Grid>

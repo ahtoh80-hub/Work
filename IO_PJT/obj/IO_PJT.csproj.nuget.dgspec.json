@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "c:\\VSCode\\IO_PJT\\IO_PJT.csproj": {}
+    "C:\\VSCode\\IO_PJT\\IO_PJT.csproj": {}
   },
   "projects": {
-    "c:\\VSCode\\IO_PJT\\IO_PJT.csproj": {
+    "C:\\VSCode\\IO_PJT\\IO_PJT.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "c:\\VSCode\\IO_PJT\\IO_PJT.csproj",
+        "projectUniqueName": "C:\\VSCode\\IO_PJT\\IO_PJT.csproj",
         "projectName": "IO_PJT",
-        "projectPath": "c:\\VSCode\\IO_PJT\\IO_PJT.csproj",
+        "projectPath": "C:\\VSCode\\IO_PJT\\IO_PJT.csproj",
         "packagesPath": "C:\\Users\\Reshetov\\.nuget\\packages\\",
-        "outputPath": "c:\\VSCode\\IO_PJT\\obj\\",
+        "outputPath": "C:\\VSCode\\IO_PJT\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\Reshetov\\AppData\\Roaming\\NuGet\\NuGet.Config"

@@ -129,6 +129,8 @@ namespace IO_PJT.Services
             // F9.11: ручные правила связывания (MODBUS_LINK_RULES) — применяются ПЕРЕД
             // встроенными ролями DetectRole; невалидный шаблон правила пропускается с предупреждением
             var rules = new List<ModbusLinkRule>();
+            // F69: поле-источник Service для ExtractCandidates/DetectRole (SCADA_LINK_SETTINGS)
+            string serviceField = _rules?.LoadServiceField() ?? ModbusLinkRuleService.ServiceFieldDefault;
             if (_rules != null)
             {
                 rules = _rules.LoadEnabled();
@@ -182,7 +184,7 @@ namespace IO_PJT.Services
                     result.SkippedAlreadyLinked++;
                     continue;
                 }
-                var wc = ExtractCandidates(wp);
+                var wc = ExtractCandidates(wp, serviceField); // F69
                 if (wc.Count == 0) continue; // не MCC-сигнал — не применимо
                 work.Add((wp, wc));
             }
@@ -288,7 +290,7 @@ namespace IO_PJT.Services
                 }
                 else
                 {
-                    role = DetectRole(p);
+                    role = DetectRole(p, serviceField); // F69
                     if (role == null) entry = null;
                     else if (phase == 1)
                     {
@@ -561,11 +563,24 @@ namespace IO_PJT.Services
         /// F55: приоритет 0 — сам тег точки, если это полное имя объекта («1612-P-611A.HE-JB»);
         /// приоритет 2 — ведущее обозначение Service ВМЕСТЕ с хвостом суффикса — полные имена
         /// участвуют в проходе полного совпадения (FindFullMatchRow).</summary>
-        public static List<Candidate> ExtractCandidates(IoPoint p)
+        // F69: текст-источник Service для кандидатов/роли: default (null/иное) — Service +
+        // ServiceEnglish; "Service"/"ServiceEnglish" — только выбранное поле (SCADA_LINK_SETTINGS)
+        private static string ServiceText(IoPoint p, string? serviceField)
+        {
+            string f = (serviceField ?? "").Trim();
+            if (f.Equals("Service", StringComparison.OrdinalIgnoreCase))
+                return (p.Signal?.Service ?? "").Trim();
+            if (f.Equals("ServiceEnglish", StringComparison.OrdinalIgnoreCase))
+                return (p.Signal?.ServiceEnglish ?? "").Trim();
+            return ((p.Signal?.Service ?? "").Trim() + " " +
+                    (p.Signal?.ServiceEnglish ?? "").Trim()).Trim();
+        }
+
+        /// <summary>F69: serviceField — поле-источник Service (null — Service + ServiceEnglish).</summary>
+        public static List<Candidate> ExtractCandidates(IoPoint p, string? serviceField = null)
         {
             var list = new List<Candidate>();
-            string service = ((p.Signal?.Service ?? "").Trim() + " " +
-                              (p.Signal?.ServiceEnglish ?? "").Trim()).Trim();
+            string service = ServiceText(p, serviceField).Trim(); // F69
 
             // 0) F55: тег точки — полное имя объекта («1612-P-611A.HE-JB», «1612-PM-611B-HE-JB»);
             //    DCS-теги без хвоста-суффикса («1612-MXA-611A») именем объекта не являются
@@ -892,10 +907,10 @@ namespace IO_PJT.Services
         /// F9.10: распознаются также MSC/MSI (задание/считывание скорости VFD), run-сигналы
         /// («run signal» без «running») и роль по суффиксу тега DCS (MXA…A/B/C, MII, MHS, MSC, MSI),
         /// если Service не распознан ключевыми словами.</summary>
-        public static string? DetectRole(IoPoint p)
+        public static string? DetectRole(IoPoint p, string? serviceField = null) // F69
         {
             string io = (p.Identification.IoType ?? "").Trim().ToUpperInvariant();
-            string svc = ((p.Signal?.Service ?? "") + " " + (p.Signal?.ServiceEnglish ?? "")).ToLowerInvariant();
+            string svc = ServiceText(p, serviceField).ToLowerInvariant(); // F69
             string tag = (p.Tag ?? "").Trim().ToUpperInvariant(); // F9.10: тег DCS — источник роли
 
             // Команды: DO-COM или «DCS command:…» → Function 06 (Control word, без суффикса)

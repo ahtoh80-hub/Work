@@ -49,6 +49,10 @@ CREATE TABLE [{ModbusLinkRulesTable}] (
         /// поля-источники и константы (Name/Value), переживают перезапуск.</summary>
         public const string ScadaSettingsTable = "SCADA_TEHOBJ_SETTINGS";
 
+        /// <summary>F69: настройки связывания Modbus (Name/Value) — поле-источник Service
+        /// для ExtractCandidates/DetectRole (ключ ServiceField).</summary>
+        public const string ScadaLinkSettingsTable = "SCADA_LINK_SETTINGS";
+
         /// <summary>DDL F12: таблица маппинга типов IO List → SCADA (семантика Source → Target).</summary>
         public static string CreateScadaTypeMapTable => $@"
 CREATE TABLE [{ScadaTypeMapTable}] (
@@ -66,6 +70,14 @@ CREATE TABLE [{ScadaSettingsTable}] (
   [Name] TEXT(255),
   [Value] TEXT(255),
   [Profile] TEXT(255)
+)";
+
+        /// <summary>DDL F69: настройки связывания Modbus (значения параметров).</summary>
+        public static string CreateScadaLinkSettingsTable => @"
+CREATE TABLE [SCADA_LINK_SETTINGS] (
+  ID COUNTER PRIMARY KEY,
+  [Name] TEXT(255),
+  [Value] TEXT(255)
 )";
 
         /// <summary>F13: настройки окна «Генерация блоков Modbus (XML)» — параметры пакетирования

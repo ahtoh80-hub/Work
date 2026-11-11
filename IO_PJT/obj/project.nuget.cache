@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "U0KKxlhBbeQ=",
+  "dgSpecHash": "c3IbkiZaqJ0=",
   "success": true,
-  "projectFilePath": "c:\\VSCode\\IO_PJT\\IO_PJT.csproj",
+  "projectFilePath": "C:\\VSCode\\IO_PJT\\IO_PJT.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\Reshetov\\.nuget\\packages\\closedxml\\0.104.1\\closedxml.0.104.1.nupkg.sha512",
     "C:\\Users\\Reshetov\\.nuget\\packages\\closedxml.parser\\1.2.0\\closedxml.parser.1.2.0.nupkg.sha512",

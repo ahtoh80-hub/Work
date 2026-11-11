@@ -111,10 +111,27 @@ namespace IO_PJT.Services
             return rendered;
         }
 
+        // F68: фильтр по столбцам источника — все непустые условия действуют одновременно ();
+        // поле вне FieldRegistry или пустые Field/Text — условие неактивно; null/пусто — без фильтрации.
+        public static bool MatchesFilters(IoPoint p, IReadOnlyList<ScadaFilterCondition>? filters)
+        {
+            if (filters == null || filters.Count == 0) return true;
+            foreach (var f in filters)
+            {
+                string field = (f.Field ?? "").Trim();
+                string text = (f.Text ?? "").Trim();
+                if (field.Length == 0 || text.Length == 0) continue;
+                if (!FieldRegistry.HasColumn(field)) continue;
+                if (ResolveSource(p, field).IndexOf(text, StringComparison.OrdinalIgnoreCase) < 0)
+                    return false;
+            }
+            return true;
+        }
+
         /// <summary>Построить строки перечня. Отбор: только точки с заполненной адресацией
         /// Modbus (M_PlcTag); один M_PlcTag через запятую → берётся первый (предупреждение).</summary>
         public ScadaBuildResult BuildRows(IEnumerable<IoPoint> points, ScadaGenSettings settings,
-            IReadOnlyList<ScadaTypeMapping> typeMap)
+            IReadOnlyList<ScadaTypeMapping> typeMap, IReadOnlyList<ScadaFilterCondition>? filters = null)
         {
             var result = new ScadaBuildResult();
             foreach (var p in points)
@@ -126,6 +143,11 @@ namespace IO_PJT.Services
                     continue;
                 }
                 result.WithAddressing++;
+                if (!MatchesFilters(p, filters))
+                {
+                    result.SkippedByFilter++;
+                    continue;
+                }
 
                 if (plcTag.Contains(','))
                     result.Warnings.Add($"«{p.Tag}»: в M_PlcTag несколько регистров — взят первый ({plcTag.Split(',')[0].Trim()})");
@@ -241,7 +263,9 @@ namespace IO_PJT.Services
         public ScadaGenSettings LoadSettings(string? profile = null)
         {
             var s = new ScadaGenSettings();
-            foreach (var kv in LoadValues(profile)) ApplySetting(s, kv.Key, kv.Value);
+            var values = LoadValues(profile);
+            foreach (var kv in values) ApplySetting(s, kv.Key, kv.Value);
+            ApplyFilters(s, values); // F68
             return s;
         }
 
@@ -249,7 +273,9 @@ namespace IO_PJT.Services
         public void LoadInto(ScadaGenSettings target, string? profile = null)
         {
             if (target == null) throw new ArgumentNullException(nameof(target));
-            foreach (var kv in LoadValues(profile)) ApplySetting(target, kv.Key, kv.Value);
+            var values = LoadValues(profile);
+            foreach (var kv in values) ApplySetting(target, kv.Key, kv.Value);
+            ApplyFilters(target, values); // F68: набор условий профиля (полная замена)
         }
 
         /// <summary>F57: имя настройки по умолчанию (строки без Profile — устаревшие F12).</summary>
@@ -345,6 +371,25 @@ namespace IO_PJT.Services
             _ => ""
         };
 
+        // F68: набор условий фильтра из ключей Filter:N:F / Filter:N:T (сгруппированы по индексу)
+        private static void ApplyFilters(ScadaGenSettings s, Dictionary<string, string> kv)
+        {
+            s.FilterConditions.Clear();
+            var byIndex = new SortedDictionary<int, (string Field, string Text)>();
+            foreach (var item in kv)
+            {
+                if (!item.Key.StartsWith("Filter:", StringComparison.OrdinalIgnoreCase)) continue;
+                var parts = item.Key.Split(':');
+                if (parts.Length != 3 || !int.TryParse(parts[1], out int idx)) continue;
+                var cur = byIndex.TryGetValue(idx, out var v) ? v : (Field: "", Text: "");
+                if (parts[2].Equals("F", StringComparison.OrdinalIgnoreCase)) cur.Field = item.Value;
+                else if (parts[2].Equals("T", StringComparison.OrdinalIgnoreCase)) cur.Text = item.Value;
+                byIndex[idx] = cur;
+            }
+            foreach (var v in byIndex.Values)
+                s.FilterConditions.Add(new ScadaFilterCondition { Field = v.Field, Text = v.Text });
+        }
+
                 /// <summary>Сохранить настройки в профиль (null — по умолчанию): UPDATE каждого поля,
         /// недостающие — INSERT; одна транзакция, повтор при блокировке (F57).</summary>
         public void SaveSettings(ScadaGenSettings settings, string? profile = null)
@@ -390,6 +435,37 @@ namespace IO_PJT.Services
                         OleDbArgs.Add(ins, key);
                         OleDbArgs.Add(ins, value);
                         ins.ExecuteNonQuery();
+                    }
+                }
+                // F68: полная замена ключей набираемых фильтров (Filter:N:F / Filter:N:T) —
+                // набор условий мог сократиться, старые ключи профиля не должны «остаться»;
+                // для профиля по умолчанию — и строки без профиля (легаси F12)
+                using (var delF = new OleDbCommand(
+                    $"DELETE FROM [{Schema.ScadaSettingsTable}] WHERE [Name] LIKE 'Filter:%' AND " +
+                    $"([Profile] = ?{(isDefault ? " OR ([Profile] IS NULL OR [Profile] = '')" : "")})",
+                    cn, tr))
+                {
+                    delF.CommandTimeout = DbProbe.TimeoutSeconds;
+                    OleDbArgs.Add(delF, profile);
+                    delF.ExecuteNonQuery();
+                }
+                for (int i = 0; i < settings.FilterConditions.Count; i++)
+                {
+                    var fc = settings.FilterConditions[i];
+                    string fld = (fc.Field ?? "").Trim();
+                    string txt = (fc.Text ?? "").Trim();
+                    if (fld.Length == 0 && txt.Length == 0) continue;   // пустое условие не сохраняем
+                    if (fld.Length > 50) fld = fld[..50];
+                    if (txt.Length > 200) txt = txt[..200];              // Value TEXT(255) с запасом
+                    foreach (var (fKey, fVal) in new[] { ($"Filter:{i}:F", fld), ($"Filter:{i}:T", txt) })
+                    {
+                        using var insF = new OleDbCommand(
+                            $"INSERT INTO [{Schema.ScadaSettingsTable}] ([Profile], [Name], [Value]) VALUES (?, ?, ?)", cn, tr);
+                        insF.CommandTimeout = DbProbe.TimeoutSeconds;
+                        OleDbArgs.Add(insF, profile);
+                        OleDbArgs.Add(insF, fKey);
+                        OleDbArgs.Add(insF, fVal);
+                        insF.ExecuteNonQuery();
                     }
                 }
                 tr.Commit();

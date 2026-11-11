@@ -209,6 +209,79 @@ namespace IO_PJT.Services
             }
         }
 
+        // ================== F69: поле-источник Service для связывания ==================
+
+        public const string ServiceFieldKey = "ServiceField";
+        public const string ServiceFieldDefault = "Service+ServiceEnglish";
+
+        /// <summary>F69: варианты поля, из которого ExtractCandidates/DetectRole берут Service.</summary>
+        public static readonly string[] ServiceFieldOptions =
+        {
+            ServiceFieldDefault, "Service", "ServiceEnglish"
+        };
+
+        /// <summary>F69: прочитать настроенное поле (нет ключа/ошибка чтения — default).</summary>
+        public string LoadServiceField()
+        {
+            try
+            {
+                EnsureTable();
+                using var cn = new OleDbConnection(ConnStr);
+                cn.Open();
+                using var cmd = new OleDbCommand(
+                    $"SELECT [Value] FROM [{Schema.ScadaLinkSettingsTable}] WHERE [Name] = ?", cn);
+                cmd.CommandTimeout = DbProbe.TimeoutSeconds;
+                OleDbArgs.Add(cmd, ServiceFieldKey);
+                object? v = cmd.ExecuteScalar();
+                string s = (v == null || v is DBNull ? "" : v.ToString() ?? "").Trim();
+                foreach (var o in ServiceFieldOptions)
+                    if (string.Equals(o, s, StringComparison.OrdinalIgnoreCase)) return o;
+                return ServiceFieldDefault;
+            }
+            catch { return ServiceFieldDefault; }
+        }
+
+        /// <summary>F69: сохранить поле (upsert одной транзакцией; значение из ServiceFieldOptions,
+        /// иначе default; повтор при блокировке).</summary>
+        public void SaveServiceField(string? field)
+        {
+            string f = (field ?? "").Trim();
+            string value = ServiceFieldDefault;
+            foreach (var o in ServiceFieldOptions)
+                if (string.Equals(o, f, StringComparison.OrdinalIgnoreCase)) { value = o; break; }
+            EnsureTable();
+            for (int attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    using var cn = new OleDbConnection(ConnStr);
+                    cn.Open();
+                    using var tr = cn.BeginTransaction();
+                    using (var del = new OleDbCommand(
+                        $"DELETE FROM [{Schema.ScadaLinkSettingsTable}] WHERE [Name] = ?", cn, tr))
+                    {
+                        del.CommandTimeout = DbProbe.TimeoutSeconds;
+                        OleDbArgs.Add(del, ServiceFieldKey);
+                        del.ExecuteNonQuery();
+                    }
+                    using (var ins = new OleDbCommand(
+                        $"INSERT INTO [{Schema.ScadaLinkSettingsTable}] ([Name], [Value]) VALUES (?, ?)", cn, tr))
+                    {
+                        ins.CommandTimeout = DbProbe.TimeoutSeconds;
+                        OleDbArgs.Add(ins, ServiceFieldKey);
+                        OleDbArgs.Add(ins, value);
+                        ins.ExecuteNonQuery();
+                    }
+                    tr.Commit();
+                    return;
+                }
+                catch (OleDbException ex) when (attempt < 3 && DbProbe.IsLockError(ex.Message))
+                {
+                    System.Threading.Thread.Sleep(300 * attempt);
+                }
+            }
+        }
+
         private int SaveAllOnce(List<ModbusLinkRule> list)
         {
             using var cn = new OleDbConnection(ConnStr);

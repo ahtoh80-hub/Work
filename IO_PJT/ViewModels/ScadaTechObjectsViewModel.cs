@@ -1,5 +1,8 @@
 ﻿using System;
 using System.Collections.ObjectModel;
+using System.Collections.Generic;
+using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Linq;
 using System.Windows;
 using IO_PJT.Models;
@@ -77,6 +80,17 @@ namespace IO_PJT.ViewModels
         public RelayCommand AddMappingCommand { get; }
         public RelayCommand DeleteMappingCommand { get; }
 
+        /// <summary>F68: условия набираемого фильтра по столбцам источника (настройки профиля).</summary>
+        public ObservableCollection<ScadaFilterCondition> FilterConditions => Settings.FilterConditions;
+
+        /// <summary>F68: столбцы источника для ComboBox фильтра (имена FieldRegistry).</summary>
+        public IReadOnlyList<string> FieldNames { get; } =
+            FieldRegistry.Fields.Select(f => f.Column).ToArray();
+
+        public RelayCommand AddFilterCommand { get; }
+        public RelayCommand<ScadaFilterCondition> RemoveFilterCommand { get; }
+        public RelayCommand ClearFiltersCommand { get; }
+
         private ScadaTypeMapping? _selectedMapping;
         public ScadaTypeMapping? SelectedMapping
         {
@@ -99,6 +113,11 @@ namespace IO_PJT.ViewModels
             SaveMappingsCommand = new RelayCommand(SaveMappings);
             AddMappingCommand = new RelayCommand(AddMapping);
             DeleteMappingCommand = new RelayCommand(DeleteMapping, () => SelectedMapping != null);
+            AddFilterCommand = new RelayCommand(AddFilter);
+            RemoveFilterCommand = new RelayCommand<ScadaFilterCondition>(f => RemoveFilter(f));
+            ClearFiltersCommand = new RelayCommand(ClearFilters);
+            FilterConditions.CollectionChanged += OnFiltersChanged;
+            foreach (var fc in FilterConditions) fc.PropertyChanged += OnFilterChanged; // F68
             LoadMappings();
             StatusText = $"Настройки загружены. Маппинг типов: {TypeMappings.Count}. " +
                          "Постройте превью для просмотра перечня.";
@@ -126,14 +145,15 @@ namespace IO_PJT.ViewModels
             try
             {
                 var points = _s.Repo.GetAll();
-                var result = _s.ScadaTechObjects.BuildRows(points, Settings, TypeMappings.ToList());
+                var result = _s.ScadaTechObjects.BuildRows(points, Settings, TypeMappings.ToList(),
+                    FilterConditions.ToList()); // F68: набираемый фильтр по столбцам источника
                 _built = result;
                 Preview.Clear();
                 foreach (var row in result.Rows) Preview.Add(row);
                 Raise(nameof(Preview));
 
                 StatsText = $"Строк: {result.Rows.Count} (с адресацией: {result.WithAddressing}, " +
-                            $"пропущено без адресации: {result.SkippedNoAddressing}; " +
+                            $"пропущено без адресации: {result.SkippedNoAddressing}, отсеяно фильтром: {result.SkippedByFilter}; " +
                             $"типов без маппинга: {result.UnmappedTypes}; " +
                             $"обрезано Доп.параметров: {result.TruncatedDParam}; " +
                             $"предупреждений: {result.Warnings.Count})";
@@ -141,6 +161,9 @@ namespace IO_PJT.ViewModels
                     ? "Превью построено. При необходимости сохраните настройки и сформируйте Excel."
                     : "Нет строк: в текущей таблице нет точек с заполненной адресацией Modbus " +
                       "(заполните M_-поля кнопкой «Обновить адресацию Modbus» — F9.4).";
+                if (result.Rows.Count == 0 && FilterConditions.Any(f => !string.IsNullOrWhiteSpace(f.Text)))
+                    StatusText = $"ет строк: набираемый фильтр отсеял точки (с адресацией: " +
+                                 $"{result.WithAddressing}, отсеяно фильтром: {result.SkippedByFilter}) — измените условия или «Сброс».";
                 if (result.Warnings.Count > 0)
                     _s.Log.Info($"F12: предупреждения построения ({result.Warnings.Count}): " +
                                 string.Join("; ", result.Warnings.Take(5)) +
@@ -286,6 +309,45 @@ namespace IO_PJT.ViewModels
                 _s.Log.Error($"F12: ошибка сохранения SCADA_TYPE_MAP: {msg}");
                 StatusText = $"Ошибка сохранения маппинга: {msg}";
             }
+        }
+
+        // ===== F68: набираемый фильтр по столбцам источника =====
+
+        private void AddFilter()
+        {
+            FilterConditions.Add(new ScadaFilterCondition { Field = "Tag" });
+            StatusText = $"словий фильтра: {FilterConditions.Count}. аберите текст — строки с вхождением покажутся в превью (условия — «»).";
+        }
+
+        private void RemoveFilter(ScadaFilterCondition? f)
+        {
+            if (f != null) FilterConditions.Remove(f);
+        }
+
+        private void ClearFilters()
+        {
+            FilterConditions.Clear();
+            StatusText = "ильтр сброшен — в превью попадают все точки с адресацией (нажмите «остроить превью»).";
+        }
+
+        // подписки условий: INPC-правки в окне перестраивают превью, если оно уже строилось
+        private void OnFiltersChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        {
+            if (e.NewItems != null)
+                foreach (var it in e.NewItems.OfType<ScadaFilterCondition>())
+                    it.PropertyChanged += OnFilterChanged;
+            if (e.OldItems != null)
+                foreach (var it in e.OldItems.OfType<ScadaFilterCondition>())
+                    it.PropertyChanged -= OnFilterChanged;
+            RebuildIfBuilt();
+        }
+
+        private void OnFilterChanged(object? sender, PropertyChangedEventArgs e) => RebuildIfBuilt();
+
+        private void RebuildIfBuilt()
+        {
+            if (_built == null) return;
+            Build(); // ошибки построения уже попадают в StatusText внутри Build
         }
 
         private void AddMapping()

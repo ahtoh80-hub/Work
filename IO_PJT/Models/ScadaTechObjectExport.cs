@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Collections.ObjectModel;
 
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
@@ -131,6 +132,11 @@ namespace IO_PJT.Models
         private string _plcAdress = "0";         public string PlcAdress { get => _plcAdress; set => Set(ref _plcAdress, value ?? ""); }         /// <summary>PLC_GR (№ ресурса или группа): 1.</summary>
         private string _plcGr = "1";         public string PlcGr { get => _plcGr; set => Set(ref _plcGr, value ?? ""); }         /// <summary>TEMPLATE (Шаблон): простой.</summary>
         private string _template = "простой";         public string Template { get => _template; set => Set(ref _template, value ?? ""); }
+
+        /// <summary>F68: набираемые условия фильтра по столбцам источника IO_LIST (отбор
+        /// точек-источников до построения строки перечня; хранятся в профиле настроек —
+        /// ключи Filter:*). устые Field/Text — условие неактивно.</summary>
+        public ObservableCollection<ScadaFilterCondition> FilterConditions { get; } = new();
     }
 
     /// <summary>F12: результат построения перечня (строки + статистика/предупреждения).</summary>
@@ -144,6 +150,9 @@ namespace IO_PJT.Models
         /// <summary>Точек пропущено (нет адресации Modbus).</summary>
         public int SkippedNoAddressing { get; set; }
 
+        /// <summary>F68: точек отброшено набираемым фильтром по столбцам источника.</summary>
+        public int SkippedByFilter { get; set; }
+
         /// <summary>Типов M_DataType без соответствия в таблице SCADA_TYPE_MAP (оставлен исходный тип).</summary>
         public int UnmappedTypes { get; set; }
 
@@ -152,5 +161,41 @@ namespace IO_PJT.Models
 
         /// <summary>Предупреждения (пустой Tag/Марка, неизвестный плейсхолдер шаблона, …).</summary>
         public List<string> Warnings { get; } = new();
+    }
+
+    /// <summary>F68: условие набираемого фильтра по столбцу источника IO_LIST — точка попадает
+    /// в перечень, если Text входит в значение столбца Field (substring, регистр не важен);
+    /// пустые Field/Text — условие неактивно. INPC — TextBox/ComboBox в окне редактируют
+    /// условие «на лету» (автоперестроение превью в VM).</summary>
+    public sealed class ScadaFilterCondition : INotifyPropertyChanged
+    {
+        private string _field = "";
+        private string _text = "";
+
+        /// <summary>Столбец-источник (имя FieldRegistry; ввод набираемый).</summary>
+        public string Field
+        {
+            get => _field;
+            set
+            {
+                if (_field == value) return;
+                _field = value ?? "";
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Field)));
+            }
+        }
+
+        /// <summary>Набираемая подстрока (регистр не важен).</summary>
+        public string Text
+        {
+            get => _text;
+            set
+            {
+                if (_text == value) return;
+                _text = value ?? "";
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Text)));
+            }
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
     }
 }
