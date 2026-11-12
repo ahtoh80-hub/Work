@@ -126,7 +126,9 @@ namespace IO_PJT.Services
         /// планируется раздельно (свои пакеты и своё адресное пространство).</summary>
         private readonly record struct RawPoint(int Ip1, int Ip2, int Ip3, int Ip4, int Port,
             int FuncCode, int Address, int Width, string PlcTag, string Station, int Timeout,
-            string Tag, string DataType, string Typno, string Controller, IoPoint Point);
+            string Tag, string DataType, string Typno, string Controller, IoPoint Point,
+            // F68: резервный endpoint (M_SlaveIdBackup точки / IpReserve правила станции)
+            bool HasRes, int ResIp1, int ResIp2, int ResIp3, int ResIp4, int ResPort);
 
         /// <summary>F13/F30: построить пакеты-запросы из точек таблицы. Отбираются точки с заполненной
         /// адресацией Modbus (M_PlcTag — как в F12); группировка: (Controller, F37) станция,
@@ -229,9 +231,41 @@ namespace IO_PJT.Services
                 string station = (mb.SlaveStation ?? "").Trim();
                 string controller = (p.Identification.Controller ?? "").Trim(); // F37
 
+                // F68: резервный IP — M_SlaveIdBackup точки; пусто — IpReserve правила
+                // станции (SCADA_MB_SLAVE_RULES, автосбор из IO_LIST); порт — из текста
+                // адреса, иначе порт main. Неразборчивый адрес — предупреждение, без twin.
+                bool hasRes = false;
+                int r1 = 0, r2 = 0, r3 = 0, r4 = 0, rPort = 0;
+                (int Ip1, int Ip2, int Ip3, int Ip4, int Port)? rep = null;
+                string backup = (mb.SlaveIdBackup ?? "").Trim();
+                if (backup.Length > 0)
+                {
+                    rep = ParseSlaveIdMain(backup, ep.Value.Port);
+                    if (rep == null)
+                        result.Warnings.Add(
+                            $"F68: {p.Tag}: M_SlaveIdBackup не содержит IP-адреса — резервный блок не создан");
+                }
+                else
+                {
+                    MbSlaveIdRule? rrule = null;
+                    bool hasRule = (controller.Length > 0 &&
+                                    ruleByCs.TryGetValue(controller + "|" + station, out rrule)) ||
+                                   ruleByStation.TryGetValue(station, out rrule);
+                    if (hasRule && !string.IsNullOrWhiteSpace(rrule!.IpReserve))
+                        rep = ParseSlaveIdMain(rrule.IpReserve, ep.Value.Port);
+                }
+                if (rep != null)
+                {
+                    hasRes = true;
+                    r1 = rep.Value.Ip1; r2 = rep.Value.Ip2;
+                    r3 = rep.Value.Ip3; r4 = rep.Value.Ip4;
+                    rPort = rep.Value.Port;
+                }
+
                 raw.Add(new RawPoint(ep.Value.Ip1, ep.Value.Ip2, ep.Value.Ip3, ep.Value.Ip4,
                     ep.Value.Port, fc.Value, addr.Value, width, plcTag, station, timeout,
-                    (p.Tag ?? "").Trim(), (mb.DataType ?? "").Trim(), typno, controller, p));
+                    (p.Tag ?? "").Trim(), (mb.DataType ?? "").Trim(), typno, controller, p,
+                    hasRes, r1, r2, r3, r4, rPort));
             }
 
             // F33 (этап 4) + F37: группировка (Controller, станция, Typno, IP, порт, код функции)
@@ -239,6 +273,7 @@ namespace IO_PJT.Services
             // раздельно (свои пакеты и своё адресное пространство); порядок пакетов:
             // Typno → IP → порт → функция → адрес (внутри группы)
             var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var reserveIpWarned = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // F68
             int no = 0;
             foreach (var g in raw.GroupBy(r => (r.Controller, r.Station, r.Typno,
                                      r.Ip1, r.Ip2, r.Ip3, r.Ip4, r.Port, r.FuncCode))
@@ -381,12 +416,107 @@ namespace IO_PJT.Services
                                 if (!string.Equals(shTag, bnd.Tag, StringComparison.OrdinalIgnoreCase))
                                     bnd.SharedTags.Add(shTag);
                     result.Packets.Add(packet);
+                    AddReserveTwin(packet, items); // F68: twin с резервным IP сразу за main
                 }
             }
             // F56: сигналы, схлопнутые по одинаковой адресации (одна точка — первый тег)
             if (result.DedupedSignals > 0)
                 result.Warnings.Add($"F56: сигналов с повторяющейся адресацией учтено как " +
                     $"одна точка: {result.DedupedSignals} (в привязке — первый тег)");
+            // F68: резервный twin-пакет main-пакета — идентичная адресация (SlaveId,
+            // FuncCode, Address, Count, Timeout, привязки), но резервный IP/порт
+            // (M_SlaveIdBackup точки / IpReserve правила станции) и отдельное имя блока
+            // (BlockNamePatternReserve, пусто — имя main + «_reserve»). Twin добавляется
+            // в план сразу за main-пакетом; RTU-станции резерва не имеют (нет IP).
+            void AddReserveTwin(MbPacketPlan mainPkt, List<RawPoint> group)
+            {
+                if (mainPkt.IsRtu) return;
+                var rp = group.FirstOrDefault(r => r.HasRes);
+                if (!rp.HasRes) return;
+
+                // консистентность резервных IP точек группы (станция должна иметь один
+                // reserve IP) — предупреждение один раз на группу, берётся первый
+                foreach (var r in group)
+                    if (r.HasRes && (r.ResIp1 != rp.ResIp1 || r.ResIp2 != rp.ResIp2 ||
+                                     r.ResIp3 != rp.ResIp3 || r.ResIp4 != rp.ResIp4 ||
+                                     r.ResPort != rp.ResPort))
+                    {
+                        string keyW = "diff|" + mainPkt.Controller + "|" + mainPkt.Station;
+                        if (reserveIpWarned.Add(keyW))
+                            result.Warnings.Add(
+                                $"F68: {mainPkt.Station}: у точек группы разные резервные IP — " +
+                                $"взят {rp.ResIp1}.{rp.ResIp2}.{rp.ResIp3}.{rp.ResIp4}:{rp.ResPort}");
+                        break;
+                    }
+
+                // reserve IP совпадает с main — второй блок бессмыслен
+                if (rp.ResIp1 == mainPkt.Ip1 && rp.ResIp2 == mainPkt.Ip2 &&
+                    rp.ResIp3 == mainPkt.Ip3 && rp.ResIp4 == mainPkt.Ip4 &&
+                    rp.ResPort == mainPkt.Port)
+                {
+                    if (reserveIpWarned.Add("same|" + mainPkt.Controller + "|" + mainPkt.Station))
+                        result.Warnings.Add(
+                            $"F68: {mainPkt.Station}: резервный IP совпадает с main " +
+                            $"({mainPkt.Endpoint}) — резервный блок не создан");
+                    return;
+                }
+
+                no++;
+                var twin = new MbPacketPlan
+                {
+                    No = no,
+                    Station = mainPkt.Station,
+                    Controller = mainPkt.Controller,
+                    Ip1 = rp.ResIp1, Ip2 = rp.ResIp2, Ip3 = rp.ResIp3, Ip4 = rp.ResIp4,
+                    Port = rp.ResPort,
+                    SlaveId = mainPkt.SlaveId,
+                    Protocol = mainPkt.Protocol,
+                    FuncCode = mainPkt.FuncCode,
+                    Address = mainPkt.Address,
+                    AddressInput = mainPkt.AddressInput,
+                    Count = mainPkt.Count,
+                    TimeoutMs = mainPkt.TimeoutMs,
+                    FirstTag = mainPkt.FirstTag,
+                    ColumnValues = mainPkt.ColumnValues, // F24: те же токены колонок
+                    IsReserve = true
+                };
+                // имя: BlockNamePatternReserve (токены, {Ip} — резервный IP), пусто —
+                // историческое имя main-блока + «_reserve»; уникальность — общий usedNames
+                string resPat = (settings.BlockNamePatternReserve ?? "").Trim();
+                string resName = resPat.Length > 0
+                    ? ScadaTemplateXmlService.ApplyBlockNamePattern(resPat, twin, masterNameBase)
+                    : mainPkt.MasterName + "_reserve";
+                twin.MasterName = MakeUniqueName(resName, usedNames);
+
+                // привязки — копия main-привязок с именем резервного блока (пути
+                // {Reserve}.DataOut/DataIn[байт] — байтовый индекс тот же, адресация
+                // идентична)
+                foreach (var b in mainPkt.Bindings)
+                {
+                    var tb = new MbBinding
+                    {
+                        Tag = b.Tag,
+                        Address = b.Address,
+                        Offset = b.Offset,
+                        BlockName = twin.MasterName,
+                        Packet = twin, // F61: мастер-detail превью
+                        DataOutExpr = $"{twin.MasterName}." +
+                            $"{(b.IsWrite ? "DataIn" : "DataOut")}" +
+                            $"[{DataOutByteIndex(b.Offset, mainPkt.IsBit)}]",
+                        IsWrite = b.IsWrite,
+                        Width = b.Width,
+                        DataType = b.DataType,
+                        Typno = b.Typno,
+                        ColumnValues = b.ColumnValues
+                    };
+                    foreach (var sh in b.SharedTags) tb.SharedTags.Add(sh);
+                    twin.Bindings.Add(tb);
+                }
+                mainPkt.ReserveTwin = twin;
+                result.Packets.Add(twin);
+                result.ReservePackets++;
+            }
+
             // F14: обобщённое предупреждение по точкам без Typno (не в пакетах и не в привязках)
             if (result.SkippedNoTypno > 0)
                 result.Warnings.Add(
@@ -525,6 +655,7 @@ namespace IO_PJT.Services
             "TemplateMode", "TemplateFilePath", "MasterTcpTemplateName", "MasterRtuTemplateName",
             "DataOutTemplateMode", "DataOutTemplateFilePath", "BlockNamePattern",
             "BlockNamePatternRtu", "FormatAddress", "DataOutTemplateName",
+            "BlockNamePatternReserve", // F68: имя резервного (reserve) блока мастера TCP
             "PouNamePattern", "DataOutPouNamePattern",
             "BaseT11Id", "BaseCardId", "ColumnsPerRow", "RowStep", "ColumnStep",
             "DataChainGap", "PouCommentPattern", "DataOutPouCommentPattern", // F61
@@ -599,6 +730,8 @@ namespace IO_PJT.Services
             if (values.TryGetValue("DataOutTemplateName", out var dont)) s.DataOutTemplateName = dont;
             if (values.TryGetValue("BlockNamePattern", out var bnp)) s.BlockNamePattern = bnp;
             if (values.TryGetValue("BlockNamePatternRtu", out var bnr)) s.BlockNamePatternRtu = bnr;
+            if (values.TryGetValue("BlockNamePatternReserve", out var bnres)) // F68
+                s.BlockNamePatternReserve = bnres;
             if (values.TryGetValue("PouNamePattern", out var pnp)) s.PouNamePattern = pnp;
             if (values.TryGetValue("DataOutPouNamePattern", out var dopp)) s.DataOutPouNamePattern = dopp;
             if (values.TryGetValue("FormatAddress", out var fa) &&
@@ -647,6 +780,7 @@ namespace IO_PJT.Services
                 ("DataOutTemplateName", s.DataOutTemplateName ?? ""),
                 ("BlockNamePattern", s.BlockNamePattern ?? ""),
                 ("BlockNamePatternRtu", s.BlockNamePatternRtu ?? ""),
+                ("BlockNamePatternReserve", s.BlockNamePatternReserve ?? ""), // F68
                 ("PouNamePattern", s.PouNamePattern ?? ""),
                 ("DataOutPouNamePattern", s.DataOutPouNamePattern ?? ""),
                 ("FormatAddress", s.FormatAddress ? "True" : "False"),
@@ -879,7 +1013,9 @@ namespace IO_PJT.Services
         {
             string st = (station ?? "").Trim();
             string ctrl = (controller ?? "").Trim();
-            var list = packets.ToList();
+            // F68: резервные twin-пакеты не показываются — теги/привязки main-пакета
+            // уже представлены в превью (без дублей строк)
+            var list = packets.Where(p => !p.IsReserve).ToList();
             if (st.Length == 0) return list; // станция не выбрана — все пакеты плана
             if (ctrl.Length > 0)
             {
@@ -1802,6 +1938,8 @@ namespace IO_PJT.Services
             // ожидаемые привязки: Tag → (блок, путь DataOut)
             var wanted = new Dictionary<string, (string Block, string DataOut)>(StringComparer.OrdinalIgnoreCase);
             foreach (var packet in plan.Packets)
+            {
+                if (packet.IsReserve) continue; // F68: в IO_LIST — путь main-блока
                 foreach (var b in packet.Bindings)
                 {
                     if (b.Tag.Length > 0)
@@ -1812,6 +1950,7 @@ namespace IO_PJT.Services
                         if (sh.Length > 0)
                             wanted[sh] = (b.BlockName, b.DataOutExpr);
                 }
+            }
 
             repo.BeginSession();
             try

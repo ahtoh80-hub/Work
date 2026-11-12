@@ -1933,6 +1933,53 @@ P привязана полным совпадением, строка K «не 
 (без фильтра фаза 1 уводила в K), инвариант «один сигнал — одна строка»; регрессия
 F9–F66 зелёная).
 
+**F68 — резервный IP и физическое подключение: парные блоки main/reserve + разделение
+источников data-цепочек (2026-11):**
+**(1) Планировщик** (`ModbusBlockPlannerService.BuildPlan`): резервный endpoint точки —
+парсинг `M_SlaveIdBackup` (тот же парсер `ParseSlaveIdMain`: первый IPv4 + `port N`;
+порт из текста, иначе порт main); пустой backup — fallback на `SCADA_MB_SLAVE_RULES.
+IpReserve` правила станции. Для каждого main-пакета TCP-станции с резервным IP создаётся
+**twin-пакет** `MbPacketPlan.IsReserve` сразу за main: идентичная адресация
+(Station/Controller/Typno/SlaveId/FuncCode/Address/Count/Timeout и привязки — у twin
+свои `BlockName`/`DataOutExpr` с именем reserve-блока и теми же байтовыми индексами),
+IP/порт — резервные; `main.ReserveTwin` — ссылка для data-генерации; счётчик
+`MbPlanResult.ReservePackets` в статистике окна. **Именование** (настройки,
+`SettingKeys` →30, Load/Save/Clone): поле `BlockNamePattern` подписано «Имя блока TCP
+Master main», новое **`BlockNamePatternReserve`** — «Имя блока TCP Master reserve»
+(токены те же, `{Ip}` резолвится в резервный IP; пусто — имя main-блока + «_reserve»);
+уникальность — общий `usedNames`/`MakeUniqueName`. RTU-станции резерва не имеют;
+reserve IP == main — без twin + предупреждение (одно на станцию); нечитаемый
+`M_SlaveIdBackup` — предупреждение; разные reserve IP точек группы — предупреждение,
+берётся первый. Twin-пакеты попадают в превью (новая колонка **«Соединение»**
+main/reserve), в основной и split-экспорт (второй клон мастера: свежие T11/cardId,
+IV с резервным IP на позициях 17–21, `masterMeta` с именем/cardId/IV резервного
+блока) и в файл простых привязок (fallback). **В IO_LIST** (`WriteBindings`) и в
+превью тегов F58 (`StationPackets`) twin-пакеты пропускаются — `M_BusBlock`/
+`M_BusDataOut` хранят путь main-блока; `CountUnmappedTypno` не задваивается.
+**(2) Data-шаблоны** (`ScadaDataOutXmlService.WriteMulti`): twin-пакеты отфильтровываются
+(`!IsReserve`) — цепочка строится один раз от main-пакета. **Правило разделения
+источников** (`MapSourceBlock`, DataOut и DataIn одинаково): если число источников
+эталона чётное ≥2 и у пакета есть `ReserveTwin` — источники сортируются сверху вниз
+(Graphics Y, затем X) и делятся пополам: **верхняя половина → main-блок**
+(`main1, main2 = DataOut[byteBase+0..1]`), **нижняя → reserve-блок** (`reserve1,
+reserve2` — те же байтовые индексы, адресация идентична); байт внутри половины —
+позиция по шаблонному `DataOut[k]`/`DataIn[k]` внутри своей половины. Иначе (1
+источник, нечётное число, нет резервного блока) — историческое поведение F13/F18:
+все источники на main, байты по позиции. `cardId`/`IV` резервного источника — из
+`masterMeta` по имени резервного блока; граница привязки F18 и валидация Size
+правила Typno F33 — по байтам на ОДИН блок (`nBlock` = половина при разделении);
+итог «цепочек разделено main/reserve: N» — в предупреждениях экспорта.
+**Изменение/ограничение:** существующие шаблоны с чётным числом источников на
+станциях с reserve IP интерпретируются как пары main/reserve — шаблоны привязок
+вести по новому правилу; на станциях без reserve поведение прежнее.
+Приёмка: **44 проверки смоука F68 пройдены** (BuildPlan: twin из backup/из правила
+IpReserve, имена по паттерну/фолбэк `_reserve`, идентичная адресация, консистентность;
+Write:9 блоков мастера, MasterMeta, IV резервного IP 10.0.0.2:502; WriteMulti:
+разделение INT(2)/REAL(4)/datain(4) main+reserve с одинаковыми индексами, 1 источник →
+только main, фильтр twin —11 DataOut/4 DataIn/5 POU без задвоения, предупреждение
+F68; регресс без reserve — легаси-цепочки и отсутствие имён `_reserve`);
+сборка `dotnet build` — 0 ошибок/0 предупреждений.
+
 Все таблицы создаются идемпотентно в `TableCreator.EnsureServiceTables`;
 хранилище — `ModbusBlockPlannerService` (`LoadSettings`/`SaveSettings` — полная замена
 ключей, `LoadSlaveRules`/`SaveSlaveRules` — полная замена с валидацией: пустая станция/

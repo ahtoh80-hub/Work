@@ -146,6 +146,22 @@ namespace IO_PJT.Models
         /// <summary>F21: true — станция Modbus RTU (COM-порт/шина вместо TCP/IP).</summary>
         public bool IsRtu => string.Equals(Protocol, "RTU", StringComparison.OrdinalIgnoreCase);
 
+        // —— F68: резервное подключение (main/reserve IP станции) ——
+        private bool _isReserve;
+        /// <summary>F68: true — резервный twin-пакет (IP из M_SlaveIdBackup/IпReserve
+        /// станции): идентичная адресация main-пакету, но свой IP и имя блока.
+        /// false — основной (main) пакет.</summary>
+        public bool IsReserve { get => _isReserve; set => Set(ref _isReserve, value); }
+
+        private MbPacketPlan? _reserveTwin;
+        /// <summary>F68: резервный twin-пакет этого main-пакета (null — у станции нет
+        /// reserve IP / RTU). Заполняется в BuildPlan; data-генерация (WriteMulti)
+        /// использует имя блока twin-а для нижней половины источников цепочки.</summary>
+        public MbPacketPlan? ReserveTwin { get => _reserveTwin; set => Set(ref _reserveTwin, value); }
+
+        /// <summary>F68: подпись соединения для превью («main»/«reserve»).</summary>
+        public string ConnectionKind => IsReserve ? "reserve" : "main";
+
         /// <summary>F23/F24: значения колонок IO_LIST первой точки пакета (колонка → текст;
         /// только непустые) — источник токенов {ИмяКолонки} в именах блоков/POU и маппинга
         /// переменных шаблона. Заполняется в BuildPlan.</summary>
@@ -271,6 +287,9 @@ namespace IO_PJT.Models
         /// <summary>F56: сигналов, схлопнутых по совпадающей адресации (вторая и последующие
         /// точки одного адреса — одна точка, тег-представитель — первый попавшийся).</summary>
         public int DedupedSignals { get; set; }
+
+        /// <summary>F68: резервных (twin-)пакетов сгенерировано (IP main + reserve у станции).</summary>
+        public int ReservePackets { get; set; }
 
         /// <summary>Предупреждения (разные таймауты в группе, усечённые имена, …).</summary>
         public List<string> Warnings { get; } = new();
@@ -781,6 +800,7 @@ namespace IO_PJT.Models
             DataOutTemplateFilePath = DataOutTemplateFilePath, DataOutTemplateName = DataOutTemplateName,
             MasterTcpTemplateName = MasterTcpTemplateName, MasterRtuTemplateName = MasterRtuTemplateName,
             BlockNamePattern = BlockNamePattern, BlockNamePatternRtu = BlockNamePatternRtu,
+            BlockNamePatternReserve = BlockNamePatternReserve, // F68
             PouNamePattern = PouNamePattern, DataOutPouNamePattern = DataOutPouNamePattern,
             FormatAddress = FormatAddress, BaseT11Id = BaseT11Id, BaseCardId = BaseCardId,
             ColumnsPerRow = ColumnsPerRow, RowStep = RowStep, ColumnStep = ColumnStep,
@@ -840,6 +860,13 @@ namespace IO_PJT.Models
         /// <summary>F14: шаблон имени блока для Modbus RTU (мастер шаблона с «RTU» в имени).
         /// Пуст — fallback на BlockNamePattern. Токены те же.</summary>
         public string BlockNamePatternRtu { get => _blockNamePatternRtu; set => Set(ref _blockNamePatternRtu, value ?? ""); }
+
+        private string _blockNamePatternReserve = "";
+        /// <summary>F68: шаблон имени РЕЗЕРВНОГО блока мастера TCP (twin-пакет с IP из
+        /// M_SlaveIdBackup). Пуст — имя main-блока пакета + «_reserve». Токены те же,
+        /// что у BlockNamePattern ({Seq}/{Slave}/{Station}/{Ip}/{Func}/{Port}/{ИмяКолонки});
+        /// {Ip} резолвится в резервный IP пакета.</summary>
+        public string BlockNamePatternReserve { get => _blockNamePatternReserve; set => Set(ref _blockNamePatternReserve, value ?? ""); }
 
         private string _pouNamePattern = "";
         /// <summary>F17: шаблон имени POU в основном файле BufScadaPOUS (мастер-блоки).

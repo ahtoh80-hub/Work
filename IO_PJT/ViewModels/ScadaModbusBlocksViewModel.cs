@@ -788,7 +788,8 @@ namespace IO_PJT.ViewModels
                 _s.Log.Info($"F45 PERF: Build/заполнение превью ({Preview.Count} пакетов, " +
                             $"{BindingsPreview.Count} привязок) — {swStage.ElapsedMilliseconds} мс");
                 RefreshStationPacketsHint(); // F53: подсказка «Генерить станций X из Y» + пакетов
-                StatsText = $"Пакетов (блоков мастера): {result.Packets.Count}; " +
+                StatsText = $"Пакетов (блоков мастера): {result.Packets.Count} " +
+                            $"(в т.ч. резервных reserve: {result.ReservePackets}); " + // F68
                             $"привязок DataOut: {BindingsPreview.Count}; " +
                             $"точек в пакетах: {result.TotalPoints} из {result.WithAddressing} с адресацией; " +
                             $"дублей адресации (одна точка): {result.DedupedSignals}; " +
@@ -1399,8 +1400,11 @@ namespace IO_PJT.ViewModels
                     .Select(r => r.Typno.Trim()), StringComparer.OrdinalIgnoreCase);
             int n = 0;
             foreach (var p in result.Packets)
+            {
+                if (p.IsReserve) continue; // F68: twin дублирует привязки main-пакета
                 foreach (var b in p.Bindings)
                     if (b.Typno.Length > 0 && !mapped.Contains(b.Typno)) n++;
+            }
             return n;
         }
 
