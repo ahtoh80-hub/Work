@@ -368,6 +368,10 @@ namespace IO_PJT.Services
             if (packets == null) throw new ArgumentNullException(nameof(packets));
             if (s == null) throw new ArgumentNullException(nameof(s));
             warnings ??= new List<string>();
+            // F68: цепочки строятся от main-пакетов — резервный блок попадает в цепочку
+            // источником НИЖНЕЙ половины (ReserveTwin), twin-пакет отдельной цепочкой
+            // не клонируется (иначе цепочки задвоились бы)
+            packets = packets.Where(p => p != null && !p.IsReserve).ToList();
             var info = Parse(templateXml);
             if (!info.Valid) throw new InvalidOperationException("Шаблон привязок: " + info.Error);
 
@@ -410,6 +414,7 @@ namespace IO_PJT.Services
             var noMapWarned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             // F44: предупреждения «текст примитива без строки маппинга» — один раз на (пакет, объект)
             var primTextWarned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            int f68SplitChains = 0; // F68: цепочек разделено main/reserve (для итога)
             var outCards = new List<XElement>();   // карточки тегов + мастеров
             var seenCards = new HashSet<int>();
 
@@ -556,6 +561,15 @@ namespace IO_PJT.Services
                     }
 
                     int nSrc = ex.SourceCount;
+                    // F68: разделение источников цепочки main/reserve — чётное число ≥2
+                    // и у пакета есть резервный twin: верхняя половина источников → main-блок,
+                    // нижняя → reserve-блок (байты в каждой половине повторяются — адресация
+                    // идентична). Байтов на ОДИН блок — половина (nBlock)
+                    bool f68Split = p.ReserveTwin != null &&
+                        !string.IsNullOrEmpty(p.ReserveTwin.MasterName) &&
+                        nSrc >= 2 && nSrc % 2 == 0;
+                    int nBlock = f68Split ? nSrc / 2 : nSrc;
+                    if (f68Split) f68SplitChains++;
 
                     // F33 (этап 6): валидация Size правила Typno — размер должен соответствовать
                     // эталону шаблона (число источников = байт/слотов) и типу функции пакета;
@@ -570,25 +584,26 @@ namespace IO_PJT.Services
                             warnings.Add($"F33: {b.Tag}: Size={ruleSize}, а пакет битовый " +
                                          $"(FC{p.FuncCode}) — проверьте правило Typno");
                         else if (ruleSize != "" && ruleSize != "bit" &&
-                                 MbTypnoMapRule.SizeBytes(ruleSize) != nSrc)
+                                 MbTypnoMapRule.SizeBytes(ruleSize) != nBlock)
                             warnings.Add($"F33: {b.Tag}: Size={ruleSize} " +
                                          $"({MbTypnoMapRule.SizeBytes(ruleSize)} байт/слотов), а эталон " +
-                                         $"«{ex.TypeKey}» в шаблоне — {nSrc} источников(а) — " +
+                                         $"«{ex.TypeKey}» в шаблоне — {nBlock} источников(а) на блок — " +
                                          "проверьте правило Typno/шаблон");
                     }
                     // F18: граница привязки — DataOut мастера массив байт (MB_USINT_0_249);
                     // F33: для битовых функций каждый элемент dataOut — bool по АДРЕСУ пакета
                     // (индекс = адрес), граница — в адресах (Count); для регистров — байты
+                    // F68: граница — по байтам одного блока (nBlock при разделении main/reserve)
                     int byteBase = ModbusBlockPlannerService.DataOutByteIndex(b.Offset, p.IsBit);
                     int bytesAvail = p.IsBit ? p.Count : p.Count * 2;
-                    if (byteBase + nSrc - 1 >= bytesAvail)
+                    if (byteBase + nBlock - 1 >= bytesAvail)
                     {
                         warnings.Add(p.IsBit
                             ? $"F18: {p.MasterName}: привязка {b.Tag} (адрес {byteBase}, эталон " +
-                              $"{ex.TypeKey} на {nSrc} элемент(ов)) выходит за данные пакета " +
+                              $"{ex.TypeKey} на {nBlock} элемент(ов)) выходит за данные пакета " +
                               $"({bytesAvail} адресов, Count={p.Count}) — пропущено"
                             : $"F18: {p.MasterName}: привязка {b.Tag} (байт {byteBase}, эталон " +
-                              $"{ex.TypeKey} на {nSrc} байт(ов)) выходит за данные пакета " +
+                              $"{ex.TypeKey} на {nBlock} байт(ов)) выходит за данные пакета " +
                               $"({bytesAvail} байт, Count={p.Count}) — пропущено");
                         continue;
                     }
@@ -619,7 +634,8 @@ namespace IO_PJT.Services
                         clone.Element("Graphics")?.SetAttributeValue("Y",
                             (int.TryParse((string?)blk.Element("Graphics")?.Attribute("Y"), out int by) ? by : 0) + yBase);
                         ApplyBindingSubstitutions(clone, blk, p, b, ex, masterMeta,
-                            ref nextCard, outCards, seenCards, dv, warnings, noMapWarned);
+                            ref nextCard, outCards, seenCards, dv, warnings, noMapWarned,
+                            f68Split);
                         pouBlocks.Add(clone);
                     }
                     foreach (var l in ex.Links)
@@ -685,6 +701,10 @@ namespace IO_PJT.Services
             }
 
             // карточки мастеров (Info = имя блока)
+            // F68: итог разделения источников цепочек main/reserve
+            if (f68SplitChains > 0)
+                warnings.Add($"F68: цепочек разделено main/reserve (верхняя половина " +
+                    $"источников → main, нижняя → reserve): {f68SplitChains}");
             foreach (var kv in masterMeta)
                 if (seenCards.Add(kv.Value.CardId))
                     outCards.Add(NewCard(kv.Value.CardId, kv.Key));
@@ -804,7 +824,10 @@ namespace IO_PJT.Services
             IReadOnlyDictionary<string, (string IoColumn, string Literal)>? dataVars = null,
             List<string>? warnings = null,
             // F35: дедупликация предупреждений «приёмник без строки маппинга»
-            HashSet<string>? noMapWarned = null)
+            HashSet<string>? noMapWarned = null,
+            // F68: true — чётное число источников и у пакета есть ReserveTwin:
+            // верхняя половина источников → main-блок, нижняя → reserve-блок
+            bool splitReserve = false)
         {
             // F33 (этап 7): переменная data-шаблона — блок-константа (34) или тег (31),
             // не источник/приёмник цепочки; подстановка значения из маппинга объектов
@@ -895,15 +918,13 @@ namespace IO_PJT.Services
             {
                 if (Exemplar.IsDataInBlock(blk))
                 {
-                    // позиция приёмника в эталоне (DataIn[0] → 0, DataIn[1] → 1, …) —
-                    // байтовый индекс = база смещения привязки + позиция (как у DataOut)
-                    int j = ex.Blocks.Where(Exemplar.IsDataInBlock)
-                        .OrderBy(DataInIndexOf).ToList().IndexOf(blk);
-                    int byteBase = ModbusBlockPlannerService.DataOutByteIndex(b.Offset, p.IsBit);
-                    int newOffset = byteBase + j;
-                    clone.SetAttributeValue("Info", $"{b.BlockName}.DataIn[{newOffset}]");
+                    // F68: блок-приёмник записи — main/reserve по правилу разделения
+                    // (верхняя половина → main, нижняя → reserve, байт внутри половины
+                    // = позиция по шаблонному DataIn[k] + byteBase); иначе — как раньше
+                    var (srcW, newOffset) = MapSourceBlock(blk, ex, p, b, true, splitReserve);
+                    clone.SetAttributeValue("Info", $"{srcW}.DataIn[{newOffset}]");
                     clone.Element("Params")?.SetAttributeValue("T11Text", $".DataIn[{newOffset}]");
-                    if (masterMeta.TryGetValue(b.BlockName, out var metaW))
+                    if (masterMeta.TryGetValue(srcW, out var metaW))
                     {
                         var prW = clone.Element("Params");
                         prW?.SetAttributeValue("cardId", metaW.CardId);
@@ -933,14 +954,13 @@ namespace IO_PJT.Services
             // блок-источник «.DataOut[…]»
             if (Exemplar.IsSourceBlock(blk))
             {
-                var srcIdx = ex.Blocks.Where(Exemplar.IsSourceBlock)
-                    .OrderBy(DataOutIndexOf).ToList().IndexOf(blk);
-                // F18: байтовая адресация DataOut (массив байт MB_USINT_0_249)
-                int byteBase = ModbusBlockPlannerService.DataOutByteIndex(b.Offset, p.IsBit);
-                int newOffset = byteBase + srcIdx;
-                clone.SetAttributeValue("Info", $"{b.BlockName}.DataOut[{newOffset}]");
+                // F68: main/reserve по правилу разделения (верхняя половина источников →
+                // main-блок, нижняя → reserve-блок, байт внутри половины = позиция по
+                // шаблонному DataOut[k] + byteBase); иначе — историческое поведение
+                var (srcBlock, newOffset) = MapSourceBlock(blk, ex, p, b, false, splitReserve);
+                clone.SetAttributeValue("Info", $"{srcBlock}.DataOut[{newOffset}]");
                 clone.Element("Params")?.SetAttributeValue("T11Text", $".DataOut[{newOffset}]");
-                if (masterMeta.TryGetValue(b.BlockName, out var meta))
+                if (masterMeta.TryGetValue(srcBlock, out var meta))
                 {
                     var pr = clone.Element("Params");
                     pr?.SetAttributeValue("cardId", meta.CardId);
@@ -1126,6 +1146,55 @@ namespace IO_PJT.Services
                        (string?)blk.Attribute("Info") ?? "";
             var m = Regex.Match(s, @"\.DataOut\[(\d+)\]");
             return m.Success ? int.Parse(m.Groups[1].Value) : 0;
+        }
+
+        /// <summary>F68: Y/X блока эталона (Graphics) — для сортировки источников сверху
+        /// вниз (верхний источник цепочки → main-блок, нижний → reserve-блок).</summary>
+        private static int GraphicsY(XElement b) =>
+            int.TryParse((string?)b.Element("Graphics")?.Attribute("Y"), out int y) ? y : 0;
+
+        private static int GraphicsX(XElement b) =>
+            int.TryParse((string?)b.Element("Graphics")?.Attribute("X"), out int x) ? x : 0;
+
+        /// <summary>F68: сопоставление блока-источника цепочки с (блок мастера, байтовый
+        /// индекс). splitReserve=true (чётное число источников ≥2 и у пакета есть
+        /// ReserveTwin): источники сортируются сверху вниз (Y, затем X, затем порядок в
+        /// документе) и делятся пополам — верхняя половина → main-блок (b.BlockName),
+        /// нижняя → reserve-блок (ReserveTwin.MasterName); байт внутри половины — позиция
+        /// по шаблонному DataOut[k]/DataIn[k] внутри СВОЕЙ половины + byteBase (адресация
+        /// main и reserve идентична: main1,main2 = [bb+0],[bb+1]; reserve1,reserve2 —
+        /// те же [bb+0],[bb+1]). splitReserve=false — историческое поведение: все
+        /// источники на main-блоке, байт — позиция по шаблонному индексу.</summary>
+        private static (string Block, int Byte) MapSourceBlock(XElement blk, Exemplar ex,
+            MbPacketPlan p, MbBinding b, bool dataIn, bool splitReserve)
+        {
+            int byteBase = ModbusBlockPlannerService.DataOutByteIndex(b.Offset, p.IsBit);
+            var srcs = ex.Blocks
+                .Where(x => dataIn ? Exemplar.IsDataInBlock(x) : Exemplar.IsSourceBlock(x))
+                .ToList();
+            int n = srcs.Count;
+            Func<XElement, int> idxOf = x => dataIn ? DataInIndexOf(x) : DataOutIndexOf(x);
+
+            if (splitReserve && p.ReserveTwin != null &&
+                !string.IsNullOrEmpty(p.ReserveTwin.MasterName) && n >= 2 && n % 2 == 0)
+            {
+                var byY = srcs.OrderBy(GraphicsY).ThenBy(GraphicsX).ToList();
+                int pos = byY.IndexOf(blk);
+                int half = n / 2;
+                bool isMain = pos >= 0 && pos < half;
+                var halfList = (isMain ? byY.Take(half) : byY.Skip(half)).ToList();
+                // байт внутри половины — по шаблонному DataOut[k]/DataIn[k] (стабильная
+                // сортировка: при равных k сохраняется порядок сверху вниз)
+                int j = halfList.OrderBy(idxOf).ToList().IndexOf(blk);
+                if (j < 0) j = Math.Max(0, pos % half);
+                string name = isMain ? b.BlockName : p.ReserveTwin.MasterName;
+                return (name, byteBase + j);
+            }
+
+            // историческое поведение F13/F18: все источники на main-блоке
+            int legacy = srcs.OrderBy(idxOf).ToList().IndexOf(blk);
+            if (legacy < 0) legacy = 0;
+            return (b.BlockName, byteBase + legacy);
         }
 
         /// <summary>F30: индекс DataIn из T11Text/Info блока-приёмника записи («.DataIn[k]»).</summary>
