@@ -1,6 +1,6 @@
 # Основные команды Git для проекта TemplateGenerator
 
-git add . && git commit -m "message" && git push
+git add . && git commit -m "New version IO PJT" && git push
 
 ## 1. Инициализация репозитория
 

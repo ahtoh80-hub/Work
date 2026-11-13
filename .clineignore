@@ -1,0 +1,36 @@
+# Cline: файлы/папки рабочей области, которые агенту НЕ нужны.
+# Работаем только с C:\VSCode\IO_PJT (программа), C:\VSCode\IO_PJT.Smoke (тесты)
+# и C:\VSCode\Work (исходные данные: карты, шаблоны, рабочая БД).
+# Синтаксис — как у .gitignore.
+
+# Чужие проекты, не относящиеся к IO_PJT
+/Modbus/
+/TemplateGenerator/
+
+# Сборочные артефакты и служебное IDE
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# Логи и мусорные файлы корня
+/build.log
+/build2.log
+/smoke.log
+/*.png
+/tst.md
+/D32V_clear.md
+/GitHub_Commands.md
+/Powershell.md
+/Text.md
+/VS Code command.md
+/IOLISTtoDB_v0.MD
+/context.MD
+/АЛГОРИТМ СОПОСТАВЛЕНИЯ TAG_CAE ИЗ Перечень блокировок ESBL (Z).xlsx С Loop ИЗ EBSM_SCS_ТЕХНОЛ_ОБЪЕКТЫ.xlsx.md
+
+# Служебные файлы Access (лок блокировки открытой базы)
+*.laccdb
+
+# Сгенерированные выгрузки (результат работы, не источник)
+/Work/Out/
