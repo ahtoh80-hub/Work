@@ -93,7 +93,9 @@ namespace IO_PJT.Data
             ["M_DcsFunctions"] = "F9: DCS functions — функции РСУ",
             ["M_Note"] = "F9: примечание строки карты Modbus (note)",
             ["M_BusBlock"] = "F13: имя блока Modbus SCADA (MB_TCP_MASTER_4_1) — куда входит точка (кнопка «Записать привязки в IO_LIST»)",
+            ["M_BusBlockRes"] = "F71: имя резервного блока Modbus SCADA пары main/reserve (пусто, если у точки нет резервного подключения)",
             ["M_BusDataOut"] = "F13: привязка данных блока SCADA (MB_TCP_MASTER_4_1.DataOut[0]; индекс = адрес − Address пакета)",
+            ["M_BusDataOutRes"] = "F71: привязка данных резервного блока SCADA (MB_TCP_MASTER_4_2.DataOut[0]; тот же индекс, что у main)",
             ["M_Marka"] = "F27: Марка SCADA (MakeMarka от поля-источника F12; кнопка «Записать Марку в IO_LIST»)",
 
             // ===== Cable (13) =====

@@ -364,11 +364,13 @@ namespace IO_PJT.Services
                         // {ИмяКолонки} в именах и маппинга переменных шаблона
                         ColumnValues = ColumnValuesOf(firstPoint)
                     };
+                    int wBeforeName = result.Warnings.Count; // F69
                     packet.MasterName = MakeUniqueName(
                         ScadaTemplateXmlService.ApplyBlockNamePattern(
                             ScadaTemplateXmlService.SelectBlockNamePattern(
                                 settings, masterNameBase),
-                            packet, masterNameBase), usedNames);
+                            packet, masterNameBase, result.Warnings), usedNames);
+                    if (result.Warnings.Count > wBeforeName) packet.NameRenamed = true;
 
                     // F13.1: тип точки по тегу (M_DataType) — выбор эталона цепочки привязки
                     var dtByTag = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -417,6 +419,18 @@ namespace IO_PJT.Services
                                     bnd.SharedTags.Add(shTag);
                     result.Packets.Add(packet);
                     AddReserveTwin(packet, items); // F68: twin с резервным IP сразу за main
+                    // F71: резервная привязка main-пакета для превью F13 — имя и путь
+                    // reserve-блока с тем же байтовым индексом, что у main
+                    if (packet.ReserveTwin != null)
+                    {
+                        var resName = packet.ReserveTwin.MasterName;
+                        foreach (var bnd in packet.Bindings)
+                        {
+                            bnd.ReserveBlockName = resName;
+                            bnd.ReserveDataOutExpr =
+                                $"{resName}.{(packet.IsWrite ? "DataIn" : "DataOut")}[{DataOutByteIndex(bnd.Offset, packet.IsBit)}]";
+                        }
+                    }
                 }
             }
             // F56: сигналы, схлопнутые по одинаковой адресации (одна точка — первый тег)
@@ -483,10 +497,13 @@ namespace IO_PJT.Services
                 // имя: BlockNamePatternReserve (токены, {Ip} — резервный IP), пусто —
                 // историческое имя main-блока + «_reserve»; уникальность — общий usedNames
                 string resPat = (settings.BlockNamePatternReserve ?? "").Trim();
+                int wBeforeRes = result.Warnings.Count; // F69
                 string resName = resPat.Length > 0
-                    ? ScadaTemplateXmlService.ApplyBlockNamePattern(resPat, twin, masterNameBase)
+                    ? ScadaTemplateXmlService.ApplyBlockNamePattern(resPat, twin,
+                        masterNameBase, result.Warnings, "имя блока reserve")
                     : mainPkt.MasterName + "_reserve";
                 twin.MasterName = MakeUniqueName(resName, usedNames);
+                if (result.Warnings.Count > wBeforeRes) twin.NameRenamed = true;
 
                 // привязки — копия main-привязок с именем резервного блока (пути
                 // {Reserve}.DataOut/DataIn[байт] — байтовый индекс тот же, адресация
@@ -656,6 +673,7 @@ namespace IO_PJT.Services
             "DataOutTemplateMode", "DataOutTemplateFilePath", "BlockNamePattern",
             "BlockNamePatternRtu", "FormatAddress", "DataOutTemplateName",
             "BlockNamePatternReserve", // F68: имя резервного (reserve) блока мастера TCP
+            "BlockTokenReserve", // F69: токен reserve-блока в шаблонах (подмена имён)
             "PouNamePattern", "DataOutPouNamePattern",
             "BaseT11Id", "BaseCardId", "ColumnsPerRow", "RowStep", "ColumnStep",
             "DataChainGap", "PouCommentPattern", "DataOutPouCommentPattern", // F61
@@ -732,6 +750,8 @@ namespace IO_PJT.Services
             if (values.TryGetValue("BlockNamePatternRtu", out var bnr)) s.BlockNamePatternRtu = bnr;
             if (values.TryGetValue("BlockNamePatternReserve", out var bnres)) // F68
                 s.BlockNamePatternReserve = bnres;
+            if (values.TryGetValue("BlockTokenReserve", out var btok)) // F69
+                s.BlockTokenReserve = btok;
             if (values.TryGetValue("PouNamePattern", out var pnp)) s.PouNamePattern = pnp;
             if (values.TryGetValue("DataOutPouNamePattern", out var dopp)) s.DataOutPouNamePattern = dopp;
             if (values.TryGetValue("FormatAddress", out var fa) &&
@@ -781,6 +801,7 @@ namespace IO_PJT.Services
                 ("BlockNamePattern", s.BlockNamePattern ?? ""),
                 ("BlockNamePatternRtu", s.BlockNamePatternRtu ?? ""),
                 ("BlockNamePatternReserve", s.BlockNamePatternReserve ?? ""), // F68
+                ("BlockTokenReserve", s.BlockTokenReserve ?? ""), // F69
                 ("PouNamePattern", s.PouNamePattern ?? ""),
                 ("DataOutPouNamePattern", s.DataOutPouNamePattern ?? ""),
                 ("FormatAddress", s.FormatAddress ? "True" : "False"),
@@ -1918,9 +1939,11 @@ namespace IO_PJT.Services
             }
         }
 
-        /// <summary>F13: «Записать привязки в IO_LIST» — заполнить M_BusBlock (имя блока мастера)
-        /// и M_BusDataOut (путь «Block.DataOut[i]») у точек, попавших в пакеты плана; точки
-        /// с адресацией, не попавшие ни в один пакет, очищаются. Ограничение F9.4 сохраняется:
+        /// <summary>F13/F71: «Записать привязки в IO_LIST» — заполнить M_BusBlock (имя блока мастера),
+        /// M_BusDataOut (путь «Block.DataOut[i]») и, при наличии резервной пары (F68 twin),
+        /// M_BusBlockRes (имя reserve-блока) / M_BusDataOutRes (путь reserve-блока с тем же
+        /// байтовым индексом) у точек, попавших в пакеты плана; точки с адресацией, не попавшие
+        /// ни в один пакет, очищаются (все четыре поля → NULL). Ограничение F9.4 сохраняется:
         /// привязка пишется только для Modbus-сигнала (IO Type «M…»/«COM»). Аудит — Update
         /// по каждому изменённому полю (одна сессия репозитория).</summary>
         public MbBindingsWriteResult WriteBindings(MbPlanResult plan, IIOListRepository repo)
@@ -1935,20 +1958,27 @@ namespace IO_PJT.Services
                 if (!string.IsNullOrWhiteSpace(p.Tag))
                     byTag.TryAdd(p.Tag!.Trim(), p);
 
-            // ожидаемые привязки: Tag → (блок, путь DataOut)
-            var wanted = new Dictionary<string, (string Block, string DataOut)>(StringComparer.OrdinalIgnoreCase);
+            // ожидаемые привязки: Tag → (main-блок, main-путь, reserve-блок, reserve-путь)
+            var wanted = new Dictionary<string, (string Block, string DataOut, string ResBlock, string ResDataOut)>(
+                StringComparer.OrdinalIgnoreCase);
             foreach (var packet in plan.Packets)
             {
-                if (packet.IsReserve) continue; // F68: в IO_LIST — путь main-блока
+                if (packet.IsReserve) continue; // F68: в IO_LIST — путь main-блока (резерв — в M_Bus*Res)
                 foreach (var b in packet.Bindings)
                 {
+                    // F71: имя/путь reserve-блока пары (пусто, если у пакета нет twin) —
+                    // тот же байтовый индекс, что у main (адресация идентична, F68)
+                    var resBlock = packet.ReserveTwin?.MasterName ?? "";
+                    var resDataOut = resBlock.Length > 0
+                        ? $"{resBlock}.{(packet.IsWrite ? "DataIn" : "DataOut")}[{DataOutByteIndex(b.Offset, packet.IsBit)}]"
+                        : "";
                     if (b.Tag.Length > 0)
-                        wanted[b.Tag] = (b.BlockName, b.DataOutExpr);
+                        wanted[b.Tag] = (b.BlockName, b.DataOutExpr, resBlock, resDataOut);
                     // F56: остальные сигналы того же адреса (одна точка адресного пространства) —
-                    // тот же блок/путь: их M_BusBlock/M_BusDataOut обновляются, а не очищаются
+                    // тот же блок/путь (и reserve): их M_Bus* обновляются, а не очищаются
                     foreach (var sh in b.SharedTags)
                         if (sh.Length > 0)
-                            wanted[sh] = (b.BlockName, b.DataOutExpr);
+                            wanted[sh] = (b.BlockName, b.DataOutExpr, resBlock, resDataOut);
                 }
             }
 
@@ -1972,6 +2002,9 @@ namespace IO_PJT.Services
                     p.Modbus ??= new Modbus();
                     p.Modbus.BusBlock = kv.Value.Block;
                     p.Modbus.BusDataOut = kv.Value.DataOut;
+                    // F71: reserve-пара (F68 twin) — имя/путь резервного блока либо NULL
+                    p.Modbus.BusBlockRes = kv.Value.ResBlock.Length > 0 ? kv.Value.ResBlock : null;
+                    p.Modbus.BusDataOutRes = kv.Value.ResDataOut.Length > 0 ? kv.Value.ResDataOut : null;
                     if (repo.Update(p) > 0) result.Updated++; // аудит Update по изменённым полям (F7)
                 }
 
@@ -1980,11 +2013,14 @@ namespace IO_PJT.Services
                 {
                     if (string.IsNullOrWhiteSpace(p.Modbus?.PlcTag)) continue;
                     if (wanted.ContainsKey(p.Tag!.Trim())) continue;
-                    if (string.IsNullOrEmpty(p.Modbus!.BusBlock) && string.IsNullOrEmpty(p.Modbus.BusDataOut))
+                    if (string.IsNullOrEmpty(p.Modbus!.BusBlock) && string.IsNullOrEmpty(p.Modbus.BusDataOut)
+                        && string.IsNullOrEmpty(p.Modbus.BusBlockRes) && string.IsNullOrEmpty(p.Modbus.BusDataOutRes))
                         continue;
                     if (!ModbusLinkService.IsModbusSignal(p)) continue;
                     p.Modbus.BusBlock = null;
                     p.Modbus.BusDataOut = null;
+                    p.Modbus.BusBlockRes = null;   // F71
+                    p.Modbus.BusDataOutRes = null; // F71
                     if (repo.Update(p) > 0) result.Cleared++;
                 }
                 repo.EndSession();

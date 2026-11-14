@@ -12,7 +12,7 @@ namespace IO_PJT.ViewModels
     /// <summary>F13: окно «SCADA → Генерация блоков Modbus (XML)» — XML-шаблон (файл или
     /// вставленный код), планирование пакетов из точек с адресацией Modbus (M_PlcTag),
     /// превью пакетов и привязок «MB_TCP_MASTER_4_1.DataOut[i]», запись привязок в IO_LIST
-    /// (M_BusBlock/M_BusDataOut) и экспорт BufScadaPOUS + файла привязок. Настройки —
+    /// (M_BusBlock/M_BusDataOut, резервная пара F71 — M_BusBlockRes/M_BusDataOutRes) и экспорт BufScadaPOUS + файла привязок. Настройки —
     /// SCADA_MB_SETTINGS, правила «станция → SlaveId» — SCADA_MB_SLAVE_RULES,
     /// вставленный код — SCADA_MB_TEMPLATE (MEMO).</summary>
     public sealed class ScadaModbusBlocksViewModel : ViewModelBase
@@ -144,13 +144,33 @@ namespace IO_PJT.ViewModels
         public string FieldsHint =>
             "Источник — точки текущей таблицы с адресацией Modbus (M_PlcTag). Шаблон задаёт структуру одного запроса " +
             "(мастер MB_TCP_MASTER + обвязка); генератор размножает его по пакетам, заменяя SlaveId/Mode/Address/Count/таймаут/IP. " +
-            "Привязки (M_BusBlock/M_BusDataOut) пишутся кнопкой «Записать привязки в IO_LIST».";
+            "Привязки (M_BusBlock/M_BusDataOut, M_BusBlockRes/M_BusDataOutRes) пишутся кнопкой «Записать привязки в IO_LIST».";
 
         private string _statusText = "Загрузите шаблон, настройте пакетирование и нажмите «Построить превью»";
         public string StatusText { get => _statusText; set => Set(ref _statusText, value, nameof(StatusText)); }
 
         private string _statsText = "";
         public string StatsText { get => _statsText; set => Set(ref _statsText, value, nameof(StatsText)); }
+
+        private string _nameWarningsText = "";
+        /// <summary>F69: красный список сообщений «ИМЯ:» (автозамена спецсимволов в именах
+        /// блоков/объектов/марках) — собирается после построения превью и экспорта.</summary>
+        public string NameWarningsText
+        {
+            get => _nameWarningsText;
+            set => Set(ref _nameWarningsText, value, nameof(NameWarningsText));
+        }
+
+        /// <summary>F69: заменить красный блок предупреждений «ИМЯ:» (список заменяется
+        /// каждой операцией: построение превью / экспорт).</summary>
+        private void SetNameWarnings(IEnumerable<string>? warnings)
+        {
+            NameWarningsText = warnings == null
+                ? ""
+                : string.Join(Environment.NewLine,
+                    warnings.Where(w => w != null &&
+                        w.StartsWith("ИМЯ:", StringComparison.Ordinal)));
+        }
 
         private string _templateStatus = "Шаблон не загружен";
         public string TemplateStatus { get => _templateStatus; set => Set(ref _templateStatus, value, nameof(TemplateStatus)); }
@@ -779,6 +799,8 @@ namespace IO_PJT.ViewModels
                         sizeByTypno[r.Typno.Trim()] = MbTypnoMapRule.NormalizeSize(r.Size);
                 var result = _s.ModbusBlocks.BuildPlan(points, Settings, rules, _template.MasterNameBase, sizeByTypno);
                 _s.Log.Info($"F45 PERF: Build/BuildPlan ({result.Packets.Count} пакетов) — {swStage.ElapsedMilliseconds} мс");
+                foreach (var w in result.Warnings) _s.Log.Warn(w); // F69: предупреждения в журнал
+                SetNameWarnings(result.Warnings); // F69: красный блок «ИМЯ:»
                 swStage.Restart();
                 _built = result;
                 // F45: батч-заполнение одним событием Reset вместо N CollectionChanged
@@ -933,7 +955,8 @@ namespace IO_PJT.ViewModels
             return plan;
         }
 
-        /// <summary>F13: «Записать привязки в IO_LIST» — M_BusBlock/M_BusDataOut по плану
+        /// <summary>F13/F71: «Записать привязки в IO_LIST» — M_BusBlock/M_BusDataOut и
+        /// M_BusBlockRes/M_BusDataOutRes (резервная пара, F68) по плану
         /// (MessageBox со счётчиками, аудит Update).</summary>
         private void WriteBindingsToDb()
         {
@@ -1075,6 +1098,7 @@ namespace IO_PJT.ViewModels
                     packets, templateByStation, _templateText!, rtuText, Settings,
                     dataVars, Settings.DataOutTemplateName);
                 foreach (var w in gen.Warnings) _s.Log.Warn(w);
+                var nameWarns = new List<string>(gen.Warnings); // F69: красный блок «ИМЯ:»
                 File.WriteAllText(outFile!, gen.PousXml, new System.Text.UTF8Encoding(true));
                 string dir = Path.GetDirectoryName(outFile!) ?? "";
                 string baseName = Path.GetFileNameWithoutExtension(outFile!);
@@ -1090,10 +1114,14 @@ namespace IO_PJT.ViewModels
                     var warnings = new System.Collections.Generic.List<string>();
                     bindingsXml = _dataOut.WriteMulti(packets, _dataOutTemplateText,
                         gen.MasterMeta, Settings, warnings, typnoMap, namedTemplates, dataInTemplates,
-                        dataVars, Settings.DataOutTemplateName);
+                        dataVars, Settings.DataOutTemplateName,
+                        _template?.MasterNameBase,      // F69: main-токен подмены имён
+                        _template?.ReserveTokenBase);   // F70: резервный токен (2-й мастер)
                     fromTemplate = true;
                     foreach (var w in warnings) _s.Log.Warn(w);
+                    nameWarns.AddRange(warnings);
                 }
+                SetNameWarnings(nameWarns); // F69: красный блок «ИМЯ:»
                 File.WriteAllText(bindingsPath, bindingsXml, new System.Text.UTF8Encoding(true));
                 _s.Log.Info($"F13: XML сформирован: {outFile} + привязки {bindingsPath} " +
                             $"(станций: {stSel}/{stationsTotal}, пакетов: {packets.Count}, привязок: {BindingsPreview.Count}, " +
@@ -1129,6 +1157,7 @@ namespace IO_PJT.ViewModels
             var settings = Settings.Clone();
             int seq = 0;
             var written = new List<string>();
+            var nameWarns69 = new List<string>(); // F69: красный блок «ИМЯ:» по всем файлам
 
             foreach (var grp in packets.GroupBy(p => new
                      {
@@ -1148,6 +1177,7 @@ namespace IO_PJT.ViewModels
                     groupPackets, templateByStation, _templateText!, rtuText, settings,
                     dataVars, Settings.DataOutTemplateName); // F38: тексты примитивов [TEXT]
                 foreach (var w in gen.Warnings) _s.Log.Warn(w);
+                nameWarns69.AddRange(gen.Warnings); // F69
                 string blockPath = Path.Combine(dir, $"{ctrlPart}_{stPart}_{seq}.xml");
                 File.WriteAllText(blockPath, gen.PousXml, utf8);
                 written.Add(blockPath);
@@ -1190,7 +1220,9 @@ namespace IO_PJT.ViewModels
                                 StringComparer.OrdinalIgnoreCase) { [tg.Key] = ftg.Value };
                             string dataXml = _dataOut.WriteMulti(tg.ToList(), _dataOutTemplateText!,
                                 gen.MasterMeta, settings, warnings, mapF51, namedTemplates,
-                                dataInTemplates, dataVars, Settings.DataOutTemplateName);
+                                dataInTemplates, dataVars, Settings.DataOutTemplateName,
+                                _template?.MasterNameBase,      // F69: main-токен подмены имён
+                                _template?.ReserveTokenBase);   // F70: резервный токен
                             string dataPath = Path.Combine(dir,
                                 $"{ctrlPart}_{stPart}_{typnoPart}_{tplPart}_{seq}.xml");
                             File.WriteAllText(dataPath, dataXml, utf8);
@@ -1199,6 +1231,7 @@ namespace IO_PJT.ViewModels
                         }
                     }
                     foreach (var w in warnings) _s.Log.Warn(w);
+                    nameWarns69.AddRange(warnings); // F69
                 }
                 else if (!string.IsNullOrEmpty(gen.BindingsXml))
                 {
@@ -1219,6 +1252,7 @@ namespace IO_PJT.ViewModels
             StatusText = $"Файлов сформировано: {written.Count} в папке {dir} " +
                          $"(станций {stSel53}/{stationsTotal53}, пакетов {packets.Count}; " +
                          (dataTplValid ? "блоки Modbus + data-объекты по Typno)." : "простые привязки).");
+            SetNameWarnings(nameWarns69); // F69: красный блок «ИМЯ:»
         }
 
         /// <summary>F37: карты генерации data-привязок — «Typno → список (шаблон, эталон, размер)»

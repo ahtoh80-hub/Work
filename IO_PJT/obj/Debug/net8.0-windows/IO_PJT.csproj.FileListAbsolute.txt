@@ -176,3 +176,8 @@ C:\Users\RAN-Notebook\Desktop\Work\IO_PJT\obj\Debug\net8.0-windows\refint\IO_PJT
 C:\Users\RAN-Notebook\Desktop\Work\IO_PJT\obj\Debug\net8.0-windows\IO_PJT.pdb
 C:\Users\RAN-Notebook\Desktop\Work\IO_PJT\obj\Debug\net8.0-windows\IO_PJT.genruntimeconfig.cache
 C:\Users\RAN-Notebook\Desktop\Work\IO_PJT\obj\Debug\net8.0-windows\ref\IO_PJT.dll
+C:\Users\RAN-Notebook\AppData\Local\Temp\f72build\IO_PJT.exe
+C:\Users\RAN-Notebook\AppData\Local\Temp\f72build\IO_PJT.deps.json
+C:\Users\RAN-Notebook\AppData\Local\Temp\f72build\IO_PJT.runtimeconfig.json
+C:\Users\RAN-Notebook\AppData\Local\Temp\f72build\IO_PJT.dll
+C:\Users\RAN-Notebook\AppData\Local\Temp\f72build\IO_PJT.pdb

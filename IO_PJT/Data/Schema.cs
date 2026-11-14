@@ -293,7 +293,7 @@ CREATE TABLE [{ScadaTemplateVarsTable}] (
         };
 
 
-        /// <summary>DDL таблицы данных IO_LIST: 130 колонок данных (+ ID = 131), TEXT(255) везде,
+        /// <summary>DDL таблицы данных IO_LIST: 132 колонки данных (+ ID = 133), TEXT(255) везде,
         /// кроме PTag_* — TEXT(50). Блок M_* (F9 27 + F13 2 + F27 1 = 30 колонок) — данные карты
         /// Modbus и привязки блоков, перед CBL_*. F14: Typno в Identification.</summary>
         public static string CreateTable(string tableName) => $@"
@@ -319,7 +319,7 @@ CREATE TABLE [{tableName}] (
   M_Scaling TEXT(255), M_SigType TEXT(255), M_RegType TEXT(255), M_Address TEXT(255),
   M_AccessType TEXT(255), M_DataType TEXT(255), M_FuncCode TEXT(255),
   M_DcsChannel TEXT(255), M_DcsTag TEXT(255), M_DcsFunctions TEXT(255), M_Note TEXT(255),
-  M_BusBlock TEXT(255), M_BusDataOut TEXT(255), M_Marka TEXT(255),
+  M_BusBlock TEXT(255), M_BusBlockRes TEXT(255), M_BusDataOut TEXT(255), M_BusDataOutRes TEXT(255), M_Marka TEXT(255),
   CBL_Id TEXT(255), CBL_Description TEXT(255), CBL_Type TEXT(255), CBL_Designation TEXT(255),
   CBL_From TEXT(255), CBL_To TEXT(255), CBL_Length LONG, CBL_Color TEXT(255), CBL_Pair LONG,
   CBL_Note TEXT(255), CBL_VendorDesignation TEXT(255), CBL_Drum TEXT(255), CBL_Voltage TEXT(255),
@@ -385,10 +385,10 @@ CREATE TABLE MODBUS_MAP (
 )";
 
         /// <summary>
-        /// Имена 130 колонок таблицы данных (в порядке DDL; вместе с ID — 131).
+        /// Имена 132 колонок таблицы данных (в порядке DDL; вместе с ID — 133).
         /// Используются для маппинга Excel↔Access, создания таблицы и подсветки.
         /// REV_Sheet (F2.16) — вкладка-источник, входит в идентификацию документа (файл+вкладка).
-        /// M_* (F9) — данные карты Modbus перед CBL_*.
+        /// M_* (F9) — данные карты Modbus перед CBL_* (M_BusBlockRes/M_BusDataOutRes — F71).
         /// </summary>
         public static readonly string[] DataColumns =
         {
@@ -406,7 +406,7 @@ CREATE TABLE MODBUS_MAP (
             "M_Units", "M_Scale", "M_LL", "M_LA", "M_HA", "M_HH",
             "M_Scaling", "M_SigType", "M_RegType", "M_Address", "M_AccessType", "M_DataType", "M_FuncCode",
             "M_DcsChannel", "M_DcsTag", "M_DcsFunctions", "M_Note",
-            "M_BusBlock", "M_BusDataOut", "M_Marka",
+            "M_BusBlock", "M_BusBlockRes", "M_BusDataOut", "M_BusDataOutRes", "M_Marka",
             "CBL_Id", "CBL_Description", "CBL_Type", "CBL_Designation", "CBL_From", "CBL_To",
             "CBL_Length", "CBL_Color", "CBL_Pair", "CBL_Note", "CBL_VendorDesignation",
             "CBL_Drum", "CBL_Voltage",

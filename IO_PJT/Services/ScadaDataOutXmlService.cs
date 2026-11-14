@@ -363,7 +363,13 @@ namespace IO_PJT.Services
             IReadOnlyDictionary<string, string>? dataInTemplates = null,
             // F33 (этап 7): маппинг объектов data-шаблонов «имя шаблона → объект → (колонка, литерал)»
             IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal)>>? dataVars = null,
-            string dataVarsTemplateKey = "")
+            string dataVarsTemplateKey = "",
+            // F69: имя блока мастера шаблона (main-токен подмены в объектах data-шаблона);
+            // null — подмена main-токена не выполняется (обратная совместимость)
+            string? masterNameBase = null,
+            // F70: имя второго мастера шаблона — fallback reserve-токена, когда
+            // настройка BlockTokenReserve пуста
+            string? reserveTokenBase = null)
         {
             if (packets == null) throw new ArgumentNullException(nameof(packets));
             if (s == null) throw new ArgumentNullException(nameof(s));
@@ -372,6 +378,13 @@ namespace IO_PJT.Services
             // источником НИЖНЕЙ половины (ReserveTwin), twin-пакет отдельной цепочкой
             // не клонируется (иначе цепочки задвоились бы)
             packets = packets.Where(p => p != null && !p.IsReserve).ToList();
+            // F69: токены подмены имён объектов data-шаблона (main — имя мастера шаблона,
+            // reserve — настройка BlockTokenReserve); F70: reserve-фолбэк — имя второго
+            // мастера шаблона (NAME_PACK_TCP_RESERVE)
+            string mainTokenF69 = (masterNameBase ?? "").Trim();
+            string reserveTokenF69 = !string.IsNullOrWhiteSpace(s.BlockTokenReserve)
+                ? s.BlockTokenReserve.Trim()
+                : (reserveTokenBase ?? "").Trim();
             var info = Parse(templateXml);
             if (!info.Valid) throw new InvalidOperationException("Шаблон привязок: " + info.Error);
 
@@ -635,7 +648,7 @@ namespace IO_PJT.Services
                             (int.TryParse((string?)blk.Element("Graphics")?.Attribute("Y"), out int by) ? by : 0) + yBase);
                         ApplyBindingSubstitutions(clone, blk, p, b, ex, masterMeta,
                             ref nextCard, outCards, seenCards, dv, warnings, noMapWarned,
-                            f68Split);
+                            f68Split, mainTokenF69, reserveTokenF69);
                         pouBlocks.Add(clone);
                     }
                     foreach (var l in ex.Links)
@@ -661,7 +674,8 @@ namespace IO_PJT.Services
                             prc.SetAttributeValue("SourceT11ID", stNew);
                         prc.SetAttributeValue("Y",
                             (int.TryParse((string?)prc.Attribute("Y"), out int py) ? py : 0) + yBase);
-                        ApplyPrimTextSubstitution(prc, p, b, dv, warnings, primTextWarned);
+                        ApplyPrimTextSubstitution(prc, p, b, dv, warnings, primTextWarned,
+                            mainTokenF69, reserveTokenF69);
                         pouPrims.Add(prc);
                     }
 
@@ -731,7 +745,11 @@ namespace IO_PJT.Services
             IReadOnlyDictionary<string, string>? namedTemplates = null,
             IReadOnlyDictionary<string, string>? dataInTemplates = null,
             IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal)>>? dataVars = null,
-            string dataVarsTemplateKey = "")
+            string dataVarsTemplateKey = "",
+            // F69: имя блока мастера шаблона (main-токен подмены в объектах data-шаблона)
+            string? masterNameBase = null,
+            // F70: имя второго мастера шаблона — fallback reserve-токена
+            string? reserveTokenBase = null)
         {
             System.Collections.Generic.Dictionary<string,
                 List<(string Template, string Exemplar, string Size)>>? map = null;
@@ -743,7 +761,7 @@ namespace IO_PJT.Services
                     map[kv.Key] = new List<(string Template, string Exemplar, string Size)> { kv.Value };
             }
             return WriteMulti(packets, templateXml, masterMeta, s, warnings, map, namedTemplates,
-                dataInTemplates, dataVars, dataVarsTemplateKey);
+                dataInTemplates, dataVars, dataVarsTemplateKey, masterNameBase, reserveTokenBase);
         }
 
         // ================== Утилиты генерации ==================
@@ -790,12 +808,16 @@ namespace IO_PJT.Services
         }
 
         /// <summary>F13.1: имя тега-приёмника из IO_LIST: тире/пробелы → «_», ведущий «_»
-        /// (правило F12 MakeMarka).</summary>
-        public static string TagNameFor(string? tag)
+        /// (правило F12 MakeMarka). F69: ЛЮБОЙ спецсимвол (всё кроме букв/цифр/«_») → «_»,
+        /// серии «__» → «_»; out renamed — true при факте замены (предупреждение «ИМЯ:»).</summary>
+        public static string TagNameFor(string? tag) => TagNameFor(tag, out _);
+
+        public static string TagNameFor(string? tag, out bool renamed)
         {
             string v = (tag ?? "").Trim();
-            v = Regex.Replace(v, @"[\-\s]+", "_");
-            return v.Length > 0 && !v.StartsWith("_") ? "_" + v : v;
+            v = ScadaTemplateXmlService.SanitizeNameFull(v, out renamed); // только факт замены спецсимволов
+            if (v.Length > 0 && !v.StartsWith("_", StringComparison.Ordinal)) v = "_" + v;
+            return v;
         }
 
         /// <summary>F35: колонки IO_LIST точки привязки — источник разрешения маппинга
@@ -817,6 +839,35 @@ namespace IO_PJT.Services
         /// канал ИМЕНИ переименовывает, начальное значение ДОПОЛНИТЕЛЬНО пишется в &lt;IV&gt;
         /// (объект 31/приёмник/константа 34); только начальное значение — шаблонное Info
         /// + &lt;IV&gt; (F36, без изменений); колонка не заполнена — Info шаблонный.</summary>
+        /// <summary>F69: подмена токенов имени мастера + валидация/автозамена имени объекта
+        /// data-шаблона (до первой точки; «.Xin»/«.busy» — член сохраняется). Подмена по
+        /// вхождению main-токена (имя мастера шаблона) → имя main-блока пакета, reserve-токена
+        /// (BlockTokenReserve) → имя reserve-блока пары; reserve без блока — предупреждение
+        /// «ИМЯ:». Маппинг «Объекты data-шаблонов» ищется по ШАБЛОННОМУ имени и имеет
+        /// приоритет (вызывающий подменяет до/вместо маппинга по своей ветке).</summary>
+        private static string FixDataObjectName(string objName, MbPacketPlan p, MbBinding b,
+            string? mainToken, string? reserveToken, List<string>? warnings)
+        {
+            string s = objName;
+            if (ScadaTemplateXmlService.ContainsMasterToken(s, mainToken, reserveToken))
+            {
+                string sub = ScadaTemplateXmlService.SubstituteMasterTokens(s, mainToken,
+                    reserveToken, b.BlockName, p.ReserveTwin?.MasterName);
+                string resT = (reserveToken ?? "").Trim();
+                if (resT.Length > 0 &&
+                    s.IndexOf(resT, StringComparison.OrdinalIgnoreCase) >= 0 &&
+                    string.IsNullOrEmpty(p.ReserveTwin?.MasterName))
+                    warnings?.Add($"ИМЯ: объект «{s}» (пакет {p.MasterName}) — резервный " +
+                        "токен не заменён: у пакета нет reserve-блока " +
+                        "(проверьте M_SlaveIdBackup/токен reserve)");
+                s = sub;
+            }
+            string fixedS = ScadaTemplateXmlService.SanitizeObjectInfo(s, out bool ren);
+            if (ren)
+                warnings?.Add($"ИМЯ: объект «{s}» → «{fixedS}» (спецсимволы заменены на «_»)");
+            return fixedS;
+        }
+
         private void ApplyBindingSubstitutions(XElement clone, XElement blk, MbPacketPlan p,
             MbBinding b, Exemplar ex,
             IReadOnlyDictionary<string, (int CardId, string Iv)> masterMeta,
@@ -827,7 +878,9 @@ namespace IO_PJT.Services
             HashSet<string>? noMapWarned = null,
             // F68: true — чётное число источников и у пакета есть ReserveTwin:
             // верхняя половина источников → main-блок, нижняя → reserve-блок
-            bool splitReserve = false)
+            bool splitReserve = false,
+            // F69: токены подмены имён объектов data-шаблона (main/reserve)
+            string? mainToken = null, string? reserveToken = null)
         {
             // F33 (этап 7): переменная data-шаблона — блок-константа (34) или тег (31),
             // не источник/приёмник цепочки; подстановка значения из маппинга объектов
@@ -841,22 +894,35 @@ namespace IO_PJT.Services
             bool isWriteRoot46 = ex.IsWrite && ReferenceEquals(blk, ex.SourceTpl);
             bool isSimpleRoot46 = ex.IsSimple && ReferenceEquals(blk, ex.SourceTpl);
             bool rootVarRow46 = false; // F46: у корня write-/simple-эталона есть строка маппинга
+            string gtVar = clone.Attribute("GROBJTYPE")?.Value ?? "";
+            bool isVarBlock = (gtVar == "31" || gtVar == "34") &&
+                !Exemplar.IsSourceBlock(blk) && !Exemplar.IsDataInBlock(blk) &&
+                !ReferenceEquals(blk, ex.SourceTpl) && !ReferenceEquals(blk, ex.TargetTpl);
+            bool isRootVar46 = (isWriteRoot46 || isSimpleRoot46) &&
+                (gtVar == "31" || gtVar == "34");
             if (dataVars != null)
             {
-                string gtVar = clone.Attribute("GROBJTYPE")?.Value ?? "";
-                bool isVarBlock = (gtVar == "31" || gtVar == "34") &&
-                    !Exemplar.IsSourceBlock(blk) && !Exemplar.IsDataInBlock(blk) &&
-                    !ReferenceEquals(blk, ex.SourceTpl) && !ReferenceEquals(blk, ex.TargetTpl);
-                bool isRootVar46 = (isWriteRoot46 || isSimpleRoot46) &&
-                    (gtVar == "31" || gtVar == "34");
                 if (isVarBlock || isRootVar46)
                 {
                     string objName = (blk.Attribute("Info")?.Value ?? "").Trim();
+                    // F69: подмена токенов + валидация/автозамена шаблонного имени объекта
+                    // (маппинг ниже ищется по ШАБЛОННОМУ objName и имеет приоритет)
+                    if (objName.Length > 0)
+                    {
+                        string fixedObj = FixDataObjectName(objName, p, b, mainToken,
+                            reserveToken, warnings);
+                        if (!string.Equals(fixedObj, objName, StringComparison.Ordinal))
+                            clone.SetAttributeValue("Info", fixedObj);
+                    }
                     if (objName.Length > 0 && dataVars.TryGetValue(objName, out var drow))
                     {
                         rootVarRow46 = isRootVar46;
                         string dval = ResolveDataVarValue(drow.IoColumn, drow.Literal,
                             BindColumns(b, p), out string? dUnresolved, out bool dFromName);
+                        // F69: подмена токенов и в значении маппинга (литерал/колонка может
+                        // содержать токен имени блока мастера)
+                        dval = ScadaTemplateXmlService.SubstituteMasterTokens(dval, mainToken,
+                            reserveToken, b.BlockName, p.ReserveTwin?.MasterName);
                         if (dUnresolved != null)
                             warnings?.Add($"F33: {b.Tag}: объект шаблона «{objName}» — " +
                                 $"колонка/шаблон «{dUnresolved}» не разрешился — значение не подставлено");
@@ -880,7 +946,11 @@ namespace IO_PJT.Services
                                 // карточка — с новым именем; F49: «колонка + начальное значение»
                                 // — литерал дополнительно в <IV> (оба канала разом; раньше
                                 // литерал при заданной колонке игнорировался)
-                                string newNameV = TagNameFor(dval);
+                                // F69: автозамена спецсимволов — предупреждение «ИМЯ:»
+                                string newNameV = TagNameFor(dval, out bool renNV);
+                                if (renNV)
+                                    warnings?.Add($"ИМЯ: объект «{dval}» → «{newNameV}» " +
+                                        "(спецсимволы заменены на «_»)");
                                 clone.SetAttributeValue("Info", newNameV);
                                 int newCardV = nextCard;
                                 nextCard += 10;
@@ -912,6 +982,20 @@ namespace IO_PJT.Services
                     }
                 }
             }
+            else if (isVarBlock || isSimpleRoot46)
+            {
+                // F69: таблицы маппинга не передана — подмена токенов/валидация шаблонного
+                // имени var-объекта/простого корня (write-корень без маппинга получает
+                // автотег F30 ниже — его здесь не трогаем)
+                string objName69 = (blk.Attribute("Info")?.Value ?? "").Trim();
+                if (objName69.Length > 0)
+                {
+                    string fixedObj69 = FixDataObjectName(objName69, p, b, mainToken,
+                        reserveToken, warnings);
+                    if (!string.Equals(fixedObj69, objName69, StringComparison.Ordinal))
+                        clone.SetAttributeValue("Info", fixedObj69);
+                }
+            }
             // F30: write-эталон — направление инвертировано: блок-приёмник «.DataIn[…]»
             // подставляет путь записи мастера, тег-корень — имя тега IO_LIST
             if (ex.IsWrite)
@@ -939,7 +1023,11 @@ namespace IO_PJT.Services
                     // тег-корень цепочки — имя тега IO_LIST (как приёмник в цепочках чтения);
                     // F46: если у корня есть строка маппинга «Объекты data-шаблонов» —
                     // подстановка уже выполнена выше (маппинг перебивает автотег)
-                    string tagW = TagNameFor(b.Tag);
+                    // F69: автозамена спецсимволов в марке — предупреждение «ИМЯ:»
+                    string tagW = TagNameFor(b.Tag, out bool renTW);
+                    if (renTW)
+                        warnings?.Add($"ИМЯ: тег «{b.Tag}» → «{tagW}» " +
+                            "(спецсимволы заменены на «_»)");
                     string suffixW = MemberSuffixOf(ex.SourceTpl);
                     clone.SetAttributeValue("Info", tagW + suffixW);
                     int newCardW = nextCard;
@@ -980,6 +1068,15 @@ namespace IO_PJT.Services
                 // СВОЕЙ точки привязки). Тег привязки НЕ подставляется — скрытых подстановок
                 // нет; без маппинга Info шаблона не изменяется.
                 string objName = (blk.Attribute("Info")?.Value ?? "").Trim();
+                // F69: подмена токенов + валидация/автозамена шаблонного имени приёмника
+                // (маппинг ищется по ШАБЛОННОМУ objName и имеет приоритет; подставленное
+                // имя остаётся, когда строки маппинга нет)
+                string fixedTarget = objName.Length > 0
+                    ? FixDataObjectName(objName, p, b, mainToken, reserveToken, warnings)
+                    : objName;
+                if (!string.Equals(fixedTarget, objName, StringComparison.Ordinal))
+                    clone.SetAttributeValue("Info", fixedTarget);
+                string cardTarget = fixedTarget; // F36: карточка по имени приёмника
                 string? mappedName = null;
                 bool mappedFromName = false;
                 string litRow49 = ""; // F49: литерал («Начальное значение») строки маппинга
@@ -993,6 +1090,10 @@ namespace IO_PJT.Services
                         warnings?.Add($"F35: {b.Tag}: приёмник «{objName}» — колонка/шаблон " +
                             $"«{dUnT}» не разрешился — значение не подставлено");
                     if (string.IsNullOrEmpty(mappedName)) mappedName = null;
+                    // F69: подмена токенов и в значении маппинга приёмника
+                    if (mappedName != null)
+                        mappedName = ScadaTemplateXmlService.SubstituteMasterTokens(mappedName,
+                            mainToken, reserveToken, b.BlockName, p.ReserveTwin?.MasterName);
                 }
                 if (mappedName != null && mappedFromName)
                 {
@@ -1001,7 +1102,13 @@ namespace IO_PJT.Services
                     // без изменений) + член эталона (.Xin); F49: «колонка + начальное значение»
                     // — литерал дополнительно в <IV> приёмника (оба канала разом; раньше
                     // литерал при заданной колонке игнорировался)
-                    clone.SetAttributeValue("Info", TagNameFor(mappedName) + suffix);
+                    // F69: автозамена спецсимволов — предупреждение «ИМЯ:»
+                    string mappedTag = TagNameFor(mappedName, out bool renMT);
+                    if (renMT)
+                        warnings?.Add($"ИМЯ: приёмник «{mappedName}» → «{mappedTag}» " +
+                            "(спецсимволы заменены на «_»)");
+                    cardTarget = mappedTag;
+                    clone.SetAttributeValue("Info", mappedTag + suffix);
                     SetIvValue(clone, litRow49);
                 }
                 else if (mappedName != null)
@@ -1026,9 +1133,9 @@ namespace IO_PJT.Services
                 clone.Element("Params")?.SetAttributeValue("cardId", newCard);
                 if (seenCards.Add(newCard))
                     // F36: карточка называется по ИМЕНИ приёмника: колонка/шаблон — новое имя
-                    // (TagNameFor), литерал/отсутствие маппинга — шаблонное имя объекта
-                    outCards.Add(NewCard(newCard,
-                        mappedName != null && mappedFromName ? TagNameFor(mappedName) : objName));
+                    // (TagNameFor), литерал/отсутствие маппинга — имя шаблона (F69: после
+                    // подмены токенов/автозамены)
+                    outCards.Add(NewCard(newCard, cardTarget));
             }
         }
 
@@ -1042,9 +1149,10 @@ namespace IO_PJT.Services
         /// один раз на (пакет, объект); dv==null — без подстановок и предупреждений.</summary>
         private static void ApplyPrimTextSubstitution(XElement prim, MbPacketPlan p, MbBinding b,
             IReadOnlyDictionary<string, (string IoColumn, string Literal)>? dv,
-            List<string>? warnings, HashSet<string> warned)
+            List<string>? warnings, HashSet<string> warned,
+            // F69: токены подмены имён в тексте [TEXT] (шаблонном и маппинга)
+            string? mainToken = null, string? reserveToken = null)
         {
-            if (dv == null || dv.Count == 0) return;
             var pars = prim.Element("PARAMS");
             if (pars == null) return;
             string txt = pars.Value ?? "";
@@ -1056,12 +1164,24 @@ namespace IO_PJT.Services
                 StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "").Trim();
             if (ident.Length == 0) return;
 
-            if (!ScadaTemplateXmlService.FindTextRow(dv, ident, out var row))
+            // F69: подмена токенов имени мастера — к шаблонному тексту и значению маппинга
+            string SubTokens(string t) => ScadaTemplateXmlService.SubstituteMasterTokens(
+                t, mainToken, reserveToken, b.BlockName, p.ReserveTwin?.MasterName);
+
+            bool hasDv = dv != null && dv.Count > 0;
+            if (!hasDv || !ScadaTemplateXmlService.FindTextRow(dv!, ident, out var row))
             {
-                if (warned.Add($"{p.No}|{ident}"))
+                if (hasDv && warned.Add($"{p.No}|{ident}"))
                     warnings?.Add($"F44: {p.MasterName}: примитив цепочки — текст «{ident}» — " +
                         "нет строки объекта в маппинге («Объекты data-шаблонов», объект " +
                         $"«{ident}(Text)») — текст не подставлен");
+                // F69: без строки маппинга — подмена токенов в шаблонном тексте [TEXT]
+                if (ScadaTemplateXmlService.ContainsMasterToken(value, mainToken, reserveToken))
+                {
+                    string subV = SubTokens(value);
+                    if (!string.Equals(subV, value, StringComparison.Ordinal))
+                        ScadaTemplateXmlService.ApplyTextValue(pars, m, subV);
+                }
                 return;
             }
             string text = ScadaDataOutXmlService.ResolveDataVarValue(
@@ -1076,6 +1196,8 @@ namespace IO_PJT.Services
                         "колонка/шаблон/литерал пусты — текст не подставлен");
                 return;
             }
+            // F69: подмена токенов и в разрешённом тексте маппинга
+            text = SubTokens(text);
             ScadaTemplateXmlService.ApplyTextValue(pars, m, text);
         }
 

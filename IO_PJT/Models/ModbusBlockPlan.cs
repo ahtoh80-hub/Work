@@ -35,9 +35,17 @@ namespace IO_PJT.Models
         /// <summary>Тег точки IO_LIST (Tag) — представитель адреса (F56: первый попавшийся).</summary>
         public string Tag { get; set; } = "";
 
+        /// <summary>F71: имя reserve-блока пары (пусто, если у пакета нет twin) — колонка
+        /// «Reserve (M_BusBlockRes)» таблицы привязок F13. Заполняется в BuildPlan.</summary>
+        public string ReserveBlockName { get; set; } = "";
+
+        /// <summary>F71: путь привязки reserve-блока ({имяРезерва}.DataOut[i]/DataIn[i] с тем же
+        /// байтовым индексом, что у main) — колонка «Путь reserve (M_BusDataOutRes)» F13.</summary>
+        public string ReserveDataOutExpr { get; set; } = "";
+
         /// <summary>F56: остальные теги IO_LIST с ТЕМ ЖЕ адресом этой точки (несколько
         /// сигналов на одном адресе — одна точка): при записи привязок получают тот же
-        /// путь M_BusBlock/M_BusDataOut.</summary>
+        /// путь M_BusBlock/M_BusDataOut (и M_BusBlockRes/M_BusDataOutRes при резерве).</summary>
         public List<string> SharedTags { get; } = new();
 
         /// <summary>F61: ссылка на пакет привязки (MbPacketPlan) — мастер-detail превью F13:
@@ -161,6 +169,12 @@ namespace IO_PJT.Models
 
         /// <summary>F68: подпись соединения для превью («main»/«reserve»).</summary>
         public string ConnectionKind => IsReserve ? "reserve" : "main";
+
+        private bool _nameRenamed;
+        /// <summary>F69: true — имя блока пакета получено/исправлено автозаменой
+        /// спецсимволов (предупреждение «ИМЯ:»). Красная подсветка превью убрана (F72):
+        /// сообщения «ИМЯ:» — только в нижнем блоке окна и в журнале событий.</summary>
+        public bool NameRenamed { get => _nameRenamed; set => Set(ref _nameRenamed, value); }
 
         /// <summary>F23/F24: значения колонок IO_LIST первой точки пакета (колонка → текст;
         /// только непустые) — источник токенов {ИмяКолонки} в именах блоков/POU и маппинга
@@ -644,11 +658,11 @@ namespace IO_PJT.Models
         public string FilePath { get; set; } = "";
     }
 
-    /// <summary>F13: итог записи привязок в IO_LIST (M_BusBlock / M_BusDataOut) —
-    /// кнопка «Записать привязки в IO_LIST».</summary>
+    /// <summary>F13/F71: итог записи привязок в IO_LIST (M_BusBlock / M_BusDataOut /
+    /// M_BusBlockRes / M_BusDataOutRes) — кнопка «Записать привязки в IO_LIST».</summary>
     public sealed class MbBindingsWriteResult
     {
-        /// <summary>Обновлено точек IO_LIST (изменены M_BusBlock/M_BusDataOut).</summary>
+        /// <summary>Обновлено точек IO_LIST (изменены привязки M_Bus*).</summary>
         public int Updated { get; set; }
 
         /// <summary>Очищено точек (есть адресация M_PlcTag, но в пакеты не попали — привязки сняты).</summary>
@@ -801,6 +815,7 @@ namespace IO_PJT.Models
             MasterTcpTemplateName = MasterTcpTemplateName, MasterRtuTemplateName = MasterRtuTemplateName,
             BlockNamePattern = BlockNamePattern, BlockNamePatternRtu = BlockNamePatternRtu,
             BlockNamePatternReserve = BlockNamePatternReserve, // F68
+            BlockTokenReserve = BlockTokenReserve, // F69
             PouNamePattern = PouNamePattern, DataOutPouNamePattern = DataOutPouNamePattern,
             FormatAddress = FormatAddress, BaseT11Id = BaseT11Id, BaseCardId = BaseCardId,
             ColumnsPerRow = ColumnsPerRow, RowStep = RowStep, ColumnStep = ColumnStep,
@@ -867,6 +882,13 @@ namespace IO_PJT.Models
         /// что у BlockNamePattern ({Seq}/{Slave}/{Station}/{Ip}/{Func}/{Port}/{ИмяКолонки});
         /// {Ip} резолвится в резервный IP пакета.</summary>
         public string BlockNamePatternReserve { get => _blockNamePatternReserve; set => Set(ref _blockNamePatternReserve, value ?? ""); }
+
+        private string _blockTokenReserve = "";
+        /// <summary>F69: токен reserve-блока в шаблонах (например NAME_PACK_TCP_RESERVE) —
+        /// вхождение в имени объекта логики/data-шаблона заменяется на сгенерённое имя
+        /// reserve-блока пакета. Пусто — reserve-подмена не выполняется. main-токен —
+        /// имя блока мастера шаблона (MasterNameBase), задаётся автоматически.</summary>
+        public string BlockTokenReserve { get => _blockTokenReserve; set => Set(ref _blockTokenReserve, value ?? ""); }
 
         private string _pouNamePattern = "";
         /// <summary>F17: шаблон имени POU в основном файле BufScadaPOUS (мастер-блоки).

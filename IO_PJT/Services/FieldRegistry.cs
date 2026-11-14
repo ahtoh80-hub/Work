@@ -141,7 +141,9 @@ namespace IO_PJT.Services
             FS("M_DcsFunctions", p => p.Modbus?.DcsFunctions, (p, v) => (p.Modbus ??= new()).DcsFunctions = v),
             FS("M_Note", p => p.Modbus?.Note, (p, v) => (p.Modbus ??= new()).Note = v),
             FS("M_BusBlock", p => p.Modbus?.BusBlock, (p, v) => (p.Modbus ??= new()).BusBlock = v), // F13
+            FS("M_BusBlockRes", p => p.Modbus?.BusBlockRes, (p, v) => (p.Modbus ??= new()).BusBlockRes = v), // F71: имя reserve-блока
             FS("M_BusDataOut", p => p.Modbus?.BusDataOut, (p, v) => (p.Modbus ??= new()).BusDataOut = v), // F13
+            FS("M_BusDataOutRes", p => p.Modbus?.BusDataOutRes, (p, v) => (p.Modbus ??= new()).BusDataOutRes = v), // F71: путь reserve-блока
             FS("M_Marka", p => p.Modbus?.Marka, (p, v) => (p.Modbus ??= new()).Marka = v), // F27
 
             // ===== Cable (13) =====

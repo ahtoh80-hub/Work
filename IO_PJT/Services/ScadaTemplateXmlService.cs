@@ -45,6 +45,10 @@ namespace IO_PJT.Services
             /// <summary>Имя блока мастера шаблона (MB_TCP_MASTER_4_1) — база имен пакетов.</summary>
             public string MasterNameBase = "";
 
+            /// <summary>F70: имя второго мастера шаблона (NAME_PACK_TCP_RESERVE) — резервный
+            /// токен подмены для data-генерации; пусто — второго мастера в шаблоне нет.</summary>
+            public string ReserveTokenBase = "";
+
             /// <summary>Число блоков мастера в шаблоне.</summary>
             public int MasterCount;
 
@@ -116,6 +120,9 @@ namespace IO_PJT.Services
                 ? mio : 0;
             r.MasterNameBase = ((string?)masters[0].Attribute("Info") ?? "").Trim();
             if (r.MasterNameBase.Length == 0) { r.Error = "у блока мастера пустой Info"; return r; }
+            // F70: имя второго мастера — резервный токен подмены в data-генерации
+            if (masters.Count > 1)
+                r.ReserveTokenBase = ((string?)masters[1].Attribute("Info") ?? "").Trim();
 
             r.Valid = true;
             return r;
@@ -153,10 +160,13 @@ namespace IO_PJT.Services
                     int.TryParse((string?)rec.Attribute("ID"), out int id))
                     masterObjIds.Add(id);
             var list = blocks.ToList();
-            // ① связка «блок ↔ rec ISAOBJSINFO» (внутри одного шаблона)
+            // ① связка «блок ↔ rec ISAOBJSINFO» (внутри одного шаблона);
+            // F70: только GROBJTYPE=37 — тег-ссылки вида «X.Busy» наследуют IsaObjId
+            // мастера (17573), но являются блоками gt31 и НЕ являются блоками мастера
             if (masterObjIds.Count > 0)
             {
                 var byRec = list.Where(b =>
+                    b.Attribute("GROBJTYPE")?.Value == "37" &&
                     int.TryParse((string?)b.Element("Params")?.Attribute("IsaObjId"), out int io) &&
                     masterObjIds.Contains(io)).ToList();
                 if (byRec.Count > 0) return byRec;
@@ -208,12 +218,23 @@ namespace IO_PJT.Services
         /// историческое MasterNameFor(masterNameBase, No). Иначе — маска с токенами:
         /// {Seq} — номер пакета, {Slave} — SlaveId, {Station} — станция («_» вместо пробелов),
         /// {Ip} — IP через «_», {Func} — код функции, {Port} — порт; F24: {ИмяКолонки} —
-        /// значение колонки IO_LIST первой точки пакета; прочие символы — литерал.</summary>
-        public static string ApplyBlockNamePattern(string? pattern, MbPacketPlan packet, string? masterNameBase)
+        /// значение колонки IO_LIST первой точки пакета; прочие символы — литерал.
+        /// F69: итог санитизируется по полному правилу (все спецсимволы → «_», «__» → «_»);
+        /// при факте замены в warnings пишется сообщение «ИМЯ:» (для красного вывода).</summary>
+        public static string ApplyBlockNamePattern(string? pattern, MbPacketPlan packet,
+            string? masterNameBase, List<string>? warnings = null, string ctx = "имя блока")
         {
             string pat = (pattern ?? "").Trim();
             if (pat.Length == 0)
-                return MasterNameFor(masterNameBase, packet.No);
+            {
+                // F69: историческое имя из имени мастера шаблона тоже валидируется
+                string hist = MasterNameFor(masterNameBase, packet.No);
+                string fixedHist = SanitizeNameFull(hist, out bool renH);
+                if (renH && warnings != null)
+                    warnings.Add($"ИМЯ: {ctx} «{hist}» → «{fixedHist}» " +
+                        "(спецсимволы заменены на «_»)");
+                return fixedHist.Length > 0 ? fixedHist : hist;
+            }
             string name = Regex.Replace(pat, @"\{([^{}]+)\}", m =>
             {
                 string key = m.Groups[1].Value.Trim();
@@ -232,20 +253,34 @@ namespace IO_PJT.Services
                     return SanitizeNamePart(v);
                 return m.Value; // неизвестный токен — литерал как есть
             });
-            name = SanitizeNamePart(name);
-            return name.Length > 0 ? name : MasterNameFor(masterNameBase, packet.No);
+            string preSanitize = name;
+            name = SanitizeNamePart(name, out bool renamed);
+            if (name.Length == 0) return MasterNameFor(masterNameBase, packet.No);
+            // F69: предупреждение «ИМЯ:» при автозамене спецсимволов (в т.ч. серий «__»)
+            if ((renamed || !string.Equals(name, preSanitize, StringComparison.Ordinal)) &&
+                warnings != null && !string.Equals(name, preSanitize, StringComparison.Ordinal))
+                warnings.Add($"ИМЯ: {ctx} «{preSanitize}» → «{name}» " +
+                    "(спецсимволы заменены на «_»)");
+            return name;
         }
 
         /// <summary>F17: имя POU по паттерну (PouNamePattern — основной файл,
         /// DataOutPouNamePattern — файл привязок). Пустой паттерн или пустой результат
         /// санитизации — «» (вызывающий оставляет историческое имя). ctx — контекст пакета
         /// (токены {Seq}/{Slave}/{Station}/{Ip}/{Port}/{Func}); null — только
-        /// {Master}/{Date}/{Time}. {Date} = yyyyMMdd, {Time} = HHmmss на момент вызова.</summary>
-        public static string BuildPouName(string? pattern, string? masterNameBase, MbPacketPlan? ctx)
+        /// {Master}/{Date}/{Time}. {Date} = yyyyMMdd, {Time} = HHmmss на момент вызова.
+        /// F69: при автозамене спецсимволов — сообщение «ИМЯ:» в warnings.</summary>
+        public static string BuildPouName(string? pattern, string? masterNameBase,
+            MbPacketPlan? ctx, List<string>? warnings = null)
         {
             string pat = (pattern ?? "").Trim();
             if (pat.Length == 0) return "";
-            return SanitizeNamePart(ResolvePouTokens(pat, masterNameBase, ctx));
+            string raw = ResolvePouTokens(pat, masterNameBase, ctx);
+            string name = SanitizeNamePart(raw, out bool renamed);
+            if (renamed && warnings != null)
+                warnings.Add($"ИМЯ: имя POU «{raw}» → «{name}» " +
+                    "(спецсимволы заменены на «_»)");
+            return name;
         }
 
         /// <summary>F61: комментарий (Disc) POU по паттерну — те же токены, что в
@@ -295,19 +330,105 @@ namespace IO_PJT.Services
             });
         }
 
-        /// <summary>F13.1: очистка имени блока — пробелы/точки/кавычки → «_», «пустые»
-        /// (порождённые заменой символа на краю) края срезаются. F62: ведущий/замыкающий
-        /// «_» ИСХОДНОЙ строки сохраняется — паттерн «_MB_{M_SlaveStation}_{Typno}»
-        /// даёт имя «_MB_…», а не «MB_…».</summary>
-        private static string SanitizeNamePart(string s)
+        /// <summary>F13.1: очистка имени блока — F69: ЛЮБОЙ спецсимвол (всё кроме
+        /// букв/цифр/«_») → «_» и схлопывание серий «__» → «_» (два подчёркивания подряд
+        /// в именах запрещены); «пустые» (порождённые заменой символа на краю) края
+        /// срезаются. F62: ведущий/замыкающий «_» ИСХОДНОЙ строки сохраняется — паттерн
+        /// «_MB_{M_SlaveStation}_{Typno}» даёт имя «_MB_…», а не «MB_…».
+        /// out renamed — true, если строка изменена (для предупреждения «ИМЯ:»).</summary>
+        private static string SanitizeNamePart(string s, out bool renamed)
         {
             string raw = (s ?? "").Trim();
             bool keepLead = raw.StartsWith("_", StringComparison.Ordinal);
             bool keepTrail = raw.EndsWith("_", StringComparison.Ordinal);
-            string v = Regex.Replace(raw, @"[\s.""'`]+", "_");
+            string v = SanitizeNameFull(raw, out renamed);
             if (!keepLead) v = v.TrimStart('_');   // «_» создан заменой краевого пробела/точки
             if (!keepTrail) v = v.TrimEnd('_');
+            if (!string.Equals(v, raw, StringComparison.Ordinal)) renamed = true;
             return v;
+        }
+
+        private static string SanitizeNamePart(string s) => SanitizeNamePart(s, out _);
+
+        /// <summary>F69: полная санитизация строки имени (без краевой логики): все символы,
+        /// кроме букв/цифр/«_», → «_» (серии спецсимволов — одним «_»), затем «__» → «_».</summary>
+        public static string SanitizeNameFull(string? s, out bool renamed)
+        {
+            string v = s ?? "";
+            string r = CollapseUnderscores(Regex.Replace(v, @"[^\p{L}\p{Nd}_]+", "_"));
+            renamed = !string.Equals(r, v, StringComparison.Ordinal);
+            return r;
+        }
+
+        public static string SanitizeNameFull(string? s) => SanitizeNameFull(s, out _);
+
+        /// <summary>F69: схлопывание серий подчёркиваний «__» → «_».</summary>
+        public static string CollapseUnderscores(string? s) =>
+            Regex.Replace(s ?? "", "_{2,}", "_");
+
+        /// <summary>F69: проверка правильности имени: только буквы/цифры/«_» и нет «__»
+        /// подряд; пустое имя — валидно (валидируют вызывающие).</summary>
+        public static bool ValidateName(string? name)
+        {
+            if (string.IsNullOrEmpty(name)) return true;
+            foreach (char ch in name!)
+                if (!char.IsLetterOrDigit(ch) && ch != '_') return false;
+            return !name!.Contains("__", StringComparison.Ordinal);
+        }
+
+        /// <summary>F69: имя объекта логики/шаблона исправляется ТОЛЬКО до первой точки
+        /// («.busy», «.Xin», «.DataOut[0]» — член/путь: точка-разделитель допустима и не
+        /// заменяется). true — имя изменено.</summary>
+        public static string SanitizeObjectInfo(string? s, out bool renamed)
+        {
+            string v = s ?? "";
+            int dot = v.IndexOf('.');
+            string head = dot >= 0 ? v.Substring(0, dot) : v;
+            string tail = dot >= 0 ? v.Substring(dot) : "";
+            string fixedHead = SanitizeNameFull(head, out bool r1);
+            string r = fixedHead + tail;
+            renamed = r1 || !string.Equals(r, v, StringComparison.Ordinal);
+            return r;
+        }
+
+        /// <summary>F69: содержит ли имя вхождение main-/reserve-токена мастера.</summary>
+        public static bool ContainsMasterToken(string? name, string? mainToken, string? reserveToken)
+        {
+            string s = name ?? "";
+            if (s.Length == 0) return false;
+            string resT = (reserveToken ?? "").Trim();
+            if (resT.Length > 0 && s.IndexOf(resT, StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            string mainT = (mainToken ?? "").Trim();
+            return mainT.Length > 0 && s.IndexOf(mainT, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>F69: подмена токенов имени блока мастера в имени/тексте объекта.
+        /// Reserve-токен проверяется первым (может содержать main как подстроку); заменяются
+        /// все вхождения. mainName — имя main-блока (в юните пакета — имя собственного
+        /// клона), reserveName — имя reserve-блока пары (null/пусто — токен не заменяется,
+        /// вызывающий предупреждает). Остальной текст (суффиксы «.busy», «_LINK»)
+        /// сохраняется; его может переопределить маппинг шаблона.</summary>
+        public static string SubstituteMasterTokens(string? text, string? mainToken,
+            string? reserveToken, string? mainName, string? reserveName)
+        {
+            string s = text ?? "";
+            if (s.Length == 0) return s;
+            string resT = (reserveToken ?? "").Trim();
+            if (resT.Length > 0 && s.IndexOf(resT, StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                if (string.IsNullOrEmpty(reserveName)) return s;
+                return Regex.Replace(s, Regex.Escape(resT),
+                    _ => reserveName!, RegexOptions.IgnoreCase);
+            }
+            string mainT = (mainToken ?? "").Trim();
+            if (mainT.Length > 0 && s.IndexOf(mainT, StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                if (string.IsNullOrEmpty(mainName)) return s;
+                return Regex.Replace(s, Regex.Escape(mainT),
+                    _ => mainName, RegexOptions.IgnoreCase);
+            }
+            return s;
         }
 
         /// <summary>F34: стандартные входы мастера, заполняемые из плана при генерации;
@@ -517,18 +638,53 @@ namespace IO_PJT.Services
             var activeT11 = new HashSet<int>(units[0].Unit.Select(x => x.T11));
             var droppedT11 = new HashSet<int>(unitT11Set.Where(t => !activeT11.Contains(t)));
 
+            // F70: reserve-токен — настройка BlockTokenReserve, иначе имя второго мастера
+            // шаблона (NAME_PACK_TCP_RESERVE): подмена резервной стороны работает без
+            // ручной настройки. Один и тот же токен — во всех подменах Write
+            string reserveTok = !string.IsNullOrWhiteSpace(s.BlockTokenReserve)
+                ? s.BlockTokenReserve.Trim()
+                : (units.Count > 1 ? units[1].Master.Info : "");
+            bool HasTok(TBlock x) =>
+                ContainsMasterToken(x.Info, info.MasterNameBase, reserveTok);
+
+            // F70: пул «сирот с токенами» — логика вне юнитов (мастера в шаблоне НЕ
+            // связаны графически с логикой: SCADA-ссылки вида X.Busy работают по имени)
+            // и не-мастерские блоки исключённых (F19) юнитов. Такая логика клонируется
+            // в каждый main-пакет с подменой токенов (main → имя пакета, reserve → имя
+            // twin); в twin-пакеты НЕ клонируется (иначе конфликт имён в одном клоне).
+            // Компоненты совсем без токенов — по-прежнему «общие», пишутся один раз.
+            var orphanTokenT11 = new HashSet<int>();
+            foreach (var g in blocks.GroupBy(x => Find(x.T11)))
+            {
+                var list = g.ToList();
+                if (list.All(x => activeT11.Contains(x.T11))) continue; // активный юнит — уже клонируется
+                var nonMasters = list.Where(x => !x.IsMaster).ToList();
+                if (!nonMasters.Any(HasTok)) continue; // без токенов — общие (как раньше)
+                foreach (var x in nonMasters)
+                    orphanTokenT11.Add(x.T11); // мастры «лишних» юнитов исключаются (F19)
+            }
+            var orphanBlocks = blocks.Where(x => orphanTokenT11.Contains(x.T11)).ToList();
+            // набор клонируемых блоков пакета: main = юнит + сироты; twin = только юнит
+            var cloneT11Main = new HashSet<int>(activeT11);
+            foreach (var t in orphanTokenT11) cloneT11Main.Add(t);
+
             // —— счётчики клонов: продолжение после шаблонных ID ——
             int maxTplT11 = blocks.Count > 0 ? blocks.Max(b => b.T11) : 0;
             int nextT11 = Math.Max(s.BaseT11Id, maxTplT11 + 1);
             int maxTplCard = blocks.Count > 0 ? blocks.Max(b => b.CardId) : 0;
             int nextCard = Math.Max(s.BaseCardId, maxTplCard + 1);
 
-            var commonBlocks = blocks.Where(b => !unitT11Set.Contains(b.T11)).ToList();
+            // F70: «общие» — без токенов (сироты с токенами клонируются в main-пакеты)
+            var commonBlocks = blocks
+                .Where(b => !cloneT11Main.Contains(b.T11) && !droppedT11.Contains(b.T11))
+                .ToList();
             // F19: связи исключённых юнитов не включаются ни в «общие», ни в клоны —
-            // иначе в результат утекут ссылки на блоки, которых в нём больше нет
+            // иначе в результат утекут ссылки на блоки, которых в нём больше нет;
+            // F70: связи пула сирот (оба конца ∈ cloneT11Main) тоже исключаются из
+            // общих — они клонируются per-packet в main
             var commonLinks = links
-                .Where(l => !droppedT11.Contains(l.FromT11) && !droppedT11.Contains(l.ToT11) &&
-                            (!unitT11Set.Contains(l.FromT11) || !unitT11Set.Contains(l.ToT11))).ToList();
+                .Where(l => !cloneT11Main.Contains(l.FromT11) && !cloneT11Main.Contains(l.ToT11) &&
+                            !droppedT11.Contains(l.FromT11) && !droppedT11.Contains(l.ToT11)).ToList();
             var outBlocks = new List<XElement>();
             var outLinks = new List<XElement>();
             var outPrims = new List<XElement>();
@@ -537,11 +693,35 @@ namespace IO_PJT.Services
             var tplPrims = onePou.Element("GrObj")?.Elements("OnePrim").ToList() ?? new List<XElement>();
 
             // общие блоки/связи — один раз, как в шаблоне
-            foreach (var b in commonBlocks) outBlocks.Add(new XElement(b.El));
+            // F69: объект вне юнита пакета с токеном мастера — подмена невозможна
+            // (нет контекста пакета) — красное предупреждение, текст остаётся шаблонным
+            var tokenWarned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var b in commonBlocks)
+            {
+                if (ContainsMasterToken(b.Info, info.MasterNameBase, reserveTok) &&
+                    tokenWarned.Add("blk|" + b.Info))
+                    warnings.Add($"ИМЯ: объект «{b.Info}» вне юнита пакета (общий блок) — " +
+                        "токен имени мастера не заменён: подмена применяется только к логике " +
+                        "пакета (main/reserve); задайте строку маппинга объектов");
+                outBlocks.Add(new XElement(b.El));
+            }
             foreach (var l in commonLinks) outLinks.Add(new XElement(l.El));
+            // F70: примитивы пула сирот (SourceT11 ∈ cloneT11Main) клонируются per-packet
+            // в main — в общие не пишутся (иначе дубль в main-файле)
             foreach (var pr in tplPrims)
-                if (!int.TryParse((string?)pr.Attribute("SourceT11ID"), out int st) || !unitT11Set.Contains(st))
+                if (!int.TryParse((string?)pr.Attribute("SourceT11ID"), out int st) ||
+                    (!cloneT11Main.Contains(st) && !droppedT11.Contains(st)))
+                {
+                    // F69: [TEXT] общего примитива с токеном — предупреждение (без контекста пакета)
+                    string ctext = pr.Element("PARAMS")?.Value ?? "";
+                    var cm = Regex.Match(ctext, @"(?m)^\[TEXT\]=([^\r\n]*)");
+                    if (cm.Success && ContainsMasterToken(cm.Groups[1].Value,
+                            info.MasterNameBase, reserveTok) &&
+                        tokenWarned.Add("prim|" + cm.Groups[1].Value))
+                        warnings.Add($"ИМЯ: текст примитива «{cm.Groups[1].Value.Trim()}» вне " +
+                            "юнита пакета — токен имени мастера не заменён (нет контекста пакета)");
                     outPrims.Add(new XElement(pr));
+                }
 
             int cols = Math.Max(1, s.ColumnsPerRow);
             bool rtuIpWarned = false;   // F35: RTU без IP/порта в IV — один раз на экспорт
@@ -568,9 +748,21 @@ namespace IO_PJT.Services
                     var (master, unit) = units[ui];
                     var t11Map = new Dictionary<int, int>();
                     var cloneByT11 = new Dictionary<int, XElement>();
+                    // F70: набор блоков пакета: main = юнит мастера + сиротская логика с
+                    // токенами (клонируется per-packet с подменой); twin (IsReserve) — только
+                    // юнит (иначе оба токена в twin-клоне дали бы одно имя — конфликт)
+                    var unitBlocks = p.IsReserve ? unit : unit.Concat(orphanBlocks).ToList();
                     string masterName = p.MasterName;
+                    // F69: reserve-имя пары: у main-пакета — имя twin, у twin-пакета —
+                    // собственное имя (клон сам является reserve-блоком); reserve-блоков
+                    // нет вовсе — null (резервный токен не заменяется + предупреждение)
+                    string? reserveName69 = p.IsReserve ? p.MasterName : p.ReserveTwin?.MasterName;
+                    // F70: уникальность Info в клонах — имя мастера резервируется заранее
+                    // (подмена токенов у объекта может дать его же имя)
+                    var usedInfo = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    usedInfo.Add(masterName);
 
-                    foreach (var b in unit)
+                    foreach (var b in unitBlocks)
                     {
                         // F60: шаблонные T11ID/cardId НЕ переиспользуются ни при k=1, ни при
                         // k>1 — каждый клон получает свежие ID (раньше пакет №1 наследовал
@@ -578,7 +770,29 @@ namespace IO_PJT.Services
                         // создание экземпляра первого блока падало с ошибкой уникальности)
                         int newT11 = nextT11++;
                         t11Map[b.T11] = newT11;
-                        string name = b.T11 == master.T11 ? masterName : ShiftInstanceName(b.Info, k);
+                        bool isMasterClone = b.T11 == master.T11;
+                        string name;
+                        if (isMasterClone)
+                        {
+                            name = masterName;
+                        }
+                        else if (ContainsMasterToken(b.Info, info.MasterNameBase, reserveTok))
+                        {
+                            // F69: подмена токенов имени мастера в имени объекта логики
+                            // (NAME_PACK_TCP_MAINE.busy → {имя_этого_пакета}.busy,
+                            // NAME_PACK_TCP_RESERVE_LINK → {reserve-имя}_LINK); суффикс/член
+                            // после токена сохраняется, его может переопределить маппинг F52
+                            name = SubstituteMasterTokens(b.Info, info.MasterNameBase,
+                                reserveTok, p.MasterName, reserveName69);
+                            string resT = reserveTok;
+                            if (resT.Length > 0 &&
+                                b.Info.IndexOf(resT, StringComparison.OrdinalIgnoreCase) >= 0 &&
+                                string.IsNullOrEmpty(reserveName69))
+                                warnings.Add($"ИМЯ: объект «{b.Info}» (пакет {p.MasterName}) — " +
+                                    "резервный токен не заменён: у пакета нет reserve-блока " +
+                                    "(проверьте M_SlaveIdBackup/токен reserve)");
+                        }
+                        else name = ShiftInstanceName(b.Info, k);
                         int newCard = b.CardId > 0 ? NextCardId(ref nextCard) : 0;
 
                         var clone = new XElement(b.El);
@@ -588,11 +802,39 @@ namespace IO_PJT.Services
                         // как есть у константы 34), «Начальное значение» → <IV>; без строки
                         // маппинга — шаблонное Info без изменений. Входы мастера ПЕРЕБИВАЮТ
                         // маппинг плановыми значениями ниже (F35)
-                        if (b.T11 != master.T11)
+                        if (!isMasterClone)
                         {
                             string? mapped52 = ApplyMainObjectMapping(clone, p, dataVars,
                                 dataVarsTemplateKey, warnings, mainMapWarned);
                             if (mapped52 != null) name = mapped52;
+                            // F69: подмена токена и в результате маппинга (литерал может
+                            // содержать токен); затем валидация/автозамена имени объекта —
+                            // до первой точки («.busy» — член, точка-разделитель сохраняется)
+                            name = SubstituteMasterTokens(name, info.MasterNameBase,
+                                reserveTok, p.MasterName, reserveName69);
+                            string fixedName = SanitizeObjectInfo(name, out bool renObj);
+                            if (renObj)
+                                warnings.Add($"ИМЯ: объект «{name}» → «{fixedName}» " +
+                                    "(спецсимволы заменены на «_»)");
+                            name = fixedName;
+                            // F69: значение константы (T11Text не-члена) с токеном — подмена
+                            var t11v = clone.Element("Params")?.Attribute("T11Text");
+                            if (t11v != null && !string.IsNullOrEmpty(t11v.Value) &&
+                                !t11v.Value.StartsWith(".", StringComparison.Ordinal) &&
+                                ContainsMasterToken(t11v.Value, info.MasterNameBase, reserveTok))
+                                t11v.Value = SubstituteMasterTokens(t11v.Value, info.MasterNameBase,
+                                    reserveTok, p.MasterName, reserveName69);
+                        }
+                        // F70: уникальность Info в пределах клона — подмена токенов может
+                        // дать имя, совпадающее с другим объектом: первый блок сохраняет
+                        // имя, повтор получает суффикс + красное предупреждение «ИМЯ:»
+                        // (мастер исключён — его имя зафиксировано планом/превью)
+                        if (!isMasterClone && !usedInfo.Add(name))
+                        {
+                            string uniq = ModbusBlockPlannerService.MakeUniqueName(name, usedInfo);
+                            warnings.Add($"ИМЯ: конфликт имени «{name}» в пакете " +
+                                $"{p.MasterName} — блоку присвоено «{uniq}»");
+                            name = uniq;
                         }
                         clone.SetAttributeValue("T11ID", newT11);
                         clone.SetAttributeValue("Info", name);
@@ -678,11 +920,13 @@ namespace IO_PJT.Services
                         ? mc : 0;
                     masterMeta[masterName] = (masterCard, newIv);
 
-                    // связи юнита: PL сдвигается на (dx,dy), T11ID перенумеровываются
+                    // связи пакета: PL сдвигается на (dx,dy), T11ID перенумеровываются
                     // F19: только блоки активного юнита — чужие юниты не включаются
-                    // (иначе связи исключённых юнитов копировались с несмапленными T11)
+                    // (иначе связи исключённых юнитов копировались с несмапленными T11);
+                    // F70: main — юнит + сиротская логика с токенами; twin — только юнит
+                    var cloneSet = p.IsReserve ? activeT11 : cloneT11Main;
                     foreach (var l in links.Where(l =>
-                                 activeT11.Contains(l.FromT11) && activeT11.Contains(l.ToT11)))
+                                 cloneSet.Contains(l.FromT11) && cloneSet.Contains(l.ToT11)))
                     {
                         var clone = new XElement(l.El);
                         ShiftPointList(clone, dx, dy);
@@ -703,9 +947,10 @@ namespace IO_PJT.Services
                         prc.SetAttributeValue("Y",
                             (int.TryParse((string?)prc.Attribute("Y"), out int py) ? py : 0) + dy);
                         // F38: подстановка текста [TEXT] примитива по таблице объектов
-                        // (LOOPComment(Text) и др.) — значение пишется пер-пакетно
+                        // (LOOPComment(Text) и др.) — значение пишется пер-пакетно;
+                        // F69: подмена токенов имени мастера в тексте
                         ApplyPrimTextSubstitution(prc, p, dataVars, dataVarsTemplateKey,
-                            warnings, textWarned);
+                            warnings, textWarned, info.MasterNameBase, reserveTok);
                         outPrims.Add(prc);
                     }
                 }
@@ -718,7 +963,7 @@ namespace IO_PJT.Services
             // F17: имя POU основного файла — по PouNamePattern (контекст — первый пакет);
             // пусто/не разрешилось — историческое NAME из шаблона (MB_Master_4)
             string pouName = BuildPouName(s.PouNamePattern, info.MasterNameBase,
-                packets.Count > 0 ? packets[0] : null);
+                packets.Count > 0 ? packets[0] : null, warnings);
             if (pouName.Length > 0) pou.SetAttributeValue("NAME", pouName);
             // F61: комментарий POU основного файла — по PouCommentPattern (контекст — первый
             // пакет, как у имени); пусто — Disc шаблона (историческое поведение)
@@ -1029,9 +1274,10 @@ namespace IO_PJT.Services
         private static void ApplyPrimTextSubstitution(XElement prim, MbPacketPlan p,
             IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal)>>? dataVars,
             string dataVarsTemplateKey,
-            List<string> warnings, HashSet<string> textWarned)
+            List<string> warnings, HashSet<string> textWarned,
+            // F69: токены имени мастера — подмена в тексте [TEXT] (шаблонном и маппинга)
+            string? mainToken = null, string? reserveToken = null)
         {
-            if (dataVars == null || dataVars.Count == 0) return;
             var pars = prim.Element("PARAMS");
             if (pars == null) return;
             string txt = pars.Value ?? "";
@@ -1043,21 +1289,39 @@ namespace IO_PJT.Services
                 StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "").Trim();
             if (ident.Length == 0) return;
 
+            // F69: подмена токенов имени мастера (NAME_PACK_TCP_MAINE… → имя блока
+            // пакета; reserve-токен → reserve-имя пары) — к шаблонному тексту и к
+            // разрешённому значению маппинга
+            string SubTokens(string t) => SubstituteMasterTokens(t, mainToken, reserveToken,
+                p.MasterName, p.ReserveTwin?.MasterName);
+
+            bool hasDv = dataVars != null && dataVars.Count > 0;
             // строка маппинга: активный ключ data-шаблона, затем сквозной поиск по всем
             (string IoColumn, string Literal) row = default;
-            bool found = dataVarsTemplateKey.Length > 0 &&
-                         dataVars.TryGetValue(dataVarsTemplateKey, out var byKey) &&
-                         FindTextRow(byKey, ident, out row);
-            if (!found)
-                foreach (var kv in dataVars)
-                    if (FindTextRow(kv.Value, ident, out row)) { found = true; break; }
+            bool found = false;
+            if (hasDv)
+            {
+                found = dataVarsTemplateKey.Length > 0 &&
+                        dataVars!.TryGetValue(dataVarsTemplateKey, out var byKey) &&
+                        FindTextRow(byKey, ident, out row);
+                if (!found)
+                    foreach (var kv in dataVars!)
+                        if (FindTextRow(kv.Value, ident, out row)) { found = true; break; }
+            }
             string warnKey = $"{p.No}|{ident}";
             if (!found)
             {
-                if (textWarned.Add(warnKey))
+                if (hasDv && textWarned.Add(warnKey))
                     warnings.Add($"F38: примитив пакета {p.MasterName}: текст «{ident}» — " +
                         "нет строки объекта в маппинге («Объекты data-шаблонов», объект " +
                         $"«{ident}(Text)») — текст не подставлен");
+                // F69: без строки маппинга — подмена токенов в шаблонном тексте [TEXT]
+                if (ContainsMasterToken(value, mainToken, reserveToken))
+                {
+                    string subValue = SubTokens(value);
+                    if (!string.Equals(subValue, value, StringComparison.Ordinal))
+                        ApplyTextValue(pars, m, subValue);
+                }
                 return;
             }
 
@@ -1075,6 +1339,9 @@ namespace IO_PJT.Services
                         "колонка/шаблон/литерал пусты — текст не подставлен");
                 return;
             }
+
+            // F69: подмена токенов и в разрешённом тексте маппинга
+            text = SubTokens(text);
 
             // вся строка [TEXT]=… → разрешённый текст (пер-пакетно: значения ColumnValues
             // своей точки пакета); параметры [FONTID]/[HINT] и прочие не трогаются
@@ -1137,7 +1404,12 @@ namespace IO_PJT.Services
             {
                 // F36/F49: канал ИМЕНИ — TagNameFor(значение); начальное значение → <IV>
                 ScadaDataOutXmlService.SetIvValue(clone, (row.Literal ?? "").Trim());
-                return ScadaDataOutXmlService.TagNameFor(dval);
+                // F69: автозамена спецсимволов в марке — предупреждение «ИМЯ:»
+                string nm52 = ScadaDataOutXmlService.TagNameFor(dval, out bool ren52);
+                if (ren52)
+                    warnings.Add($"ИМЯ: объект «{dval}» → «{nm52}» " +
+                        "(спецсимволы заменены на «_»)");
+                return nm52;
             }
             // F36: только литерал — канал ЗНАЧЕНИЯ (<IV>), Info без изменений
             ScadaDataOutXmlService.SetIvValue(clone, dval);

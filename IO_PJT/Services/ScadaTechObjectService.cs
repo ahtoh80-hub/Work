@@ -38,11 +38,17 @@ namespace IO_PJT.Services
 
         // ================== Построение строк ==================
 
-        /// <summary>Преобразовать значение поля в Марку (F12): тире → «_», ведущий «_» обязателен.
-        /// «1115-MHS-00101A» → «_1115_MHS_00101A»; уже начинающееся с «_» — не трогаем.</summary>
-        public static string MakeMarka(string? value)
+        /// <summary>Преобразовать значение поля в Марку (F12): F69 — ЛЮБОЙ спецсимвол
+        /// (всё кроме букв/цифр/«_») → «_», серии «__» → «_» (в т.ч. тире, как раньше),
+        /// ведущий «_» обязателен. «1115-MHS-00101A» → «_1115_MHS_00101A»; уже начинающееся
+        /// с «_» — не трогаем. out renamed — true, если спецсимволы были заменены
+        /// (предупреждение «ИМЯ:»).</summary>
+        public static string MakeMarka(string? value) => MakeMarka(value, out _);
+
+        public static string MakeMarka(string? value, out bool renamed)
         {
-            string s = (value ?? "").Trim().Replace('-', '_');
+            string s = (value ?? "").Trim();
+            s = ScadaTemplateXmlService.SanitizeNameFull(s, out renamed);
             if (s.Length == 0) return "";
             return s[0] == '_' ? s : "_" + s;
         }
@@ -152,7 +158,12 @@ namespace IO_PJT.Services
                 if (plcTag.Contains(','))
                     result.Warnings.Add($"«{p.Tag}»: в M_PlcTag несколько регистров — взят первый ({plcTag.Split(',')[0].Trim()})");
 
-                string marka = MakeMarka(RenderValue(p, settings.MarkaField, result, "Марка"));
+                string marka = MakeMarka(RenderValue(p, settings.MarkaField, result, "Марка"),
+                    out bool markaRenamed);
+                // F69: автозамена спецсимволов в марке — предупреждение «ИМЯ:»
+                if (markaRenamed)
+                    result.Warnings.Add($"ИМЯ: Марка «{p.Tag}» → «{marka}» " +
+                        "(спецсимволы заменены на «_»)");
                 if (marka.Length <= 1)
                     result.Warnings.Add($"«{p.Tag}»: Марка пуста (поле-источник «{settings.MarkaField}»)");
 

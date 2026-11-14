@@ -42,6 +42,9 @@
             <StackPanel>
                 <TextBlock Text="{Binding StatsText}" FontWeight="SemiBold" TextWrapping="Wrap" Foreground="#1F4E79" />
                 <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                <!-- F69: красный список сообщений «ИМЯ:» (автозамена спецсимволов в Марках) -->
+                <TextBlock Text="{Binding NameWarningsText}" TextWrapping="Wrap"
+                           Foreground="Red" FontWeight="SemiBold" Margin="0,3,0,0" />
             </StackPanel>
         </Border>
 

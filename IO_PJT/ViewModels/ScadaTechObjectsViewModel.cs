@@ -39,6 +39,14 @@ namespace IO_PJT.ViewModels
         private string _statsText = "";
         public string StatsText { get => _statsText; set => Set(ref _statsText, value, nameof(StatsText)); }
 
+        private string _nameWarningsText = "";
+        /// <summary>F69: красный список сообщений «ИМЯ:» (автозамена спецсимволов в Марках).</summary>
+        public string NameWarningsText
+        {
+            get => _nameWarningsText;
+            set => Set(ref _nameWarningsText, value, nameof(NameWarningsText));
+        }
+
         /// <summary>Последний построенный результат (для экспорта).</summary>
         private ScadaBuildResult? _built;
 
@@ -168,6 +176,13 @@ namespace IO_PJT.ViewModels
                     _s.Log.Info($"F12: предупреждения построения ({result.Warnings.Count}): " +
                                 string.Join("; ", result.Warnings.Take(5)) +
                                 (result.Warnings.Count > 5 ? "; …" : ""));
+                // F69: красный блок «ИМЯ:» (автозамена спецсимволов в Марках) + в журнал
+                foreach (var w in result.Warnings.Where(w =>
+                             w != null && w.StartsWith("ИМЯ:", StringComparison.Ordinal)))
+                    _s.Log.Warn(w);
+                NameWarningsText = string.Join(Environment.NewLine,
+                    result.Warnings.Where(w => w != null &&
+                        w.StartsWith("ИМЯ:", StringComparison.Ordinal)));
             }
             catch (Exception ex)
             {

@@ -193,9 +193,15 @@ namespace IO_PJT.Models
         /// <summary>F13: имя блока Modbus SCADA (MB_TCP_MASTER_4_1) — куда входит точка
         /// (заполняется кнопкой «Записать привязки в IO_LIST»).</summary>
         public string? BusBlock { get; set; }
+        /// <summary>F71: имя резервного (reserve) блока SCADA-пары main/reserve (пусто, если у
+        /// точки нет резервного подключения; заполняется той же кнопкой).</summary>
+        public string? BusBlockRes { get; set; }
         /// <summary>F13: привязка данных блока SCADA (MB_TCP_MASTER_4_1.DataOut[0] — индекс =
         /// адрес точки − Address пакета; заполняется той же кнопкой).</summary>
         public string? BusDataOut { get; set; }
+        /// <summary>F71: привязка данных резервного блока (MB_TCP_MASTER_4_2.DataOut[0]) —
+        /// тот же байтовый индекс, что у main (F68); пусто без резервного подключения.</summary>
+        public string? BusDataOutRes { get; set; }
         /// <summary>F27: Марка SCADA (MakeMarka от поля-источника F12) — заполняется кнопкой
         /// «Записать Марку в IO_LIST» в окне генератора перечня (F12).</summary>
         public string? Marka { get; set; }

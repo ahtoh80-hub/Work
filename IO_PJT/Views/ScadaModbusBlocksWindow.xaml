@@ -7,7 +7,8 @@
 
     <!-- F13: генерация блоков опроса Modbus TCP для импорта в SCADA: внешний XML-шаблон
          (файл или вставленный код) размножается по пакетам из точек с адресацией (M_PlcTag);
-         привязки DataOut[i] пишутся в IO_LIST (M_BusBlock/M_BusDataOut) и выгружаются
+         привязки DataOut[i] пишутся в IO_LIST (M_BusBlock/M_BusDataOut, резервная пара F71 —
+         M_BusBlockRes/M_BusDataOutRes) и выгружаются
          отдельным файлом привязок. -->
     <DockPanel Margin="8">
 
@@ -18,7 +19,7 @@
                     <Button Content="Построить превью" Command="{Binding BuildCommand}" Width="130" Margin="0,0,6,0"
                             ToolTip="Сформировать пакеты-запросы из точек с адресацией Modbus (M_PlcTag) по шаблону" />
                     <Button Content="Записать привязки в IO_LIST" Command="{Binding WriteBindingsCommand}" Width="200" Margin="0,0,6,0"
-                            ToolTip="Заполнить M_BusBlock (имя блока) и M_BusDataOut (Block.DataOut[i]) у точек плана; непопавшие в пакеты — очистка. Аудит Update" />
+                            ToolTip="Заполнить M_BusBlock (имя блока) и M_BusDataOut (Block.DataOut[i]) у точек плана; при наличии резервной пары (F68 twin) — M_BusBlockRes/M_BusDataOutRes (F71); непопавшие в пакеты — очистка всех четырёх полей. Аудит Update" />
                     <Button Content="Сформировать XML..." Command="{Binding ExportCommand}" Width="140" Margin="0,0,6,0" FontWeight="SemiBold"
                             ToolTip="F37: при включённой опции справа — папка и файлы «Контроллер_Станция_№»/«Контроллер_Станция_Typno_№»; выключено — сводный BufScadaPOUS + «{имя}_bindings.xml» рядом" />
                     <CheckBox Content="Файлами: контроллер/станция/Typno" IsChecked="{Binding Settings.SplitByControllerStation, Mode=TwoWay}"
@@ -36,6 +37,9 @@
             <StackPanel>
                 <TextBlock Text="{Binding StatsText}" FontWeight="SemiBold" TextWrapping="Wrap" Foreground="#1F4E79" />
                 <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                <!-- F69: красный список сообщений «ИМЯ:» (автозамена спецсимволов в именах) -->
+                <TextBlock Text="{Binding NameWarningsText}" TextWrapping="Wrap"
+                           Foreground="Red" FontWeight="SemiBold" Margin="0,3,0,0" />
             </StackPanel>
         </Border>
 
@@ -259,6 +263,7 @@
                                 <RowDefinition /><RowDefinition /><RowDefinition />
                                 <RowDefinition /><RowDefinition /><RowDefinition />
                                 <RowDefinition /><RowDefinition /><RowDefinition />
+                                <RowDefinition /><RowDefinition />
                             </Grid.RowDefinitions>
                             <Label Grid.Row="0" Grid.Column="0" Content="Политика:" />
                             <ComboBox Grid.Row="0" Grid.Column="1" Margin="4" SelectedIndex="{Binding PolicyIndex}"
@@ -342,6 +347,10 @@
                             <TextBox Grid.Row="17" Grid.Column="1" Margin="4"
                                      Text="{Binding Settings.DataOutPouCommentPattern, UpdateSourceTrigger=PropertyChanged}"
                                      ToolTip="F61: шаблон комментария (Disc) POU файла привязок (контекст — первый пакет чанка, как у имени POU); токены те же. Пусто — Disc пустой (слово «Обработка» больше не ставится)" />
+                            <Label Grid.Row="18" Grid.Column="0" Content="Токен reserve в шаблоне:" />
+                            <TextBox Grid.Row="18" Grid.Column="1" Margin="4"
+                                     Text="{Binding Settings.BlockTokenReserve, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="F69/F70: токен reserve-блока в шаблонах (напр. NAME_PACK_TCP_RESERVE) — вхождение в имени объекта логики пакета или data-шаблона заменяется на имя reserve-блока пары (суффиксы .busy/_LINK сохраняются). Пусто — токен берётся автоматически из имени ВТОРОГО мастера шаблона; если второго мастера нет — reserve-подмена не выполняется. main-токен — имя блока мастера шаблона (MasterNameBase), автоматически" />
                         </Grid>
                     </GroupBox>
 
@@ -541,6 +550,13 @@
                               CellEditEnding="PreviewGrid_CellEditEnding"
                               PreviewMouseLeftButtonDown="PreviewGrid_PreviewMouseLeftButtonDown"
                               ToolTip="F61/F34: по строке на пакет станций с галочкой «Генерировать»; SlaveId/FuncCode/Address/Count/Тайм. мс/IP:порт — редактируются (значения применяются при экспорте XML и записи привязок); клик по read-only ячейке уже выбранной строки снимает выбор (внизу — все привязки превью)">
+                        <!-- F72: красная подсветка строк/ячеек с автозаменённым именем (F69) убрана —
+                             сообщения «ИМЯ:» выводятся только в нижнем красном блоке окна и в журнале событий -->
+                        <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow">
+                                <Setter Property="Background" Value="Transparent" />
+                            </Style>
+                        </DataGrid.RowStyle>
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="№" Binding="{Binding No}" Width="40" IsReadOnly="True" />
                             <DataGridTextColumn Header="Контроллер" Binding="{Binding Controller}" Width="95" IsReadOnly="True"
@@ -572,7 +588,7 @@
                     </DataGrid>
                 </GroupBox>
 
-                <GroupBox Grid.Row="2" Header="Привязки (DataOut) — M_BusBlock / M_BusDataOut в IO_LIST">
+                <GroupBox Grid.Row="2" Header="Привязки (DataOut) — M_BusBlock / M_BusDataOut и M_BusBlockRes / M_BusDataOutRes в IO_LIST">
                     <DataGrid ItemsSource="{Binding BindingsPreview}" AutoGenerateColumns="False" IsReadOnly="True"
                               HeadersVisibility="Column" EnableRowVirtualization="True"
                               ToolTip="F61: выбран в превью пакет — привязки этого пакета; выбор снят — все привязки пакетов, отображённых в превью">
@@ -594,6 +610,10 @@
                                                 ToolTipService.ToolTip="Индекс DataOut = адрес точки − Address пакета" />
                             <DataGridTextColumn Header="Блок (M_BusBlock)" Binding="{Binding BlockName}" Width="180" />
                             <DataGridTextColumn Header="Привязка (M_BusDataOut)" Binding="{Binding DataOutExpr}" Width="240" />
+                            <DataGridTextColumn Header="Reserve (M_BusBlockRes)" Binding="{Binding ReserveBlockName}" Width="180"
+                                                ToolTipService.ToolTip="F71: имя резервного блока пары main/reserve (пусто, если резерва нет)" />
+                            <DataGridTextColumn Header="Путь reserve (M_BusDataOutRes)" Binding="{Binding ReserveDataOutExpr}" Width="240"
+                                                ToolTipService.ToolTip="F71: путь резервного блока — тот же байтовый индекс, что у main (пусто, если резерва нет)" />
                         </DataGrid.Columns>
                     </DataGrid>
                 </GroupBox>
