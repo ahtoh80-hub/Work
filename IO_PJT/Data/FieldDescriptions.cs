@@ -85,6 +85,7 @@ namespace IO_PJT.Data
             ["M_SigType"] = "F9: Signal type (Impulse/Permanent)",
             ["M_RegType"] = "F9: Register type — тип регистра (1/4/6)",
             ["M_Address"] = "F9: Address/Bit — адрес регистра или бит",
+            ["M_Bit"] = "F75: номер бита в адресе (M_Bit, 0..15/1..16) — битовые сигналы одного адреса; объект Bit_i data-шаблона получает марку точки с этим битом («Смещение бит» в превью F13)",
             ["M_AccessType"] = "F9: Access type (Read/Write)",
             ["M_DataType"] = "F9: Data type (BOOL / 16-Bit Unsigned / 32-Bit Float…)",
             ["M_FuncCode"] = "F9: Function code Modbus (02/03/06)",

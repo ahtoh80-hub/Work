@@ -827,6 +827,21 @@ namespace IO_PJT.Services
         private static IReadOnlyDictionary<string, string> BindColumns(MbBinding b, MbPacketPlan p) =>
             b.ColumnValues != null && b.ColumnValues.Count > 0 ? b.ColumnValues : p.ColumnValues;
 
+        /// <summary>F75: колонки точки с нужным M_Bit для объекта Bit0..Bit15:
+        /// колонки строки привязки и всех точек её адреса (SharedColumns, F75);
+        /// нет бита — null (объект остаётся шаблонным).</summary>
+        private static IReadOnlyDictionary<string, string>? FindBitColumns(MbBinding b, int wantBit)
+        {
+            bool Match(IReadOnlyDictionary<string, string>? c) =>
+                c != null && c.TryGetValue("M_Bit", out var bs) &&
+                int.TryParse((bs ?? "").Trim(), out var bv) && bv == wantBit;
+            if (Match(b.ColumnValues)) return b.ColumnValues;
+            if (b.SharedColumns != null)
+                foreach (var c in b.SharedColumns)
+                    if (Match(c)) return c;
+            return null;
+        }
+
         /// <summary>F13.1/F18: подстановки в клон цепочки: источник(и) — «{Block}.DataOut[{byteBase+j}]»
         /// (байтовый индекс: byteBase по смещению привязки + позиция источника в эталоне),
         /// cardId/IV от мастера пакета; приёмник — тег (+член эталона «.Xin») и новая карточка.
@@ -914,11 +929,44 @@ namespace IO_PJT.Services
                         if (!string.Equals(fixedObj, objName, StringComparison.Ordinal))
                             clone.SetAttributeValue("Info", fixedObj);
                     }
+                    // F75: битовый объект Bit0..Bit15 - колонки точки с M_Bit=i
+                    // (+ «Смещение бит»); бит не найден - подстановка не выполняется
+                    IReadOnlyDictionary<string, string>? bitCols75 = null;
+                    string bitMarka75 = "";
+                    string litRow75 = "";
+                    bool bitSkip75 = false;
+                    bool bitApplied75 = false;
+                    var bitM75 = Regex.Match(objName, @"^Bit(\d{1,2})$", RegexOptions.CultureInvariant);
+                    if (bitM75.Success && int.TryParse(bitM75.Groups[1].Value, out var bitI75))
+                    {
+                        int want75 = bitI75 + (p.BitOffset ? 1 : 0);
+                        bitCols75 = FindBitColumns(b, want75);
+                        if (bitCols75 == null)
+                        {
+                            bitSkip75 = true;
+                            if (warnings != null &&
+                                (noMapWarned == null || noMapWarned.Add($"F75|{p.MasterName}|{want75}")))
+                                warnings.Add($"F75: {p.MasterName}: бит {want75} не найден в IO_LIST -" +
+                                    $" объект «{objName}» без изменений");
+                        }
+                        else if (bitCols75.TryGetValue("M_Marka", out var bm75) &&
+                                 !string.IsNullOrWhiteSpace(bm75))
+                            bitMarka75 = bm75.Trim();
+                    }
                     if (objName.Length > 0 && dataVars.TryGetValue(objName, out var drow))
                     {
                         rootVarRow46 = isRootVar46;
-                        string dval = ResolveDataVarValue(drow.IoColumn, drow.Literal,
-                            BindColumns(b, p), out string? dUnresolved, out bool dFromName);
+                        litRow75 = (drow.Literal ?? "").Trim();
+                        string dval; string? dUnresolved; bool dFromName;
+                        if (bitSkip75)
+                        {
+                            dval = ""; dUnresolved = null; dFromName = false;
+                        }
+                        else
+                        {
+                            dval = ResolveDataVarValue(drow.IoColumn, drow.Literal,
+                                bitCols75 ?? BindColumns(b, p), out dUnresolved, out dFromName);
+                        }
                         // F69: подмена токенов и в значении маппинга (литерал/колонка может
                         // содержать токен имени блока мастера)
                         dval = ScadaTemplateXmlService.SubstituteMasterTokens(dval, mainToken,
@@ -965,12 +1013,14 @@ namespace IO_PJT.Services
                                 // подстановка в <IV> тега, Info шаблонный без изменений
                                 SetIvValue(clone, dval);
                             }
+                            bitApplied75 = true;
                         }
                     }
                     else if (warnings != null && objName.Length > 0 &&
                              // F46: write-корень без строки — не ошибка: выполняется автотег F30
                              (isVarBlock || isSimpleRoot46) &&
-                             (noMapWarned == null || noMapWarned.Add($"var|{objName}")))
+                             (noMapWarned == null || noMapWarned.Add($"var|{objName}")) &&
+                             (bitMarka75.Length == 0))
                     {
                         // F37.1: var-объект без строки маппинга — подстановка НЕ выполняется;
                         // раньше молчало (в отличие от приёмника F35) — баг «литерал не пишется
@@ -979,6 +1029,20 @@ namespace IO_PJT.Services
                             $"data-шаблонов» нет строки объекта — подстановка не выполнена " +
                             "(имя строки маппинга должно совпадать с Info блока шаблона точно, " +
                             "например SLAVE_BYTES_ORGER — как в шаблоне)");
+                    }
+                    // F75: битовый объект без подстановки - имя = марка точки с битом
+                    if (!bitApplied75 && bitMarka75.Length > 0)
+                    {
+                        string bitName75 = TagNameFor(bitMarka75, out bool bitRen75);
+                        if (bitRen75)
+                            warnings?.Add($"Я: «{bitMarka75}» -> «{bitName75}»");
+                        clone.SetAttributeValue("Info", bitName75);
+                        int bitCard75 = nextCard;
+                        nextCard += 10;
+                        clone.Element("Params")?.SetAttributeValue("cardId", bitCard75);
+                        if (seenCards.Add(bitCard75))
+                            outCards.Add(NewCard(bitCard75, bitName75));
+                        SetIvValue(clone, litRow75);
                     }
                 }
             }
@@ -1077,6 +1141,17 @@ namespace IO_PJT.Services
                 if (!string.Equals(fixedTarget, objName, StringComparison.Ordinal))
                     clone.SetAttributeValue("Info", fixedTarget);
                 string cardTarget = fixedTarget; // F36: карточка по имени приёмника
+                IReadOnlyDictionary<string, string>? bitColsT75 = null;
+                string bitMarkaT75 = "";
+                bool bitSkipT75 = false;
+                var bitMT75 = Regex.Match(objName, @"^Bit(\d{1,2})$", RegexOptions.CultureInvariant);
+                if (bitMT75.Success && int.TryParse(bitMT75.Groups[1].Value, out var bitIT75))
+                {
+                    bitColsT75 = FindBitColumns(b, bitIT75 + (p.BitOffset ? 1 : 0));
+                    if (bitColsT75 == null) { bitSkipT75 = true; noMapWarned?.Add($"{p.MasterName}|{objName}"); }
+                    else if (bitColsT75.TryGetValue("M_Marka", out var bmT75) && !string.IsNullOrWhiteSpace(bmT75))
+                        bitMarkaT75 = bmT75.Trim();
+                }
                 string? mappedName = null;
                 bool mappedFromName = false;
                 string litRow49 = ""; // F49: литерал («Начальное значение») строки маппинга
@@ -1085,15 +1160,22 @@ namespace IO_PJT.Services
                 {
                     litRow49 = (drowT.Literal ?? "").Trim();
                     mappedName = ResolveDataVarValue(drowT.IoColumn, drowT.Literal,
-                        BindColumns(b, p), out string? dUnT, out mappedFromName);
-                    if (dUnT != null)
+                        bitColsT75 ?? BindColumns(b, p), out string? dUnT, out mappedFromName);
+                    if (dUnT != null && !bitSkipT75)
                         warnings?.Add($"F35: {b.Tag}: приёмник «{objName}» — колонка/шаблон " +
                             $"«{dUnT}» не разрешился — значение не подставлено");
                     if (string.IsNullOrEmpty(mappedName)) mappedName = null;
+                    if (bitSkipT75) { mappedName = null; mappedFromName = false; }
                     // F69: подмена токенов и в значении маппинга приёмника
                     if (mappedName != null)
                         mappedName = ScadaTemplateXmlService.SubstituteMasterTokens(mappedName,
                             mainToken, reserveToken, b.BlockName, p.ReserveTwin?.MasterName);
+                }
+                // F75: приёмник Bit_i без значения маппинга - имя = марка точки с битом
+                if (mappedName == null && bitMarkaT75.Length > 0)
+                {
+                    mappedName = bitMarkaT75;
+                    mappedFromName = true;
                 }
                 if (mappedName != null && mappedFromName)
                 {
@@ -1213,34 +1295,55 @@ namespace IO_PJT.Services
         /// переименовывает Info, а НАЧАЛЬНОЕ ЗНАЧЕНИЕ (литерал) дополнительно пишется
         /// в &lt;IV&gt; (см. SetIvValue в ветках ApplyBindingSubstitutions); «Начальное
         /// значение» в UI — бывший «Литерал» (поле Literal в БД без изменений).</summary>
+        /// F74: «олонка/шаблон» с постоянным текстом (не колонка точки) — текст
+        /// возвращается с fromName=true: объект СТСЯ с этим именем; литерал —
+        /// запасной канал только при пустом поле.
         public static string ResolveDataVarValue(string? ioColumn, string? literal,
             IReadOnlyDictionary<string, string>? columnValues, out string? unresolved,
             out bool fromName)
+
         {
             unresolved = null;
             fromName = false;
             string col = (ioColumn ?? "").Trim();
-            if (col.Length > 0 && columnValues != null)
+            if (col.Length > 0)
             {
-                if (col.IndexOf('{') >= 0)
+                if (columnValues != null)
                 {
-                    string rendered = ModbusBlockPlannerService.RenderVarTemplate(
-                        col, columnValues, out var unres);
-                    if (unres.Count > 0) unresolved = string.Join(",", unres);
-                    if (unresolved == null || rendered != col)
+                    if (col.IndexOf('{') >= 0)
                     {
+                        string rendered = ModbusBlockPlannerService.RenderVarTemplate(
+                            col, columnValues, out var unres);
+                        if (unres.Count > 0) unresolved = string.Join(",", unres);
+                        if (unresolved == null || rendered != col)
+                        {
+                            fromName = true;
+                            return rendered;
+                        }
+                    }
+                    else if (columnValues.TryGetValue(col, out var cv))
+                    {
+                        if (!string.IsNullOrWhiteSpace(cv))
+                        {
+                            fromName = true;
+                            return cv.Trim();
+                        }
+                        unresolved = col;
+                    }
+                    else
+                    {
+                        // F74: постоянный текст = имя объекта (fromName -> TagNameFor),
+                        // раньше считался неразрешённым и объект не создавался
                         fromName = true;
-                        return rendered;
+                        return col;
                     }
                 }
-                else if (columnValues.TryGetValue(col, out var cv) &&
-                         !string.IsNullOrWhiteSpace(cv))
+                else if (col.IndexOf('{') < 0)
                 {
+                    // F74: таблицы точек нет - текст без {} также считаем именем
                     fromName = true;
-                    return cv.Trim();
+                    return col;
                 }
-                else
-                    unresolved = col; // колонка не найдена/пуста у точки пакета
             }
             return (literal ?? "").Trim();
         }

@@ -112,7 +112,7 @@ namespace IO_PJT.Services
             FS("HH", p => p.Ranges?.Alarms?.HH, (p, v) => ((p.Ranges ??= new()).Alarms ??= new()).HH = v),
             FS("HH2", p => p.Ranges?.Alarms?.HH2, (p, v) => ((p.Ranges ??= new()).Alarms ??= new()).HH2 = v),
 
-            // ===== Modbus (30) — F9: данные карты адресации Modbus; F13: привязки блоков; F27: M_Marka =====
+            // ===== Modbus (33) — F9: данные карты адресации Modbus; F13: привязки блоков; F27: M_Marka; F75: M_Bit =====
             FS("M_MapFile", p => p.Modbus?.MapFile, (p, v) => (p.Modbus ??= new()).MapFile = v),
             FS("M_SlaveStation", p => p.Modbus?.SlaveStation, (p, v) => (p.Modbus ??= new()).SlaveStation = v),
             FS("M_SlaveIdMain", p => p.Modbus?.SlaveIdMain, (p, v) => (p.Modbus ??= new()).SlaveIdMain = v),
@@ -133,6 +133,7 @@ namespace IO_PJT.Services
             FS("M_SigType", p => p.Modbus?.SigType, (p, v) => (p.Modbus ??= new()).SigType = v),
             FS("M_RegType", p => p.Modbus?.RegType, (p, v) => (p.Modbus ??= new()).RegType = v),
             FS("M_Address", p => p.Modbus?.Address, (p, v) => (p.Modbus ??= new()).Address = v),
+            FS("M_Bit", p => p.Modbus?.Bit, (p, v) => (p.Modbus ??= new()).Bit = v), // F75: бит в адресе
             FS("M_AccessType", p => p.Modbus?.AccessType, (p, v) => (p.Modbus ??= new()).AccessType = v),
             FS("M_DataType", p => p.Modbus?.DataType, (p, v) => (p.Modbus ??= new()).DataType = v),
             FS("M_FuncCode", p => p.Modbus?.FuncCode, (p, v) => (p.Modbus ??= new()).FuncCode = v),

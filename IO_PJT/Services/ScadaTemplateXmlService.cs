@@ -74,6 +74,10 @@ namespace IO_PJT.Services
         public sealed class GeneratedXml
         {
             public string PousXml = "";
+
+            /// <summary>F73: число созданных кластеров (пакетов с клоном шаблона) —
+            /// продолжение позиций между группами WriteProtocolSplit без дыр.</summary>
+            public int ClusterCount;
             public string BindingsXml = "";
 
             /// <summary>F19: предупреждения генерации (исключённые юниты-мастера шаблона,
@@ -628,15 +632,26 @@ namespace IO_PJT.Services
             // давало дубли (ModbusTCP_2 ×2) и лишние блоки (ModbusTCP_3). Блоки/связи
             // исключённых юнитов в результат не попадают; предупреждение — в журнал/статус.
             var warnings = new List<string>();
-            if (units.Count > 1)
+            // F73: units[1] (резервный мастер) клонируется в main-пакеты с twin;
+            // units[2+] не клонируются (в превью один блок на пакет)
+            if (units.Count > 2)
             {
-                var extra = string.Join(", ", units.Skip(1).Select(u => u.Master.Info));
-                warnings.Add($"в шаблоне {units.Count} блока мастера — сгенерирован юнит мастера " +
-                    $"«{units[0].Master.Info}»; блоки мастера [{extra}] исключены из результата " +
-                    "(в превью отображается один блок на пакет)");
+                var extra = string.Join(", ", units.Skip(2).Select(u => u.Master.Info));
+                warnings.Add($"F73: в шаблоне {units.Count} блока мастера — юниты мастера " +
+                    $"[{extra}] не клонируются");
             }
+            if (units.Count > 1 && packets.Any(pp => !pp.IsReserve && pp.ReserveTwin == null))
+                warnings.Add("F73: шаблон содержит резервный мастер, но у пакета нет " +
+                    "резервного подключения (M_SlaveIdBackup) — резервная сторона " +
+                    "шаблона в этом пакете не клонирована");
             var activeT11 = new HashSet<int>(units[0].Unit.Select(x => x.T11));
-            var droppedT11 = new HashSet<int>(unitT11Set.Where(t => !activeT11.Contains(t)));
+            // F73: units[1] (резервный мастер) клонируется per-packet при наличии twin
+            var unit1T11 = units.Count > 1
+                ? new HashSet<int>(units[1].Unit.Select(x => x.T11))
+                : new HashSet<int>();
+            // F73: из исключённых юнитов — только units[2+]
+            var droppedT11 = new HashSet<int>(unitT11Set.Where(t =>
+                !activeT11.Contains(t) && !unit1T11.Contains(t)));
 
             // F70: reserve-токен — настройка BlockTokenReserve, иначе имя второго мастера
             // шаблона (NAME_PACK_TCP_RESERVE): подмена резервной стороны работает без
@@ -657,6 +672,7 @@ namespace IO_PJT.Services
             foreach (var g in blocks.GroupBy(x => Find(x.T11)))
             {
                 var list = g.ToList();
+                if (list.Any(x => unitT11Set.Contains(x.T11))) continue; // F73: юниты — в unitBlocks
                 if (list.All(x => activeT11.Contains(x.T11))) continue; // активный юнит — уже клонируется
                 var nonMasters = list.Where(x => !x.IsMaster).ToList();
                 if (!nonMasters.Any(HasTok)) continue; // без токенов — общие (как раньше)
@@ -676,15 +692,19 @@ namespace IO_PJT.Services
 
             // F70: «общие» — без токенов (сироты с токенами клонируются в main-пакеты)
             var commonBlocks = blocks
-                .Where(b => !cloneT11Main.Contains(b.T11) && !droppedT11.Contains(b.T11))
+                .Where(b => !cloneT11Main.Contains(b.T11) && !droppedT11.Contains(b.T11) &&
+                            !unit1T11.Contains(b.T11))
                 .ToList();
+            // F73: T11 общей логики — клонируется per-packet вместе с юнитами
+            var commonT11 = new HashSet<int>(commonBlocks.Select(x => x.T11));
             // F19: связи исключённых юнитов не включаются ни в «общие», ни в клоны —
             // иначе в результат утекут ссылки на блоки, которых в нём больше нет;
             // F70: связи пула сирот (оба конца ∈ cloneT11Main) тоже исключаются из
             // общих — они клонируются per-packet в main
             var commonLinks = links
                 .Where(l => !cloneT11Main.Contains(l.FromT11) && !cloneT11Main.Contains(l.ToT11) &&
-                            !droppedT11.Contains(l.FromT11) && !droppedT11.Contains(l.ToT11)).ToList();
+                            !droppedT11.Contains(l.FromT11) && !droppedT11.Contains(l.ToT11) &&
+                            !unit1T11.Contains(l.FromT11) && !unit1T11.Contains(l.ToT11)).ToList();
             var outBlocks = new List<XElement>();
             var outLinks = new List<XElement>();
             var outPrims = new List<XElement>();
@@ -695,6 +715,10 @@ namespace IO_PJT.Services
             // общие блоки/связи — один раз, как в шаблоне
             // F69: объект вне юнита пакета с токеном мастера — подмена невозможна
             // (нет контекста пакета) — красное предупреждение, текст остаётся шаблонным
+            // F73: при пустом списке пакетов — шаблон один раз (без подмен);
+            // при пакетах общая логика клонируется per-packet ниже
+            if (packets.Count == 0)
+            {
             var tokenWarned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var b in commonBlocks)
             {
@@ -723,11 +747,14 @@ namespace IO_PJT.Services
                     outPrims.Add(new XElement(pr));
                 }
 
+            }
             int cols = Math.Max(1, s.ColumnsPerRow);
             bool rtuIpWarned = false;   // F35: RTU без IP/порта в IV — один раз на экспорт
             var textWarned = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // F38: (пакет|объект)
             // F52: предупреждения «объект мастер-шаблона без строки маппинга» — один раз на объект
             var mainMapWarned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // F73: счётчик кластеров — twin при наличии reserve-мастера не кластеруется
+            int clusterNo = 0;
 
             for (int idx = 0; idx < packets.Count; idx++)
             {
@@ -736,22 +763,31 @@ namespace IO_PJT.Services
                 // F50: координаты кластера — от локального порядкового номера пакета в файле
                 // (posBase + idx), а не от глобального p.No: новый файл/POU начинается
                 // с верхней части листа, без «дыр» и пропусков при раздельном экспорте (F37)
-                int pos = posBase + idx;
+                if (p.IsReserve && units.Count > 1) continue; // F73: резерв уже в main-клоне
+                int pos = posBase + clusterNo;
+                clusterNo++;
                 int dx = (pos % cols) * Math.Max(1, s.ColumnStep);
                 int dy = (pos / cols) * Math.Max(1, s.RowStep);
 
                 // F19: размножается только основной юнит — «мастер, указанный в XML-шаблоне»
                 // (units[0]); имя мастера строго из плана (превью), без сдвига за счёт
                 // дополнительных юнитов шаблона (units[1..] исключены, см. warnings)
-                for (int ui = 0; ui < 1; ui++)
+                // F73: размножается СЬ шаблон per-packet: юнит main + юнит reserve
+                // (units[1] при наличии twin) + сироты + общая логика
                 {
-                    var (master, unit) = units[ui];
+                    var (master, unit) = units[0];
                     var t11Map = new Dictionary<int, int>();
                     var cloneByT11 = new Dictionary<int, XElement>();
                     // F70: набор блоков пакета: main = юнит мастера + сиротская логика с
                     // токенами (клонируется per-packet с подменой); twin (IsReserve) — только
                     // юнит (иначе оба токена в twin-клоне дали бы одно имя — конфликт)
-                    var unitBlocks = p.IsReserve ? unit : unit.Concat(orphanBlocks).ToList();
+                    // F73: блоки пакета: юнит main + юнит reserve (units[1] при наличии
+                    // twin) + сироты + общая логика — всё per-packet
+                    var unitBlocks = new List<TBlock>(unit);
+                    if (units.Count > 1 && p.ReserveTwin != null && !p.IsReserve)
+                        unitBlocks.AddRange(units[1].Unit);
+                    unitBlocks.AddRange(orphanBlocks);
+                    unitBlocks.AddRange(commonBlocks);
                     string masterName = p.MasterName;
                     // F69: reserve-имя пары: у main-пакета — имя twin, у twin-пакета —
                     // собственное имя (клон сам является reserve-блоком); reserve-блоков
@@ -761,6 +797,8 @@ namespace IO_PJT.Services
                     // (подмена токенов у объекта может дать его же имя)
                     var usedInfo = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     usedInfo.Add(masterName);
+                    if (units.Count > 1 && p.ReserveTwin != null && !p.IsReserve)
+                        usedInfo.Add(p.ReserveTwin.MasterName); // F73: имя резервного мастера
 
                     foreach (var b in unitBlocks)
                     {
@@ -776,6 +814,9 @@ namespace IO_PJT.Services
                         {
                             name = masterName;
                         }
+                        else if (units.Count > 1 && b.T11 == units[1].Master.T11 &&
+                                 p.ReserveTwin != null && !p.IsReserve)
+                            name = p.ReserveTwin.MasterName; // F73: резервный мастер — имя плана
                         else if (ContainsMasterToken(b.Info, info.MasterNameBase, reserveTok))
                         {
                             // F69: подмена токенов имени мастера в имени объекта логики
@@ -870,10 +911,14 @@ namespace IO_PJT.Services
 
                     // подстановки значений входов мастера по связям шаблона (константе —
                     // Info/T11Text, тегу — IV); F35: остальные входы пишутся в <IV> мастера
-                    foreach (var l in links.Where(l => l.ToT11 == master.T11))
+                    foreach (var l in links.Where(l => l.ToT11 == master.T11 ||
+                        (units.Count > 1 && p.ReserveTwin != null && !p.IsReserve &&
+                         l.ToT11 == units[1].Master.T11)))
                     {
                         string port = PortOf(l.El.Element("LastPoint")?.Attribute("LP")?.Value);
-                        string? val = port.Length > 0 ? MasterInputValue(p, port, s) : null;
+                        // F73: входы резервного мастера — значения его плана
+                        MbPacketPlan side = l.ToT11 == master.T11 ? p : p.ReserveTwin!;
+                        string? val = port.Length > 0 ? MasterInputValue(side, port, s) : null;
                         if (val != null && t11Map.TryGetValue(l.FromT11, out int srcNew))
                             ApplyInputValue(cloneByT11[srcNew], val);
                     }
@@ -919,12 +964,34 @@ namespace IO_PJT.Services
                     int masterCard = mp != null && int.TryParse((string?)mp.Attribute("cardId"), out int mc)
                         ? mc : 0;
                     masterMeta[masterName] = (masterCard, newIv);
+                    // F73: резервный мастер (units[1]) клонируется в main-пакете с именем
+                    // twin — его IV/cardId тоже в метаданные (файл привязок)
+                    if (units.Count > 1 && p.ReserveTwin != null && !p.IsReserve &&
+                        t11Map.TryGetValue(units[1].Master.T11, out int t11Res))
+                    {
+                        var rc = cloneByT11[t11Res];
+                        var rp = rc.Element("Params");
+                        string srcIvR = rp?.Element("IV")?.Value ?? "";
+                        string newIvR = BuildMasterIv(srcIvR, p.ReserveTwin, s, masterRtu);
+                        if (rp != null)
+                        {
+                            var ivR = rp.Element("IV");
+                            if (ivR == null) { ivR = new XElement("IV"); rp.Add(ivR); }
+                            ivR.Value = newIvR;
+                        }
+                        int cardR = rp != null && int.TryParse((string?)rp.Attribute("cardId"), out int mr) ? mr : 0;
+                        masterMeta[p.ReserveTwin.MasterName] = (cardR, newIvR);
+                    }
 
                     // связи пакета: PL сдвигается на (dx,dy), T11ID перенумеровываются
                     // F19: только блоки активного юнита — чужие юниты не включаются
                     // (иначе связи исключённых юнитов копировались с несмапленными T11);
                     // F70: main — юнит + сиротская логика с токенами; twin — только юнит
-                    var cloneSet = p.IsReserve ? activeT11 : cloneT11Main;
+                    // F73: набор связей пакета — все блоки его клона (юниты+сироты+общие)
+                    var cloneSet = new HashSet<int>(cloneT11Main);
+                    if (units.Count > 1 && p.ReserveTwin != null && !p.IsReserve)
+                        foreach (var t11r in unit1T11) cloneSet.Add(t11r);
+                    foreach (var t11c in commonT11) cloneSet.Add(t11c);
                     foreach (var l in links.Where(l =>
                                  cloneSet.Contains(l.FromT11) && cloneSet.Contains(l.ToT11)))
                     {
@@ -938,8 +1005,20 @@ namespace IO_PJT.Services
                     // примитивы шаблона (заголовки), относящиеся к юниту — клонируются с пакетом
                     foreach (var pr in tplPrims)
                     {
-                        if (!int.TryParse((string?)pr.Attribute("SourceT11ID"), out int st)) continue;
-                        if (!t11Map.TryGetValue(st, out int stNew)) continue;
+                        if (!int.TryParse((string?)pr.Attribute("SourceT11ID"), out int st))
+                        {
+                            // F73: примитив без источника — клон per-packet со сдвигом
+                            var prn = new XElement(pr);
+                            prn.SetAttributeValue("X",
+                                (int.TryParse((string?)prn.Attribute("X"), out int pxn) ? pxn : 0) + dx);
+                            prn.SetAttributeValue("Y",
+                                (int.TryParse((string?)prn.Attribute("Y"), out int pyn) ? pyn : 0) + dy);
+                            ApplyPrimTextSubstitution(prn, p, dataVars, dataVarsTemplateKey,
+                                warnings, textWarned, info.MasterNameBase, reserveTok);
+                            outPrims.Add(prn);
+                            continue;
+                        }
+                        if (!t11Map.TryGetValue(st, out int stNew)) continue; // пропущенная компонента
                         var prc = new XElement(pr);
                         prc.SetAttributeValue("SourceT11ID", stNew);
                         prc.SetAttributeValue("X",
@@ -975,7 +1054,7 @@ namespace IO_PJT.Services
             var pp = pou.Element("PARAMS");
             if (pp != null && packets.Count > 0)
             {
-                int maxRow = (posBase + packets.Count - 1) / cols; // F50: posBase — старт кластера
+                int maxRow = (posBase + clusterNo - 1) / cols; // F73: по числу кластеров // F50: posBase — старт кластера
                 pp.SetAttributeValue("WIDTH",
                     Math.Max(int.TryParse((string?)pp.Attribute("WIDTH"), out int w) ? w : 0,
                         300 + cols * Math.Max(1, s.ColumnStep)));
@@ -1096,7 +1175,7 @@ namespace IO_PJT.Services
             string bindingsXml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
                                  bindDoc.ToString(SaveOptions.DisableFormatting);
 
-            var gen = new GeneratedXml { PousXml = pousXml, BindingsXml = bindingsXml };
+            var gen = new GeneratedXml { PousXml = pousXml, BindingsXml = bindingsXml, ClusterCount = clusterNo };
             foreach (var kv in masterMeta) gen.MasterMeta[kv.Key] = kv.Value;
             foreach (var w in warnings) gen.Warnings.Add(w);
             return gen;
@@ -1170,7 +1249,7 @@ namespace IO_PJT.Services
             foreach (var g in groups)
             {
                 var gen = Write(g.Value, g.Key, settings, dataVars, dataVarsTemplateKey, posBaseGroups);
-                posBaseGroups += g.Value.Count;
+                posBaseGroups += gen.ClusterCount; // F73: без дыр от пропущенных twin
                 acc = acc == null ? gen : MergeSplitResults(acc, gen);
                 settings = ShiftSettingsForSecondPass(s, acc);
             }
@@ -1364,7 +1443,7 @@ namespace IO_PJT.Services
         {
             if (dataVars == null || dataVars.Count == 0) return null;
             string gt = clone.Attribute("GROBJTYPE")?.Value ?? "";
-            if (gt != "31" && gt != "34") return null;
+            // F73: маппинг применяется к любому не-мастерскому объекту (раньше только 31/34)
             string objName = (clone.Attribute("Info")?.Value ?? "").Trim();
             if (objName.Length == 0) return null;
 
@@ -1377,7 +1456,7 @@ namespace IO_PJT.Services
                     if (kv.Value.TryGetValue(objName, out row)) { found = true; break; }
             if (!found)
             {
-                if (warned.Add(objName))
+                if ((gt == "31" || gt == "34") && warned.Add(objName)) // предупреждение — теги/константы
                     warnings.Add($"F52: объект основного шаблона «{objName}» — в маппинге " +
                         "«Объекты data-шаблонов» нет строки объекта — подстановка не выполнена " +
                         "(задайте колонку/шаблон или начальное значение и «Сохранить маппинг объектов»)");
@@ -1444,6 +1523,7 @@ namespace IO_PJT.Services
         /// без дублей, MasterMeta/Warnings сливаются.</summary>
         private GeneratedXml MergeSplitResults(GeneratedXml g1, GeneratedXml g2)
         {
+            g1.ClusterCount += g2.ClusterCount;
             var root1 = XDocument.Parse(g1.PousXml).Root!;
             var root2 = XDocument.Parse(g2.PousXml).Root!;
 

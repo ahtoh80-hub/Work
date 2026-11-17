@@ -417,6 +417,23 @@ namespace IO_PJT.Services
                             foreach (var shTag in shTags)
                                 if (!string.Equals(shTag, bnd.Tag, StringComparison.OrdinalIgnoreCase))
                                     bnd.SharedTags.Add(shTag);
+                    // F75: колонки всех точек адреса (включая строку привязки) -
+                    // источник значений битовых объектов data-шаблона (Bit_i)
+                    foreach (var bnd in packet.Bindings)
+                    {
+                        var tags75 = new List<string>();
+                        if (sharedByAddr.TryGetValue(bnd.Address, out var shAll))
+                            tags75.AddRange(shAll);
+                        if (!string.IsNullOrWhiteSpace(bnd.Tag) &&
+                            !tags75.Contains(bnd.Tag, StringComparer.OrdinalIgnoreCase))
+                            tags75.Add(bnd.Tag);
+                        foreach (var t75 in tags75)
+                            if (pointByTag.TryGetValue(t75, out var pt75))
+                            {
+                                var c75 = ColumnValuesOf(pt75);
+                                if (c75.Count > 0) bnd.SharedColumns.Add(c75);
+                            }
+                    }
                     result.Packets.Add(packet);
                     AddReserveTwin(packet, items); // F68: twin с резервным IP сразу за main
                     // F71: резервная привязка main-пакета для превью F13 — имя и путь
@@ -527,6 +544,7 @@ namespace IO_PJT.Services
                         ColumnValues = b.ColumnValues
                     };
                     foreach (var sh in b.SharedTags) tb.SharedTags.Add(sh);
+                    foreach (var sc75 in b.SharedColumns) tb.SharedColumns.Add(sc75);
                     twin.Bindings.Add(tb);
                 }
                 mainPkt.ReserveTwin = twin;

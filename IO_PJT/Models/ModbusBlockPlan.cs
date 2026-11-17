@@ -48,6 +48,11 @@ namespace IO_PJT.Models
         /// путь M_BusBlock/M_BusDataOut (и M_BusBlockRes/M_BusDataOutRes при резерве).</summary>
         public List<string> SharedTags { get; } = new();
 
+        /// <summary>F75: колонки IO_LIST всех точек адреса (параллельно SharedTags; первая
+        /// точка адреса — ColumnValues самой привязки) — источник значений объектов
+        /// Bit0..Bit15 data-шаблона: марка (M_Marka/колонка маппинга) точки с нужным M_Bit.</summary>
+        public List<Dictionary<string, string>> SharedColumns { get; } = new();
+
         /// <summary>F61: ссылка на пакет привязки (MbPacketPlan) — мастер-detail превью F13:
         /// колонки «Пакет/Контроллер/Станция» таблицы «Привязки DataOut» и фильтр привязок
         /// по выбранному в превью пакету. Заполняется в BuildPlan.</summary>
@@ -169,6 +174,13 @@ namespace IO_PJT.Models
 
         /// <summary>F68: подпись соединения для превью («main»/«reserve»).</summary>
         public string ConnectionKind => IsReserve ? "reserve" : "main";
+
+        private bool _bitOffset;
+        /// <summary>F75: смещение бит M_Bit (галочка «Смещение бит» в перечне блоков
+        /// мастер TCP, превью F13): false — объект Bit_i data-шаблона получает марку
+        /// точки с M_Bit = i (0..15); true — M_Bit = i+1 (Bit0 ← 1 … Bit15 ← 16) для
+        /// данных с нумерацией битов 1..16. рименяется в WriteMulti при экспорте (F75).</summary>
+        public bool BitOffset { get => _bitOffset; set => Set(ref _bitOffset, value); }
 
         private bool _nameRenamed;
         /// <summary>F69: true — имя блока пакета получено/исправлено автозаменой

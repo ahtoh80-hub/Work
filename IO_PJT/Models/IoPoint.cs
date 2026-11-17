@@ -176,6 +176,10 @@ namespace IO_PJT.Models
         public string? RegType { get; set; }
         /// <summary>Address/Bit — адрес регистра или бит.</summary>
         public string? Address { get; set; }
+        /// <summary>F75: номер бита в адресе (M_Bit, 0..15; при «Смещение бит» — 1..16) —
+        /// признак битового сигнала: 16 сигналов одного адреса; объекту Bit_i data-шаблона
+        /// сопоставляется марка точки с этим битом (колонка маппинга, обычно M_Marka).</summary>
+        public string? Bit { get; set; }
         /// <summary>Access type (Read/Write).</summary>
         public string? AccessType { get; set; }
         /// <summary>Data type (BOOL / 16-Bit Unsigned / 32-Bit Float…).</summary>

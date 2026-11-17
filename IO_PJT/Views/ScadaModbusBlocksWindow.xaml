@@ -572,6 +572,8 @@
                                                 ToolTipService.ToolTip="F34: редактируется в формате a.b.c.d:port" />
                             <DataGridTextColumn Header="SlaveId" Binding="{Binding SlaveId, UpdateSourceTrigger=PropertyChanged}" Width="55"
                                                 ToolTipService.ToolTip="F34: редактируется — значение применяется ко входу SlaveId при экспорте" />
+                            <DataGridCheckBoxColumn Header="Смещение бит" Binding="{Binding BitOffset, UpdateSourceTrigger=PropertyChanged}" Width="75"
+                                ToolTipService.ToolTip="F75: смещение бит M_Bit при генерации data-шаблонов: выкл — объект Bit_i ← точка с M_Bit=i (0..15); вкл — M_Bit=i+1 (Bit0←1 … Bit15←16); биты без марок остаются со шаблонной надписью Bit_i" />
                             <DataGridTextColumn Header="FuncCode" Binding="{Binding FuncCode, UpdateSourceTrigger=PropertyChanged}" Width="65"
                                                 ToolTipService.ToolTip="F34: редактируется — код функции (Mode блока); 05/06/15/16 → привязки записи DataIn[]" />
                             <DataGridTextColumn Header="Address (пакет)" Binding="{Binding Address, UpdateSourceTrigger=PropertyChanged}" Width="75"
