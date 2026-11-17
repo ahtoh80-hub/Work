@@ -525,6 +525,23 @@ namespace IO_PJT.Services
             public bool IsMaster;
         }
 
+        /// <summary>F76: простой (безымянный) блок — Info это имя типа или значение, а не
+        /// уникальное имя: константы 34, функции 35/36 (NOT/AND/«=»), функциональные блоки 37
+        /// без карточки (SR/F_TRIG/…). Имя берётся из шаблона строго 1:1 — без сдвига номера
+        /// пакета, санитизации, подмены токенов и уникальности (дубли Info легальны: сам
+        /// шаблон содержит 2×AND/2×NOT/2×«=»/2×константу в одном POU); теги 31 и именованные
+        /// инстансы (cardId&gt;0, в т.ч. мастера) обрабатываются как раньше.</summary>
+        private static bool IsSimpleBlock(TBlock b) => b.Type != 31 && b.CardId <= 0;
+
+        /// <summary>F76: то же для готового XElement — склейка MergeSplitResults.</summary>
+        private static bool IsSimpleBlockEl(XElement b)
+        {
+            string gt = (string?)b.Attribute("GROBJTYPE") ?? "";
+            int cid = int.TryParse((string?)b.Element("Params")?.Attribute("cardId"), out int c)
+                ? c : 0;
+            return gt != "31" && cid <= 0;
+        }
+
         /// <summary>Внутренняя модель связи шаблона.</summary>
         private sealed class TLink
         {
@@ -809,14 +826,19 @@ namespace IO_PJT.Services
                         int newT11 = nextT11++;
                         t11Map[b.T11] = newT11;
                         bool isMasterClone = b.T11 == master.T11;
+                        // F76: резервный мастер пакета — имя тоже фиксировано планом
+                        // (заранее в usedInfo — без проверки уникальности на своё же имя)
+                        bool isReserveMasterClone = !isMasterClone && units.Count > 1 &&
+                            b.T11 == units[1].Master.T11 && p.ReserveTwin != null && !p.IsReserve;
                         string name;
                         if (isMasterClone)
                         {
                             name = masterName;
                         }
-                        else if (units.Count > 1 && b.T11 == units[1].Master.T11 &&
-                                 p.ReserveTwin != null && !p.IsReserve)
-                            name = p.ReserveTwin.MasterName; // F73: резервный мастер — имя плана
+                        else if (isReserveMasterClone)
+                            name = p.ReserveTwin!.MasterName; // F73: резервный мастер — имя плана
+                        else if (IsSimpleBlock(b))
+                            name = b.Info; // F76: простой блок — имя 1:1 из шаблона
                         else if (ContainsMasterToken(b.Info, info.MasterNameBase, reserveTok))
                         {
                             // F69: подмена токенов имени мастера в имени объекта логики
@@ -848,16 +870,23 @@ namespace IO_PJT.Services
                             string? mapped52 = ApplyMainObjectMapping(clone, p, dataVars,
                                 dataVarsTemplateKey, warnings, mainMapWarned);
                             if (mapped52 != null) name = mapped52;
-                            // F69: подмена токена и в результате маппинга (литерал может
-                            // содержать токен); затем валидация/автозамена имени объекта —
-                            // до первой точки («.busy» — член, точка-разделитель сохраняется)
-                            name = SubstituteMasterTokens(name, info.MasterNameBase,
-                                reserveTok, p.MasterName, reserveName69);
-                            string fixedName = SanitizeObjectInfo(name, out bool renObj);
-                            if (renObj)
-                                warnings.Add($"ИМЯ: объект «{name}» → «{fixedName}» " +
-                                    "(спецсимволы заменены на «_»)");
-                            name = fixedName;
+                            // F76: имя простого блока из шаблона не трогаем (без подмены
+                            // токенов/санитизации); подстановка маппинга (mapped52) —
+                            // осознанное действие пользователя, обрабатывается как раньше
+                            bool keepTplName = IsSimpleBlock(b) && mapped52 == null;
+                            if (!keepTplName)
+                            {
+                                // F69: подмена токена и в результате маппинга (литерал может
+                                // содержать токен); затем валидация/автозамена имени объекта —
+                                // до первой точки («.busy» — член, точка-разделитель сохраняется)
+                                name = SubstituteMasterTokens(name, info.MasterNameBase,
+                                    reserveTok, p.MasterName, reserveName69);
+                                string fixedName = SanitizeObjectInfo(name, out bool renObj);
+                                if (renObj)
+                                    warnings.Add($"ИМЯ: объект «{name}» → «{fixedName}» " +
+                                        "(спецсимволы заменены на «_»)");
+                                name = fixedName;
+                            }
                             // F69: значение константы (T11Text не-члена) с токеном — подмена
                             var t11v = clone.Element("Params")?.Attribute("T11Text");
                             if (t11v != null && !string.IsNullOrEmpty(t11v.Value) &&
@@ -870,7 +899,10 @@ namespace IO_PJT.Services
                         // дать имя, совпадающее с другим объектом: первый блок сохраняет
                         // имя, повтор получает суффикс + красное предупреждение «ИМЯ:»
                         // (мастер исключён — его имя зафиксировано планом/превью)
-                        if (!isMasterClone && !usedInfo.Add(name))
+                        // F76: простые блоки — без уникальности (дубли Info легальны);
+                        // резервный мастер — имя зарезервировано планом, как и основной
+                        if (!isMasterClone && !isReserveMasterClone && !IsSimpleBlock(b) &&
+                            !usedInfo.Add(name))
                         {
                             string uniq = ModbusBlockPlannerService.MakeUniqueName(name, usedInfo);
                             warnings.Add($"ИМЯ: конфликт имени «{name}» в пакете " +
@@ -1569,12 +1601,15 @@ namespace IO_PJT.Services
                         pr.SetAttributeValue("SourceT11ID", t + offset);
             }
 
-            // —— дедуп Info блоков (общие блоки шаблонов могут совпадать по имени) ——
+            // —— дедуп Info блоков (общие блоки шаблонов могут совпадать по имени); F76:
+            // простые блоки (не теги 31 без карточки) — Info 1:1 из шаблона, без суффиксов ——
             var usedInfo = new HashSet<string>(
-                root1.Descendants("Block").Select(b => (string?)b.Attribute("Info") ?? ""),
+                root1.Descendants("Block").Where(b => !IsSimpleBlockEl(b))
+                    .Select(b => (string?)b.Attribute("Info") ?? ""),
                 StringComparer.OrdinalIgnoreCase);
             foreach (var b in root2.Descendants("Block"))
             {
+                if (IsSimpleBlockEl(b)) continue; // F76: простые блоки не дедуплицируются
                 string info = (string?)b.Attribute("Info") ?? "";
                 if (info.Length == 0 || usedInfo.Add(info)) continue;
                 string uniq = info;

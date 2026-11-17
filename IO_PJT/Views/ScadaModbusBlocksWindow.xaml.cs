@@ -77,6 +77,25 @@ namespace IO_PJT.Views
             return null;
         }
 
+        /// <summary>F77: красный список сообщений «ИМЯ:» — каждая новая порция сообщений
+        /// докручивает список до конца (иначе при большом числе сообщений конец уходит за
+        /// край панели и его нельзя прочитать). Проверка выполняется после layout
+        /// (DispatcherPriority.Loaded), когда ScrollViewer уже измерил новый текст.</summary>
+        private void NameWarningsBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (sender is not TextBox tb) return;
+            tb.Dispatcher.BeginInvoke(new Action(() => tb.ScrollToEnd()),
+                System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
+        /// <summary>F77: «✕» — закрыть (очистить) список сообщений; панель скрывается по
+        /// пустому тексту (DataTrigger), при следующей операции сообщения появятся заново.</summary>
+        private void NameWarningsClear_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is ViewModels.ScadaModbusBlocksViewModel vm)
+                vm.NameWarningsText = "";
+        }
+
         /// <summary>F18.1: «залипшее» колёсико внутренней таблицы левой колонки →
         /// продолжить прокрутку внешнего ScrollViewer (до нижних групп настроек).</summary>
         private void Window_PreviewMouseWheel(object sender, MouseWheelEventArgs e)

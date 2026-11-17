@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\RAN-Notebook\\Desktop\\Work\\IO_PJT\\IO_PJT.csproj": {}
+    "c:\\Users\\RAN-Notebook\\Desktop\\Work\\IO_PJT\\IO_PJT.csproj": {}
   },
   "projects": {
-    "C:\\Users\\RAN-Notebook\\Desktop\\Work\\IO_PJT\\IO_PJT.csproj": {
+    "c:\\Users\\RAN-Notebook\\Desktop\\Work\\IO_PJT\\IO_PJT.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\RAN-Notebook\\Desktop\\Work\\IO_PJT\\IO_PJT.csproj",
+        "projectUniqueName": "c:\\Users\\RAN-Notebook\\Desktop\\Work\\IO_PJT\\IO_PJT.csproj",
         "projectName": "IO_PJT",
-        "projectPath": "C:\\Users\\RAN-Notebook\\Desktop\\Work\\IO_PJT\\IO_PJT.csproj",
+        "projectPath": "c:\\Users\\RAN-Notebook\\Desktop\\Work\\IO_PJT\\IO_PJT.csproj",
         "packagesPath": "C:\\Users\\RAN-Notebook\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\RAN-Notebook\\Desktop\\Work\\IO_PJT\\obj\\",
+        "outputPath": "c:\\Users\\RAN-Notebook\\Desktop\\Work\\IO_PJT\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\RAN-Notebook\\AppData\\Roaming\\NuGet\\NuGet.Config"
