@@ -542,6 +542,10 @@ namespace IO_PJT.Services
             return gt != "31" && cid <= 0;
         }
 
+        /// <summary>F78: зазор (px) при переносе кластера вниз из-за наложения на ранее
+        /// размещённые блоки.</summary>
+        private const int F78ClusterGap = 50;
+
         /// <summary>Внутренняя модель связи шаблона.</summary>
         private sealed class TLink
         {
@@ -562,9 +566,13 @@ namespace IO_PJT.Services
         /// отсчёт) — координаты блоков считаются от posBase+idx пакета, а не от глобального
         /// p.No: каждый новый файл/POU при раздельном экспорте начинается с верхней части
         /// листа (без «дыр» от пакетов других файлов); k=p.No остаётся для имен/ID/ключей.</param>
+        /// <param name="placedRects">F78: общий список прямоугольников уже размещённых
+        /// кластеров (между проходами WriteProtocolSplit) — при наложении bbox кластера
+        /// переносится ниже; null — новый список (разовый вызов).</param>
         public GeneratedXml Write(IReadOnlyList<MbPacketPlan> packets, string templateXml, ScadaMbGenSettings s,
             IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal)>>? dataVars = null,
-            string dataVarsTemplateKey = "", int posBase = 0)
+            string dataVarsTemplateKey = "", int posBase = 0,
+            List<(int X0, int Y0, int X1, int Y1)>? placedRects = null)
         {
             if (packets == null) throw new ArgumentNullException(nameof(packets));
             if (s == null) throw new ArgumentNullException(nameof(s));
@@ -766,6 +774,48 @@ namespace IO_PJT.Services
 
             }
             int cols = Math.Max(1, s.ColumnsPerRow);
+            // F78: bbox шаблона по блокам/примитивам, клонируемым в кластер (юниты
+            // main/reserve при наличии twin-пакетов, сироты с токенами, общая логика;
+            // units[2+] не клонируются) — кластеры геометрически идентичны и отличаются
+            // только сдвигом (dx,dy), поэтому по bbox контролируются наложения между ними
+            var bboxT11 = new HashSet<int>(cloneT11Main);
+            if (units.Count > 1 && packets.Any(pt => !pt.IsReserve && pt.ReserveTwin != null))
+                foreach (var t11u in unit1T11) bboxT11.Add(t11u);
+            foreach (var t11c in commonT11) bboxT11.Add(t11c);
+            int tplX0 = int.MaxValue, tplY0 = int.MaxValue;
+            int tplX1 = int.MinValue, tplY1 = int.MinValue;
+            foreach (var b in blocks)
+            {
+                if (!bboxT11.Contains(b.T11)) continue;
+                var g0 = b.El.Element("Graphics");
+                if (g0 == null) continue;
+                int bx = int.TryParse((string?)g0.Attribute("X"), out int v1) ? v1 : 0;
+                int by = int.TryParse((string?)g0.Attribute("Y"), out int v2) ? v2 : 0;
+                int bw = int.TryParse((string?)g0.Attribute("WIDTH"), out int v3) ? v3 : 0;
+                int bh = int.TryParse((string?)g0.Attribute("HEIGHT"), out int v4) ? v4 : 0;
+                tplX0 = Math.Min(tplX0, bx);
+                tplY0 = Math.Min(tplY0, by);
+                tplX1 = Math.Max(tplX1, bx + bw);
+                tplY1 = Math.Max(tplY1, by + bh);
+            }
+            // примитивы шаблона клонируются per-packet (F73) — включаем их в bbox
+            foreach (var pr in tplPrims)
+            {
+                if (int.TryParse((string?)pr.Attribute("SourceT11ID"), out int st) &&
+                    !bboxT11.Contains(st)) continue;
+                int px = int.TryParse((string?)pr.Attribute("X"), out int v1) ? v1 : 0;
+                int py = int.TryParse((string?)pr.Attribute("Y"), out int v2) ? v2 : 0;
+                int pw = int.TryParse((string?)pr.Attribute("WIDTH"), out int v3) ? v3 : 0;
+                int ph = int.TryParse((string?)pr.Attribute("HEIGHT"), out int v4) ? v4 : 0;
+                tplX0 = Math.Min(tplX0, px);
+                tplY0 = Math.Min(tplY0, py);
+                tplX1 = Math.Max(tplX1, px + pw);
+                tplY1 = Math.Max(tplY1, py + ph);
+            }
+            bool hasTplBBox = tplX1 > tplX0 && tplY1 > tplY0;
+            // F78: размещённые прямоугольники кластеров — общий список между проходами
+            // WriteProtocolSplit (разные POU одного экспорта не наезжают друг на друга)
+            var placed = placedRects ?? new List<(int X0, int Y0, int X1, int Y1)>();
             bool rtuIpWarned = false;   // F35: RTU без IP/порта в IV — один раз на экспорт
             var textWarned = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // F38: (пакет|объект)
             // F52: предупреждения «объект мастер-шаблона без строки маппинга» — один раз на объект
@@ -785,6 +835,33 @@ namespace IO_PJT.Services
                 clusterNo++;
                 int dx = (pos % cols) * Math.Max(1, s.ColumnStep);
                 int dy = (pos / cols) * Math.Max(1, s.RowStep);
+                // F78: bbox кластера накладывается на уже размещённые — весь кластер
+                // (мастер-пакет + доп. логика) переносится ниже; геометрия шаблона
+                // внутри кластера сохраняется (пакет не «сжимается»)
+                if (hasTplBBox)
+                {
+                    bool moved = false;
+                    while (true)
+                    {
+                        int rx0 = tplX0 + dx, ry0 = tplY0 + dy;
+                        int rx1 = tplX1 + dx, ry1 = tplY1 + dy;
+                        int below = int.MinValue;
+                        bool hit = false;
+                        foreach (var r in placed)
+                            if (rx0 < r.X1 && r.X0 < rx1 && ry0 < r.Y1 && r.Y0 < ry1)
+                            {
+                                below = Math.Max(below, r.Y1);
+                                hit = true;
+                            }
+                        if (!hit) break;
+                        dy = below - tplY0 + F78ClusterGap;
+                        moved = true;
+                    }
+                    if (moved)
+                        warnings.Add($"F78: пакет «{p.MasterName}» перенесён ниже — " +
+                            "наложение на ранее размещённые блоки");
+                    placed.Add((tplX0 + dx, tplY0 + dy, tplX1 + dx, tplY1 + dy));
+                }
 
                 // F19: размножается только основной юнит — «мастер, указанный в XML-шаблоне»
                 // (units[0]); имя мастера строго из плана (превью), без сдвига за счёт
@@ -1087,17 +1164,40 @@ namespace IO_PJT.Services
             if (pp != null && packets.Count > 0)
             {
                 int maxRow = (posBase + clusterNo - 1) / cols; // F73: по числу кластеров // F50: posBase — старт кластера
-                pp.SetAttributeValue("WIDTH",
-                    Math.Max(int.TryParse((string?)pp.Attribute("WIDTH"), out int w) ? w : 0,
-                        300 + cols * Math.Max(1, s.ColumnStep)));
-                pp.SetAttributeValue("HEIGHT",
-                    Math.Max(int.TryParse((string?)pp.Attribute("HEIGHT"), out int h) ? h : 0,
-                        300 + (maxRow + 1) * Math.Max(1, s.RowStep)));
+                int cwidth = Math.Max(int.TryParse((string?)pp.Attribute("WIDTH"), out int w) ? w : 0,
+                        300 + cols * Math.Max(1, s.ColumnStep));
+                int cheight = Math.Max(int.TryParse((string?)pp.Attribute("HEIGHT"), out int h) ? h : 0,
+                        300 + (maxRow + 1) * Math.Max(1, s.RowStep));
+                // F78: кластеры, перенесённые вниз при наложении, могут выйти за сеточный
+                // холст — холст покрывает фактический bbox содержимого (+100, как F64)
+                int actMaxX = 0, actMaxY = 0;
+                foreach (var b in outBlocks)
+                {
+                    var g = b.Element("Graphics");
+                    if (g == null) continue;
+                    int bx = int.TryParse((string?)g.Attribute("X"), out int v1) ? v1 : 0;
+                    int by = int.TryParse((string?)g.Attribute("Y"), out int v2) ? v2 : 0;
+                    int bw = int.TryParse((string?)g.Attribute("WIDTH"), out int v3) ? v3 : 0;
+                    int bh = int.TryParse((string?)g.Attribute("HEIGHT"), out int v4) ? v4 : 0;
+                    actMaxX = Math.Max(actMaxX, bx + bw);
+                    actMaxY = Math.Max(actMaxY, by + bh);
+                }
+                foreach (var pr in outPrims)
+                {
+                    int qx = int.TryParse((string?)pr.Attribute("X"), out int v1) ? v1 : 0;
+                    int qy = int.TryParse((string?)pr.Attribute("Y"), out int v2) ? v2 : 0;
+                    int qw = int.TryParse((string?)pr.Attribute("WIDTH"), out int v3) ? v3 : 0;
+                    int qh = int.TryParse((string?)pr.Attribute("HEIGHT"), out int v4) ? v4 : 0;
+                    actMaxX = Math.Max(actMaxX, qx + qw);
+                    actMaxY = Math.Max(actMaxY, qy + qh);
+                }
+                cwidth = Math.Max(cwidth, actMaxX + 100);
+                cheight = Math.Max(cheight, actMaxY + 100);
+                pp.SetAttributeValue("WIDTH", cwidth);
+                pp.SetAttributeValue("HEIGHT", cheight);
                 // F64: печатный холст следует рабочему (PRINTWIDTH/PRINTHEIGHT = WIDTH/HEIGHT)
-                pp.SetAttributeValue("PRINTWIDTH",
-                    int.TryParse((string?)pp.Attribute("WIDTH"), out int pw) ? pw : 0);
-                pp.SetAttributeValue("PRINTHEIGHT",
-                    int.TryParse((string?)pp.Attribute("HEIGHT"), out int ph) ? ph : 0);
+                pp.SetAttributeValue("PRINTWIDTH", cwidth);
+                pp.SetAttributeValue("PRINTHEIGHT", cheight);
             }
             var iSAGraf = new XElement("ISAGraf");
             var blocksOutEl = new XElement("Blocks");
@@ -1278,9 +1378,13 @@ namespace IO_PJT.Services
             // F50: локальный отсчёт позиции между группами — кластер каждой группы
             // продолжает предыдущую группу: в склеенном POU нет ни наложений, ни «дыр»
             int posBaseGroups = 0;
+            // F78: общие размещённые прямоугольники между группами (разные POU) — кластеры
+            // второй группы не должны наезжать на уже размещённые кластеры первой
+            var placedRects = new List<(int X0, int Y0, int X1, int Y1)>();
             foreach (var g in groups)
             {
-                var gen = Write(g.Value, g.Key, settings, dataVars, dataVarsTemplateKey, posBaseGroups);
+                var gen = Write(g.Value, g.Key, settings, dataVars, dataVarsTemplateKey, posBaseGroups,
+                    placedRects);
                 posBaseGroups += gen.ClusterCount; // F73: без дыр от пропущенных twin
                 acc = acc == null ? gen : MergeSplitResults(acc, gen);
                 settings = ShiftSettingsForSecondPass(s, acc);
