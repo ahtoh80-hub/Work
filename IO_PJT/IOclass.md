@@ -2146,6 +2146,21 @@ bbox шаблона (в экспорте пользователя `ColumnsPerRow
 блоки ×6 кластеров, без суффиксов `_2`, резервный мастер без `_2`; D рефлексия `IsSimpleBlockEl`);
 `dotnet build` 0/0.
 
+**F79 — панель ошибок в F12 по образцу F77 + версия программы в «О программе» (2026-11).**
+(1) **F12:** красный `TextBlock NameWarningsText` в нижней панели (при сотнях сообщений
+растягивал панель на всё окно — превью сжималось в ноль, список нельзя было закрыть) заменён
+на панель по образцу F77: `Border` с красной левой рамкой и `MaxHeight=140`, read-only `TextBox`
+(красный жирный, перенос — сообщения копируются) со внутренним скроллом; `TextChanged` →
+`ScrollToEnd()` после layout (`DispatcherPriority.Loaded`) — новая порция автодокручивается
+до конца; кнопка **«✕»** очищает `NameWarningsText` (`NameWarningsClear_Click` → VM),
+панель по пустому тексту скрывается (`DataTrigger` → `Collapsed`). Обработчики — в
+`ScadaTechObjectsWindow.xaml.cs`; VM/`StatusText`/`StatsText` без изменений.
+(2) **Версия (п.6 задания):** новый `IO_PJT/AppInfo.cs` — `public static class AppInfo`,
+`public const string Version = "F79"`; `MainWindow.About_Click` («Справка → О программе»)
+выводит строку `Версия: {AppInfo.Version}`; значение бампится после каждого изменения кода
+(F79, F80, …). **Приёмка:** `dotnet build` 0/0 (XAML-компиляция подтверждает разрешение
+обработчиков `NameWarningsBox_TextChanged`/`NameWarningsClear_Click`).
+
 Все таблицы создаются идемпотентно в `TableCreator.EnsureServiceTables`;
 хранилище — `ModbusBlockPlannerService` (`LoadSettings`/`SaveSettings` — полная замена
 ключей, `LoadSlaveRules`/`SaveSlaveRules` — полная замена с валидацией: пустая станция/

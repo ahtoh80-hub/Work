@@ -42,9 +42,41 @@
             <StackPanel>
                 <TextBlock Text="{Binding StatsText}" FontWeight="SemiBold" TextWrapping="Wrap" Foreground="#1F4E79" />
                 <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Margin="0,2,0,0" />
-                <!-- F69: красный список сообщений «ИМЯ:» (автозамена спецсимволов в Марках) -->
-                <TextBlock Text="{Binding NameWarningsText}" TextWrapping="Wrap"
-                           Foreground="Red" FontWeight="SemiBold" Margin="0,3,0,0" />
+                <!-- F69: красный список сообщений «ИМЯ:» (автозамена спецсимволов в Марках).
+                     F79 (по образцу F77): ограничен по высоте (MaxHeight=140) со внутренней
+                     прокруткой и автоскроллом до конца при каждом обновлении; кнопка «✕»
+                     очищает (закрывает) список; пустой список — панель скрыта (Collapsed). -->
+                <Border BorderBrush="Red" BorderThickness="1,0,0,0" Margin="0,3,0,0" Padding="2"
+                        MaxHeight="140">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Visibility" Value="Visible" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding NameWarningsText}" Value="">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox Grid.Column="0" x:Name="NameWarningsBox"
+                                 Text="{Binding NameWarningsText, Mode=OneWay}"
+                                 IsReadOnly="True" TextWrapping="Wrap" TextAlignment="Left"
+                                 BorderThickness="0" Background="Transparent" Foreground="Red"
+                                 FontWeight="SemiBold" Padding="0"
+                                 VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Disabled"
+                                 TextChanged="NameWarningsBox_TextChanged" />
+                        <Button Grid.Column="1" Content="✕" Width="24" Height="24"
+                                Margin="6,0,0,0" VerticalAlignment="Top" Padding="0" FontSize="12"
+                                Click="NameWarningsClear_Click"
+                                ToolTip="Закрыть (очистить) список сообщений" />
+                    </Grid>
+                </Border>
             </StackPanel>
         </Border>
 

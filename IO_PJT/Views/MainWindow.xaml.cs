@@ -146,6 +146,7 @@ namespace IO_PJT.Views
         private void About_Click(object sender, RoutedEventArgs e) =>
             MessageBox.Show(
                 "IO_PJT — импорт IO List из Excel в Access.\n" +
+                "Версия: " + AppInfo.Version + "\n" +
                 "Модель данных: IOclass.md (127 колонок); ТЗ: IOLISTtoDB_v0.MD v2.0 (F9 — карта Modbus).\n" +
                 "Стек: WPF / .NET 8, ClosedXML, OleDb (ACE OLE DB).\n" +
                 "Разработчик: Решетов Антон",
