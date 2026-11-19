@@ -566,11 +566,24 @@ namespace IO_PJT.Services
                     // в записи (и наоборот) даёт неверную цепочку
                     if (b.IsWrite != ex.IsWrite)
                     {
-                        warnings.Add(b.IsWrite
-                            ? $"F30: {b.Tag}: для записи нужен datain-эталон (блок .DataIn[), взят " +
-                              $"эталон чтения «{ex.TypeKey}» — пропущено"
-                            : $"F30: {b.Tag}: для чтения взят write-эталон «{ex.TypeKey}» — пропущено");
-                        continue;
+                        if (haveRule)
+                        {
+                            // F84: правило Typno ЯВНО задаёт шаблон — направление цепочки
+                            // следует за шаблоном (напр. AO16 → MB_AO_WORD16 при опросе пакета
+                            // FC04): цепочка строится, о несовпадении — предупреждение F84
+                            warnings.Add($"F84: {p.MasterName}.DataOut[{b.Offset}] ({b.Tag}): шаблон " +
+                                $"«{mappedTplName}» — {(ex.IsWrite ? "запись" : "чтение")}, а привязка " +
+                                $"{(b.IsWrite ? "запись" : "чтение")} (FC{p.FuncCode}) — цепочка построена " +
+                                "по шаблону правила Typno");
+                        }
+                        else
+                        {
+                            warnings.Add(b.IsWrite
+                                ? $"F30: {b.Tag}: для записи нужен datain-эталон (блок .DataIn[), взят " +
+                                  $"эталон чтения «{ex.TypeKey}» — пропущено"
+                                : $"F30: {b.Tag}: для чтения взят write-эталон «{ex.TypeKey}» — пропущено");
+                            continue;
+                        }
                     }
 
                     int nSrc = ex.SourceCount;
