@@ -201,6 +201,112 @@
                                       ToolTip="F82: потянуть горизонтально — изменить ширину блока" />
                     </Grid>
 
+                    <!-- F83: группа «Пакетирование» перенесена во вкладку
+                         «① Шаблоны пакетов (Master)» — здесь она больше не показывается -->
+                        <GroupBox Header="Пакетирование" Margin="0,0,0,6">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition /><RowDefinition /><RowDefinition />
+                                    <RowDefinition /><RowDefinition /><RowDefinition />
+                                    <RowDefinition /><RowDefinition /><RowDefinition />
+                                    <RowDefinition /><RowDefinition /><RowDefinition />
+                                    <RowDefinition /><RowDefinition /><RowDefinition />
+                                    <RowDefinition /><RowDefinition /><RowDefinition />
+                                    <RowDefinition /><RowDefinition />
+                                </Grid.RowDefinitions>
+                                <Label Grid.Row="0" Grid.Column="0" Content="Политика:" />
+                                <ComboBox Grid.Row="0" Grid.Column="1" Margin="4" SelectedIndex="{Binding PolicyIndex}"
+                                          ToolTip="Непрерывные диапазоны — разрыв адресов → новый блок; Покрытие — поле min..max (прорехи вхолостую); Фиксированные — по лимиту Count от начального адреса; С допуском разрыва — прореха ≤ MaxGap в одном блоке, > MaxGap → новый блок">
+                                    <ComboBoxItem Content="Непрерывные диапазоны" />
+                                    <ComboBoxItem Content="Покрытие min..max" />
+                                    <ComboBoxItem Content="Фиксированные (по лимиту)" />
+                                    <ComboBoxItem Content="С допуском разрыва (MaxGap)" />
+                                </ComboBox>
+                                <Label Grid.Row="1" Grid.Column="0" Content="Лимит в пакете:" />
+                                <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="4,4,4,4">
+                                    <Label Content="Регистры (0-123):" VerticalAlignment="Center" Padding="0,0,4,0" />
+                                    <TextBox Width="64" VerticalAlignment="Center"
+                                             Text="{Binding Settings.MaxCountRegisters, UpdateSourceTrigger=PropertyChanged}"
+                                             ToolTip="F20: максимум регистров в пакете для FC03/FC04; фактический лимит = min(значение, 123 — лимит блока MB_TCP_MASTER); 0 — без ограничения (123)" />
+                                    <Label Content="Бит (0-246):" VerticalAlignment="Center" Padding="14,0,4,0" />
+                                    <TextBox Width="64" VerticalAlignment="Center"
+                                             Text="{Binding Settings.MaxCountBits, UpdateSourceTrigger=PropertyChanged}"
+                                             ToolTip="F20: максимум бит в пакете для FC01/FC02; фактический лимит = min(значение, 246 — лимит блока MB_TCP_MASTER); 0 — без ограничения (246)" />
+                                </StackPanel>
+                                <Label Grid.Row="2" Grid.Column="0" Content="Разрыв ≤ (MaxGap):" />
+                                <TextBox Grid.Row="2" Grid.Column="1" Margin="4"
+                                         Text="{Binding Settings.MaxGap, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="F13.1: промежуток адресов ≤ N — сигналы в одном блоке (читается вхолостую), > N — новый блок; только для политики «С допуском разрыва»; 0 — как «Непрерывные»" />
+                                <Label Grid.Row="3" Grid.Column="0" Content="Порт по умолчанию:" />
+                                <TextBox Grid.Row="3" Grid.Column="1" Margin="4"
+                                         Text="{Binding Settings.DefaultPort, UpdateSourceTrigger=PropertyChanged}" />
+                                <Label Grid.Row="4" Grid.Column="0" Content="SlaveId по умолчанию:" />
+                                <TextBox Grid.Row="4" Grid.Column="1" Margin="4"
+                                         Text="{Binding Settings.DefaultSlaveId, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="1-255; для станций без правила «станция → SlaveId»" />
+                                <Label Grid.Row="5" Grid.Column="0" Content="Таймаут по умолчанию, мс:" />
+                                <TextBox Grid.Row="5" Grid.Column="1" Margin="4"
+                                         Text="{Binding Settings.DefaultTimeoutMs, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="Если M_Timeout пуст; иначе — минимум из точек группы" />
+                                <Label Grid.Row="6" Grid.Column="0" Content="Имя блока TCP Master main:" />
+                                <TextBox Grid.Row="6" Grid.Column="1" Margin="4"
+                                         Text="{Binding Settings.BlockNamePattern, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="F13.1/F68: маска имени ОСНОВНОГО (main) блока мастера Modbus TCP; токены {Seq} — № пакета, {Slave} — SlaveId, {Station} — станция, {Ip} — IP через _, {Func} — код функции. Пример: MB_TCP_Master_{Slave}_{Seq}. Пусто — историческое правило (цифры имени шаблона + №)" />
+                                <Label Grid.Row="7" Grid.Column="0" Content="Имя блока TCP Master reserve:" />
+                                <TextBox Grid.Row="7" Grid.Column="1" Margin="4"
+                                         Text="{Binding Settings.BlockNamePatternReserve, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="F68: маска имени РЕЗЕРВНОГО (reserve) блока мастера Modbus TCP — генерируется вторым блоком с идентичной адресацией, но IP из M_SlaveIdBackup (резервное подключение станции). Токены те же, что у main ({Ip} — резервный IP). Пусто — имя main-блока + «_reserve»" />
+                                <Label Grid.Row="8" Grid.Column="0" Content="Имя блока RTU (шаблон):" />
+                                <TextBox Grid.Row="8" Grid.Column="1" Margin="4"
+                                         Text="{Binding Settings.BlockNamePatternRtu, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="F14: маска имени блока Modbus RTU — применяется, если мастер шаблона содержит «RTU» в имени; пусто — как TCP-маска (BlockNamePattern). Токены те же" />
+                                <CheckBox Grid.Row="9" Grid.Column="1" Margin="4"
+                                          IsChecked="{Binding Settings.FormatAddress}"
+                                          Content="Address в формате «регистр + адрес» (4001)"
+                                          ToolTip="F14: вход Address блока = префикс регистра (FC1→0, FC2→1, FC3→4, FC4→3) + адрес с ведущими нулями (FC3: 1 → 4001, 602 → 4602, 1506 → 41506); адрес ≥ 10000 из IO_LIST — как есть. Снимите — сырой адрес M_Address" />
+                                <Label Grid.Row="10" Grid.Column="0" Content="Имя POU (мастер-блоки):" />
+                                <TextBox Grid.Row="10" Grid.Column="1" Margin="4"
+                                         Text="{Binding Settings.PouNamePattern, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="F17: шаблон имени POU в основном файле BufScadaPOUS (импорт под этим именем); токены {Master} — имя мастера шаблона, {Station}/{Slave}/{Ip}/{Port}/{Func}/{Seq} — контекст первого пакета (POU один на все пакеты), {Date} (yyyyMMdd)/{Time} (HHmmss) — момент экспорта. Пусто — NAME из шаблона (MB_Master_4)" />
+                                <Label Grid.Row="11" Grid.Column="0" Content="Имя POU (привязки):" />
+                                <TextBox Grid.Row="11" Grid.Column="1" Margin="4"
+                                         Text="{Binding Settings.DataOutPouNamePattern, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="F17: шаблон имени POU в файле привязок (один POU на пакет); токены {Master} — имя блока мастера пакета, {Seq} — № пакета, {Slave}, {Station}, {Ip}, {Port}, {Func}, {Date}/{Time}; дубли внутри файла → суффиксы _2,_3. Пусто — NAME = имя блока мастера (MB_TCP_MASTER_4_1)" />
+                                <Label Grid.Row="12" Grid.Column="0" Content="Пакетов data на POU:" />
+                                <TextBox Grid.Row="12" Grid.Column="1" Margin="4"
+                                         Text="{Binding Settings.DataPacketsPerPage, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="F38: сколько пакетов data (файл привязок) на одном POU (странице). Пакет атомарен — все его цепочки целиком на одном POU, пакеты группируются по N подряд (имя POU — по первому пакету группы, зазор между пакетами). 1 — историческое «один POU на пакет». Минимум — все данные одного Modbus-пакета на одном POU (выполняется всегда)" />
+                                <Label Grid.Row="13" Grid.Column="0" Content="Зазор между цепочками data (px):" />
+                                <TextBox Grid.Row="13" Grid.Column="1" Margin="4"
+                                         Text="{Binding Settings.DataChainGap, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="F61: дополнительный вертикальный зазор между цепочками data (шаблонами привязок) внутри POU файла привязок; к естественному шагу цепочки (высота bbox эталона + отступ) прибавляется этот зазор. 0 — историческая плотная раскладка (XML байт-в-байт как раньше)" />
+                                <Label Grid.Row="14" Grid.Column="0" Content="Шаг цепочки data (px):" />
+                                <TextBox Grid.Row="14" Grid.Column="1" Margin="4"
+                                         Text="{Binding Settings.DataChainStep, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="F64: вертикальный шаг между цепочками data (шаблонами привязок) внутри POU файла привязок, px. 0 — естественный шаг шаблона (высота bbox эталона + отступ); > 0 — заданный шаг для всех цепочек (зазор DataChainGap прибавляется сверх шага)" />
+                                <Label Grid.Row="15" Grid.Column="0" Content="Зазор между пакетами data (px):" />
+                                <TextBox Grid.Row="15" Grid.Column="1" Margin="4"
+                                         Text="{Binding Settings.DataPacketGap, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="F63: вертикальный зазор между пакетами чанка (несколькими пакетами data на одном POU файла привязок, F38). 0 — пакеты вплотную (без наложения). До F63 зазор был жёстким +100; default теперь 10" />
+                                <Label Grid.Row="16" Grid.Column="0" Content="Комментарий POU (мастер-блоки):" />
+                                <TextBox Grid.Row="16" Grid.Column="1" Margin="4"
+                                         Text="{Binding Settings.PouCommentPattern, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="F61: шаблон комментария (Disc) POU основного файла BufScadaPOUS; токены как в имени POU: {Master}, {Seq}, {Slave}, {Station}, {Controller}, {Ip}, {Port}, {Func}, {Date}/{Time}, {ИмяКолонки}; текст может содержать пробелы («Опрос {Station}»). Пусто — Disc шаблона (без изменений)" />
+                                <Label Grid.Row="17" Grid.Column="0" Content="Комментарий POU (привязки):" />
+                                <TextBox Grid.Row="17" Grid.Column="1" Margin="4"
+                                         Text="{Binding Settings.DataOutPouCommentPattern, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="F61: шаблон комментария (Disc) POU файла привязок (контекст — первый пакет чанка, как у имени POU); токены те же. Пусто — Disc пустой (слово «Обработка» больше не ставится)" />
+                                <Label Grid.Row="18" Grid.Column="0" Content="Токен reserve в шаблоне:" />
+                                <TextBox Grid.Row="18" Grid.Column="1" Margin="4"
+                                         Text="{Binding Settings.BlockTokenReserve, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="F69/F70: токен reserve-блока в шаблонах (напр. NAME_PACK_TCP_RESERVE) — вхождение в имени объекта логики пакета или data-шаблона заменяется на имя reserve-блока пары (суффиксы .busy/_LINK сохраняются). Пусто — токен берётся автоматически из имени ВТОРОГО мастера шаблона; если второго мастера нет — reserve-подмена не выполняется. main-токен — имя блока мастера шаблона (MasterNameBase), автоматически" />
+                            </Grid>
+                        </GroupBox>
+
                             </StackPanel>
                         </TabItem>
 
@@ -383,110 +489,6 @@
                             </StackPanel>
                         </TabItem>
                     </TabControl>
-
-                    <GroupBox Header="Пакетирование" Margin="0,0,0,6">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition /><RowDefinition /><RowDefinition />
-                                <RowDefinition /><RowDefinition /><RowDefinition />
-                                <RowDefinition /><RowDefinition /><RowDefinition />
-                                <RowDefinition /><RowDefinition /><RowDefinition />
-                                <RowDefinition /><RowDefinition /><RowDefinition />
-                                <RowDefinition /><RowDefinition /><RowDefinition />
-                                <RowDefinition /><RowDefinition />
-                            </Grid.RowDefinitions>
-                            <Label Grid.Row="0" Grid.Column="0" Content="Политика:" />
-                            <ComboBox Grid.Row="0" Grid.Column="1" Margin="4" SelectedIndex="{Binding PolicyIndex}"
-                                      ToolTip="Непрерывные диапазоны — разрыв адресов → новый блок; Покрытие — поле min..max (прорехи вхолостую); Фиксированные — по лимиту Count от начального адреса; С допуском разрыва — прореха ≤ MaxGap в одном блоке, > MaxGap → новый блок">
-                                <ComboBoxItem Content="Непрерывные диапазоны" />
-                                <ComboBoxItem Content="Покрытие min..max" />
-                                <ComboBoxItem Content="Фиксированные (по лимиту)" />
-                                <ComboBoxItem Content="С допуском разрыва (MaxGap)" />
-                            </ComboBox>
-                            <Label Grid.Row="1" Grid.Column="0" Content="Лимит в пакете:" />
-                            <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="4,4,4,4">
-                                <Label Content="Регистры (0-123):" VerticalAlignment="Center" Padding="0,0,4,0" />
-                                <TextBox Width="64" VerticalAlignment="Center"
-                                         Text="{Binding Settings.MaxCountRegisters, UpdateSourceTrigger=PropertyChanged}"
-                                         ToolTip="F20: максимум регистров в пакете для FC03/FC04; фактический лимит = min(значение, 123 — лимит блока MB_TCP_MASTER); 0 — без ограничения (123)" />
-                                <Label Content="Бит (0-246):" VerticalAlignment="Center" Padding="14,0,4,0" />
-                                <TextBox Width="64" VerticalAlignment="Center"
-                                         Text="{Binding Settings.MaxCountBits, UpdateSourceTrigger=PropertyChanged}"
-                                         ToolTip="F20: максимум бит в пакете для FC01/FC02; фактический лимит = min(значение, 246 — лимит блока MB_TCP_MASTER); 0 — без ограничения (246)" />
-                            </StackPanel>
-                            <Label Grid.Row="2" Grid.Column="0" Content="Разрыв ≤ (MaxGap):" />
-                            <TextBox Grid.Row="2" Grid.Column="1" Margin="4"
-                                     Text="{Binding Settings.MaxGap, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="F13.1: промежуток адресов ≤ N — сигналы в одном блоке (читается вхолостую), > N — новый блок; только для политики «С допуском разрыва»; 0 — как «Непрерывные»" />
-                            <Label Grid.Row="3" Grid.Column="0" Content="Порт по умолчанию:" />
-                            <TextBox Grid.Row="3" Grid.Column="1" Margin="4"
-                                     Text="{Binding Settings.DefaultPort, UpdateSourceTrigger=PropertyChanged}" />
-                            <Label Grid.Row="4" Grid.Column="0" Content="SlaveId по умолчанию:" />
-                            <TextBox Grid.Row="4" Grid.Column="1" Margin="4"
-                                     Text="{Binding Settings.DefaultSlaveId, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="1-255; для станций без правила «станция → SlaveId»" />
-                            <Label Grid.Row="5" Grid.Column="0" Content="Таймаут по умолчанию, мс:" />
-                            <TextBox Grid.Row="5" Grid.Column="1" Margin="4"
-                                     Text="{Binding Settings.DefaultTimeoutMs, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="Если M_Timeout пуст; иначе — минимум из точек группы" />
-                            <Label Grid.Row="6" Grid.Column="0" Content="Имя блока TCP Master main:" />
-                            <TextBox Grid.Row="6" Grid.Column="1" Margin="4"
-                                     Text="{Binding Settings.BlockNamePattern, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="F13.1/F68: маска имени ОСНОВНОГО (main) блока мастера Modbus TCP; токены {Seq} — № пакета, {Slave} — SlaveId, {Station} — станция, {Ip} — IP через _, {Func} — код функции. Пример: MB_TCP_Master_{Slave}_{Seq}. Пусто — историческое правило (цифры имени шаблона + №)" />
-                            <Label Grid.Row="7" Grid.Column="0" Content="Имя блока TCP Master reserve:" />
-                            <TextBox Grid.Row="7" Grid.Column="1" Margin="4"
-                                     Text="{Binding Settings.BlockNamePatternReserve, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="F68: маска имени РЕЗЕРВНОГО (reserve) блока мастера Modbus TCP — генерируется вторым блоком с идентичной адресацией, но IP из M_SlaveIdBackup (резервное подключение станции). Токены те же, что у main ({Ip} — резервный IP). Пусто — имя main-блока + «_reserve»" />
-                            <Label Grid.Row="8" Grid.Column="0" Content="Имя блока RTU (шаблон):" />
-                            <TextBox Grid.Row="8" Grid.Column="1" Margin="4"
-                                     Text="{Binding Settings.BlockNamePatternRtu, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="F14: маска имени блока Modbus RTU — применяется, если мастер шаблона содержит «RTU» в имени; пусто — как TCP-маска (BlockNamePattern). Токены те же" />
-                            <CheckBox Grid.Row="9" Grid.Column="1" Margin="4"
-                                      IsChecked="{Binding Settings.FormatAddress}"
-                                      Content="Address в формате «регистр + адрес» (4001)"
-                                      ToolTip="F14: вход Address блока = префикс регистра (FC1→0, FC2→1, FC3→4, FC4→3) + адрес с ведущими нулями (FC3: 1 → 4001, 602 → 4602, 1506 → 41506); адрес ≥ 10000 из IO_LIST — как есть. Снимите — сырой адрес M_Address" />
-                            <Label Grid.Row="10" Grid.Column="0" Content="Имя POU (мастер-блоки):" />
-                            <TextBox Grid.Row="10" Grid.Column="1" Margin="4"
-                                     Text="{Binding Settings.PouNamePattern, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="F17: шаблон имени POU в основном файле BufScadaPOUS (импорт под этим именем); токены {Master} — имя мастера шаблона, {Station}/{Slave}/{Ip}/{Port}/{Func}/{Seq} — контекст первого пакета (POU один на все пакеты), {Date} (yyyyMMdd)/{Time} (HHmmss) — момент экспорта. Пусто — NAME из шаблона (MB_Master_4)" />
-                            <Label Grid.Row="11" Grid.Column="0" Content="Имя POU (привязки):" />
-                            <TextBox Grid.Row="11" Grid.Column="1" Margin="4"
-                                     Text="{Binding Settings.DataOutPouNamePattern, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="F17: шаблон имени POU в файле привязок (один POU на пакет); токены {Master} — имя блока мастера пакета, {Seq} — № пакета, {Slave}, {Station}, {Ip}, {Port}, {Func}, {Date}/{Time}; дубли внутри файла → суффиксы _2,_3. Пусто — NAME = имя блока мастера (MB_TCP_MASTER_4_1)" />
-                            <Label Grid.Row="12" Grid.Column="0" Content="Пакетов data на POU:" />
-                            <TextBox Grid.Row="12" Grid.Column="1" Margin="4"
-                                     Text="{Binding Settings.DataPacketsPerPage, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="F38: сколько пакетов data (файл привязок) на одном POU (странице). Пакет атомарен — все его цепочки целиком на одном POU, пакеты группируются по N подряд (имя POU — по первому пакету группы, зазор между пакетами). 1 — историческое «один POU на пакет». Минимум — все данные одного Modbus-пакета на одном POU (выполняется всегда)" />
-                            <Label Grid.Row="13" Grid.Column="0" Content="Зазор между цепочками data (px):" />
-                            <TextBox Grid.Row="13" Grid.Column="1" Margin="4"
-                                     Text="{Binding Settings.DataChainGap, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="F61: дополнительный вертикальный зазор между цепочками data (шаблонами привязок) внутри POU файла привязок; к естественному шагу цепочки (высота bbox эталона + отступ) прибавляется этот зазор. 0 — историческая плотная раскладка (XML байт-в-байт как раньше)" />
-                            <Label Grid.Row="14" Grid.Column="0" Content="Шаг цепочки data (px):" />
-                            <TextBox Grid.Row="14" Grid.Column="1" Margin="4"
-                                     Text="{Binding Settings.DataChainStep, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="F64: вертикальный шаг между цепочками data (шаблонами привязок) внутри POU файла привязок, px. 0 — естественный шаг шаблона (высота bbox эталона + отступ); > 0 — заданный шаг для всех цепочек (зазор DataChainGap прибавляется сверх шага)" />
-                            <Label Grid.Row="15" Grid.Column="0" Content="Зазор между пакетами data (px):" />
-                            <TextBox Grid.Row="15" Grid.Column="1" Margin="4"
-                                     Text="{Binding Settings.DataPacketGap, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="F63: вертикальный зазор между пакетами чанка (несколькими пакетами data на одном POU файла привязок, F38). 0 — пакеты вплотную (без наложения). До F63 зазор был жёстким +100; default теперь 10" />
-                            <Label Grid.Row="16" Grid.Column="0" Content="Комментарий POU (мастер-блоки):" />
-                            <TextBox Grid.Row="16" Grid.Column="1" Margin="4"
-                                     Text="{Binding Settings.PouCommentPattern, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="F61: шаблон комментария (Disc) POU основного файла BufScadaPOUS; токены как в имени POU: {Master}, {Seq}, {Slave}, {Station}, {Controller}, {Ip}, {Port}, {Func}, {Date}/{Time}, {ИмяКолонки}; текст может содержать пробелы («Опрос {Station}»). Пусто — Disc шаблона (без изменений)" />
-                            <Label Grid.Row="17" Grid.Column="0" Content="Комментарий POU (привязки):" />
-                            <TextBox Grid.Row="17" Grid.Column="1" Margin="4"
-                                     Text="{Binding Settings.DataOutPouCommentPattern, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="F61: шаблон комментария (Disc) POU файла привязок (контекст — первый пакет чанка, как у имени POU); токены те же. Пусто — Disc пустой (слово «Обработка» больше не ставится)" />
-                            <Label Grid.Row="18" Grid.Column="0" Content="Токен reserve в шаблоне:" />
-                            <TextBox Grid.Row="18" Grid.Column="1" Margin="4"
-                                     Text="{Binding Settings.BlockTokenReserve, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="F69/F70: токен reserve-блока в шаблонах (напр. NAME_PACK_TCP_RESERVE) — вхождение в имени объекта логики пакета или data-шаблона заменяется на имя reserve-блока пары (суффиксы .busy/_LINK сохраняются). Пусто — токен берётся автоматически из имени ВТОРОГО мастера шаблона; если второго мастера нет — reserve-подмена не выполняется. main-токен — имя блока мастера шаблона (MasterNameBase), автоматически" />
-                        </Grid>
-                    </GroupBox>
 
                     <GroupBox Header="Раскладка схемы (T11ID/cardId клонов)" Margin="0,0,0,6">
                         <Grid>

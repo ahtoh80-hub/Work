@@ -5,8 +5,7 @@ namespace IO_PJT
     public static class AppInfo
     {
         /// <summary>Текущая версия программы. Бампить после каждого изменения кода:
-        /// F79…F82 (F82 — раздвигаемые блоки F13: станции/перечни шаблонов/Typno,
-        /// высота по содержимому с ростом при наполнении).</summary>
-        public const string Version = "F82";
+        /// F79…F83 (F83 — «Пакетирование» только во вкладке «Шаблоны пакетов (Master)»).</summary>
+        public const string Version = "F83";
     }
 }
