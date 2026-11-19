@@ -122,12 +122,26 @@
 
                     <!-- F22/F31: залитые мастер-шаблоны пакетов (SCADA_MASTER_TEMPLATES) —
                          «первое место» по ТЗ (шаблоны пакетов TCP/RTU отдельно от data) -->
-                    <GroupBox Header="Мастер-шаблоны пакетов (SCADA_MASTER_TEMPLATES)" Margin="0,0,0,6">
+                    <!-- F82: блок раздвигаем по вертикали и горизонтали (сплиттеры);
+                         по умолчанию высота по содержимому и растёт при наполнении -->
+                    <Grid Margin="0,0,0,6">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="4" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="4" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <GroupBox Grid.Row="0" Grid.Column="0" MinHeight="60"
+                                  Header="Мастер-шаблоны пакетов (SCADA_MASTER_TEMPLATES)">
                         <StackPanel>
                             <!-- F81: перечень мастер-шаблонов в виде списка (как data-шаблоны):
                                  имя, протокол, источник, версия, дата сохранения -->
                             <DataGrid ItemsSource="{Binding MasterTemplates}" SelectedItem="{Binding SelectedMasterTemplate}"
-                                      AutoGenerateColumns="False" IsReadOnly="True" Height="90"
+                                      AutoGenerateColumns="False" IsReadOnly="True" MinHeight="60"
                                       HeadersVisibility="Column" Margin="0,2,0,4"
                                       ToolTip="F81/F22: все залитые мастер-шаблоны; Protocol определяется по имени («RTU» → RTU, иначе TCP)">
                                 <DataGrid.Columns>
@@ -174,7 +188,18 @@
                                           ToolTip="F22: мастер-шаблон для пакетов Modbus RTU; пусто — RTU-пакеты пропускаются с предупреждением. Для конкретной станции выберите шаблон в правиле («Шаблон пакетов») — F29" />
                             </Grid>
                         </StackPanel>
-                    </GroupBox>
+                        </GroupBox>
+                        <GridSplitter Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
+                                      Height="4" HorizontalAlignment="Stretch"
+                                      ResizeBehavior="PreviousAndNext" ResizeDirection="Rows"
+                                      Background="#DDDDDD"
+                                      ToolTip="F82: потянуть вертикально — изменить высоту блока" />
+                        <GridSplitter Grid.Column="1" Grid.Row="0" Grid.RowSpan="2"
+                                      Width="4" VerticalAlignment="Stretch"
+                                      ResizeBehavior="PreviousAndNext" ResizeDirection="Columns"
+                                      Background="#DDDDDD"
+                                      ToolTip="F82: потянуть горизонтально — изменить ширину блока" />
+                    </Grid>
 
                             </StackPanel>
                         </TabItem>
@@ -234,10 +259,24 @@
                     <!-- F31: объединённый перечень data-шаблонов — чтение (SCADA_DATAOUT_TEMPLATES,
                          «DataOut[] → тег») и запись (SCADA_DATAIN_TEMPLATES, «тег → DataIn[]»)
                          в одном месте; отдельная вкладка DataIn убрана -->
-                    <GroupBox Header="Data-шаблоны (перечень: чтение + запись)" Margin="0,0,0,6">
+                    <!-- F82: перечень data-шаблонов раздвигаем по вертикали/горизонтали;
+                         высота по содержимому и растёт при добавлении шаблонов -->
+                    <Grid Margin="0,0,0,6">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="4" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="4" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <GroupBox Grid.Row="0" Grid.Column="0" MinHeight="60"
+                                  Header="Data-шаблоны (перечень: чтение + запись)">
                         <StackPanel>
                             <DataGrid ItemsSource="{Binding DataTemplates}" SelectedItem="{Binding SelectedDataTemplate}"
-                                      AutoGenerateColumns="False" IsReadOnly="True" Height="110"
+                                      AutoGenerateColumns="False" IsReadOnly="True" MinHeight="60"
                                       HeadersVisibility="Column" Margin="0,2,0,4"
                                       ToolTip="F31: все залитые data-шаблоны: чтение — цепочки «DataOut[] → тег», запись — «тег → DataIn[]» (генерация берёт эталон по типу/Typno)">
                                 <DataGrid.Columns>
@@ -259,7 +298,18 @@
                                         ToolTip="F81: открыть тело выбранного шаблона в большом окне редактора — правка/вставка кода и сохранение в БД (Version +1)" />
                             </StackPanel>
                         </StackPanel>
-                    </GroupBox>
+                        </GroupBox>
+                        <GridSplitter Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
+                                      Height="4" HorizontalAlignment="Stretch"
+                                      ResizeBehavior="PreviousAndNext" ResizeDirection="Rows"
+                                      Background="#DDDDDD"
+                                      ToolTip="F82: потянуть вертикально — изменить высоту блока" />
+                        <GridSplitter Grid.Column="1" Grid.Row="0" Grid.RowSpan="2"
+                                      Width="4" VerticalAlignment="Stretch"
+                                      ResizeBehavior="PreviousAndNext" ResizeDirection="Columns"
+                                      Background="#DDDDDD"
+                                      ToolTip="F82: потянуть горизонтально — изменить ширину блока" />
+                    </Grid>
 
                     <!-- F33 (этап 7): маппинг объектов data-шаблонов — переменные-объекты
                          (блоки 31/34, кроме источников .DataOut[/.DataIn[; F46: корни
@@ -468,7 +518,21 @@
                         </Grid>
                     </GroupBox>
 
-                    <GroupBox Header="Станции slave (SCADA_MB_SLAVE_RULES)" Margin="0,0,0,6">
+                    <!-- F82: «Станции slave» раздвигаем по вертикали/горизонтали;
+                         высота по содержимому и растёт при добавлении станций -->
+                    <Grid Margin="0,0,0,6">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="4" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="4" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <GroupBox Grid.Row="0" Grid.Column="0" MinHeight="60"
+                                  Header="Станции slave (SCADA_MB_SLAVE_RULES)">
                         <DockPanel>
                             <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
                                 <Button Content="Добавить" Command="{Binding AddRuleCommand}" Width="80" Margin="0,0,6,0"
@@ -486,7 +550,7 @@
                             </StackPanel>
                             <DataGrid ItemsSource="{Binding SlaveRules}" SelectedItem="{Binding SelectedRule}"
                                       AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column"
-                                      Height="400">
+                                      MinHeight="180">
                                 <DataGrid.Columns>
                                     <!-- F53: № строки и галочка «Генерировать» — выбор станций экспорта -->
                                     <DataGridTextColumn Header="№"
@@ -547,7 +611,18 @@
                                 </DataGrid.Columns>
                             </DataGrid>
                         </DockPanel>
-                    </GroupBox>
+                        </GroupBox>
+                        <GridSplitter Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
+                                      Height="4" HorizontalAlignment="Stretch"
+                                      ResizeBehavior="PreviousAndNext" ResizeDirection="Rows"
+                                      Background="#DDDDDD"
+                                      ToolTip="F82: потянуть вертикально — изменить высоту блока" />
+                        <GridSplitter Grid.Column="1" Grid.Row="0" Grid.RowSpan="2"
+                                      Width="4" VerticalAlignment="Stretch"
+                                      ResizeBehavior="PreviousAndNext" ResizeDirection="Columns"
+                                      Background="#DDDDDD"
+                                      ToolTip="F82: потянуть горизонтально — изменить ширину блока" />
+                    </Grid>
 
                     <!-- F34: маппинг «вход мастер-шаблона → колонка/литерал» (F23/F25) УБРАН по
                          требованию: входы Mode/Address/Count/IpOctet_1..4/Port/SlaveId/TimeOut
@@ -558,7 +633,21 @@
                     <!-- F14: ручное сопоставление «Typno → эталон шаблона привязок»:
                          тип объекта выбирает, какую цепочку Data_Out клонировать для
                          сигналов этого типового алгоритма -->
-                    <GroupBox Header="Сопоставление Typno → шаблон привязок (SCADA_TYPNO_MAP)" Margin="0,0,0,6">
+                    <!-- F82: «Сопоставление Typno» раздвигаем по вертикали/горизонтали;
+                         высота по содержимому и растёт при добавлении правил -->
+                    <Grid Margin="0,0,0,6">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="4" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="4" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <GroupBox Grid.Row="0" Grid.Column="0" MinHeight="60"
+                                  Header="Сопоставление Typno → шаблон привязок (SCADA_TYPNO_MAP)">
                         <DockPanel>
                             <StackPanel DockPanel.Dock="Top" Margin="0,0,0,4">
                                 <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
@@ -575,7 +664,7 @@
                             </StackPanel>
                             <DataGrid ItemsSource="{Binding TypnoRules}" SelectedItem="{Binding SelectedTypnoRule}"
                                       AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column"
-                                      Height="140">
+                                      MinHeight="80">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Typno (типовой алгоритм)"
                                                         Binding="{Binding Typno, UpdateSourceTrigger=PropertyChanged}" Width="*"
@@ -609,7 +698,18 @@
                                 </DataGrid.Columns>
                             </DataGrid>
                         </DockPanel>
-                    </GroupBox>
+                        </GroupBox>
+                        <GridSplitter Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
+                                      Height="4" HorizontalAlignment="Stretch"
+                                      ResizeBehavior="PreviousAndNext" ResizeDirection="Rows"
+                                      Background="#DDDDDD"
+                                      ToolTip="F82: потянуть вертикально — изменить высоту блока" />
+                        <GridSplitter Grid.Column="1" Grid.Row="0" Grid.RowSpan="2"
+                                      Width="4" VerticalAlignment="Stretch"
+                                      ResizeBehavior="PreviousAndNext" ResizeDirection="Columns"
+                                      Background="#DDDDDD"
+                                      ToolTip="F82: потянуть горизонтально — изменить ширину блока" />
+                    </Grid>
 
                 </StackPanel>
             </ScrollViewer>
