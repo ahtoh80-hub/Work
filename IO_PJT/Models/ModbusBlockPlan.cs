@@ -567,6 +567,14 @@ namespace IO_PJT.Models
 
         /// <summary>Фиксированный текст (используется, если колонка/шаблон не заданы).</summary>
         public string Literal { get; set; } = "";
+
+        /// <summary>F80: режим привязки в гриде: «Адрес» / «Адрес/бит» (пусто — прежнее
+        /// поведение F75); хранится в SCADA_TEMPLATE_VARS.BitMode.</summary>
+        public string BitMode { get; set; } = "";
+
+        /// <summary>F80: номер бита 0..15 (значение M_Bit) при режиме «Адрес/бит»;
+        /// хранится в SCADA_TEMPLATE_VARS.BitNo.</summary>
+        public string BitNo { get; set; } = "";
     }
 
     /// <summary>F16: именованный шаблон привязок Data_Out — таблица SCADA_DATAOUT_TEMPLATES.
@@ -649,6 +657,14 @@ namespace IO_PJT.Models
 
         /// <summary>Фиксированное значение, когда колонка не задана.</summary>
         public string Literal { get; set; } = "";
+
+        /// <summary>F80: режим привязки объекта: «Адрес» — тег по адресу точки;
+        /// «Адрес/бит» — адрес + M_Bit = BitNo; пусто — прежнее поведение
+        /// (F75-авто по имени Bit_i с «Смещением бит»).</summary>
+        public string BitMode { get; set; } = "";
+
+        /// <summary>F80: искомый номер бита (0..15, значение M_Bit) при режиме «Адрес/бит».</summary>
+        public string BitNo { get; set; } = "";
     }
 
     /// <summary>F31: строка объединённого перечня data-шаблонов окна генерации — шаблон

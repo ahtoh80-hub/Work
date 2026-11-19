@@ -1262,7 +1262,7 @@ namespace IO_PJT.ViewModels
         private (Dictionary<string, List<(string Template, string Exemplar, string Size)>> Typno,
                  Dictionary<string, string> Named,
                  Dictionary<string, string> DataIn,
-                 Dictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal)>> Vars)
+                 Dictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal, string BitMode, string BitNo)>> Vars)
             BuildDataMaps()
         {
             // F51: один Typno — несколько правил (по шаблону); порядок строк сохраняется
@@ -1289,24 +1289,25 @@ namespace IO_PJT.ViewModels
                     dataInTemplates[t.Name.Trim()] = t.Body;
             var dataVars = new System.Collections.Generic.Dictionary<string,
                 System.Collections.Generic.IReadOnlyDictionary<string,
-                    (string IoColumn, string Literal)>>(StringComparer.OrdinalIgnoreCase);
+                    (string IoColumn, string Literal, string BitMode, string BitNo)>>(StringComparer.OrdinalIgnoreCase);
             foreach (var row in DataTemplateVars)
             {
                 string tn = row.TemplateName.Trim();
                 string vn = row.Var.Trim();
                 if (tn.Length == 0 || vn.Length == 0) continue;
                 System.Collections.Generic.Dictionary<string,
-                    (string IoColumn, string Literal)> m;
+                    (string IoColumn, string Literal, string BitMode, string BitNo)> m;
                 if (dataVars.TryGetValue(tn, out var existing))
                     m = (System.Collections.Generic.Dictionary<string,
-                        (string IoColumn, string Literal)>)existing;
+                        (string IoColumn, string Literal, string BitMode, string BitNo)>)existing;
                 else
                 {
                     m = new System.Collections.Generic.Dictionary<string,
-                        (string IoColumn, string Literal)>(StringComparer.OrdinalIgnoreCase);
+                        (string IoColumn, string Literal, string BitMode, string BitNo)>(StringComparer.OrdinalIgnoreCase);
                     dataVars[tn] = m;
                 }
-                m[vn] = (row.IoColumn.Trim(), row.Literal.Trim());
+                m[vn] = (row.IoColumn.Trim(), row.Literal.Trim(),
+                    row.BitMode.Trim(), row.BitNo.Trim());
             }
             return (typnoMap, namedTemplates, dataInTemplates, dataVars);
         }
@@ -1954,7 +1955,8 @@ namespace IO_PJT.ViewModels
                             DataTemplateVars.Add(new MbDataTemplateVarRow
                             {
                                 TemplateName = t.Name, Direction = DirectionOf("dataout", v.Var), Var = v.Var,
-                                IoColumn = v.IoColumn, Literal = v.Literal
+                                IoColumn = v.IoColumn, Literal = v.Literal,
+                                BitMode = v.BitMode, BitNo = v.BitNo
                             });
                 foreach (var t in DataInTemplates)
                     foreach (var v in ModbusBlockPlannerService.MergeTemplateVars(
@@ -1963,7 +1965,8 @@ namespace IO_PJT.ViewModels
                             DataTemplateVars.Add(new MbDataTemplateVarRow
                             {
                                 TemplateName = t.Name, Direction = DirectionOf("datain", v.Var), Var = v.Var,
-                                IoColumn = v.IoColumn, Literal = v.Literal
+                                IoColumn = v.IoColumn, Literal = v.Literal,
+                                BitMode = v.BitMode, BitNo = v.BitNo
                             });
                 // F34: текущий шаблон редактора (ключ = DataOutTemplateName) — если его
                 // нет в перечне сохранённых, строки маппинга всё равно должны быть видны
@@ -1976,7 +1979,8 @@ namespace IO_PJT.ViewModels
                             DataTemplateVars.Add(new MbDataTemplateVarRow
                             {
                                 TemplateName = cur, Direction = DirectionOf("dataout", v.Var), Var = v.Var,
-                                IoColumn = v.IoColumn, Literal = v.Literal
+                                IoColumn = v.IoColumn, Literal = v.Literal,
+                                BitMode = v.BitMode, BitNo = v.BitNo
                             });
             }
             catch (Exception ex)
@@ -1984,6 +1988,7 @@ namespace IO_PJT.ViewModels
                 string msg = DbProbe.ClassifyMessage(ex.Message);
                 _s.Log.Error($"F33: ошибка чтения маппинга объектов data-шаблонов: {msg}");
             }
+            ApplyBitModeDefaults(); // F80: дефолты режима «Адрес»/«Адрес/бит»
             _s.Log.Info($"F45 PERF: LoadDataTemplateVars ({DataTemplateVars.Count} строк) — " +
                         $"{swPerf.ElapsedMilliseconds} мс");
         }
@@ -2082,6 +2087,7 @@ namespace IO_PJT.ViewModels
                             { TemplateName = cur, Direction = "мастер", Var = o.Name });
                             added++;
                         }
+                    ApplyBitModeDefaults(); // F80: дефолты режима для новых строк
                 StatusText = added > 0
                     ? $"Объектов data-шаблонов добавлено: {added} (всего {DataTemplateVars.Count}). " +
                       "Задайте колонку/шаблон или литерал и «Сохранить маппинг объектов»."
@@ -2092,6 +2098,26 @@ namespace IO_PJT.ViewModels
                 string msg = DbProbe.ClassifyMessage(ex.Message);
                 _s.Log.Error($"F33: ошибка заполнения объектов data-шаблонов: {msg}");
                 StatusText = $"Ошибка заполнения объектов data-шаблонов: {msg}";
+            }
+        }
+
+        /// <summary>F80: дефолты режима привязки для строк без режима — объект «Bit0..Bit15» →
+        /// «Адрес/бит» + номер бита (значение M_Bit 0..15), остальные → «Адрес». Режим,
+        /// заданный пользователем, не перезаписывается. Вызывается после загрузки и заполнения.</summary>
+        private void ApplyBitModeDefaults()
+        {
+            foreach (var r in DataTemplateVars)
+            {
+                if (!string.IsNullOrWhiteSpace(r.BitMode)) continue;
+                string vn = (r.Var ?? "").Trim();
+                if (vn.Length > 3 && vn.StartsWith("Bit", StringComparison.OrdinalIgnoreCase) &&
+                    int.TryParse(vn.AsSpan(3), out int bi) && bi >= 0 && bi <= 15 &&
+                    string.Equals(vn, "Bit" + bi, StringComparison.OrdinalIgnoreCase))
+                {
+                    r.BitMode = "Адрес/бит";
+                    r.BitNo = bi.ToString();
+                }
+                else r.BitMode = "Адрес";
             }
         }
 
@@ -2112,7 +2138,8 @@ namespace IO_PJT.ViewModels
                 {
                     var rows = g.Select(r => new MbTemplateVar
                     {
-                        Var = r.Var.Trim(), IoColumn = r.IoColumn.Trim(), Literal = r.Literal.Trim()
+                        Var = r.Var.Trim(), IoColumn = r.IoColumn.Trim(), Literal = r.Literal.Trim(),
+                        BitMode = r.BitMode.Trim(), BitNo = r.BitNo.Trim()
                     }).ToList();
                     total += _s.ModbusBlocks.SaveTemplateVars(g.Key.Scope, g.Key.Name, rows);
                 }

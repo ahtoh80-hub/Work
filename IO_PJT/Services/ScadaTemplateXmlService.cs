@@ -570,7 +570,7 @@ namespace IO_PJT.Services
         /// кластеров (между проходами WriteProtocolSplit) — при наложении bbox кластера
         /// переносится ниже; null — новый список (разовый вызов).</param>
         public GeneratedXml Write(IReadOnlyList<MbPacketPlan> packets, string templateXml, ScadaMbGenSettings s,
-            IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal)>>? dataVars = null,
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal, string BitMode, string BitNo)>>? dataVars = null,
             string dataVarsTemplateKey = "", int posBase = 0,
             List<(int X0, int Y0, int X1, int Y1)>? placedRects = null)
         {
@@ -1322,7 +1322,7 @@ namespace IO_PJT.Services
         /// групп результаты склеиваются в один документ (T11/cardId/имена без конфликтов).</summary>
         public GeneratedXml WriteProtocolSplit(IReadOnlyList<MbPacketPlan> packets,
             string tcpTemplateXml, string? rtuTemplateXml, ScadaMbGenSettings s,
-            IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal)>>? dataVars = null,
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal, string BitMode, string BitNo)>>? dataVars = null,
             string dataVarsTemplateKey = "") =>
             WriteProtocolSplit(packets, null, tcpTemplateXml, rtuTemplateXml, s, dataVars, dataVarsTemplateKey);
 
@@ -1336,7 +1336,7 @@ namespace IO_PJT.Services
         public GeneratedXml WriteProtocolSplit(IReadOnlyList<MbPacketPlan> packets,
             IReadOnlyDictionary<string, string>? templateByStation,
             string tcpTemplateXml, string? rtuTemplateXml, ScadaMbGenSettings s,
-            IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal)>>? dataVars = null,
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal, string BitMode, string BitNo)>>? dataVars = null,
             string dataVarsTemplateKey = "")
         {
             if (packets == null) throw new ArgumentNullException(nameof(packets));
@@ -1487,7 +1487,7 @@ namespace IO_PJT.Services
         /// (пакет, объект); неразрешённая колонка — фолбэк на литерал + предупреждение
         /// (семантика F36).</summary>
         private static void ApplyPrimTextSubstitution(XElement prim, MbPacketPlan p,
-            IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal)>>? dataVars,
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal, string BitMode, string BitNo)>>? dataVars,
             string dataVarsTemplateKey,
             List<string> warnings, HashSet<string> textWarned,
             // F69: токены имени мастера — подмена в тексте [TEXT] (шаблонном и маппинга)
@@ -1512,7 +1512,7 @@ namespace IO_PJT.Services
 
             bool hasDv = dataVars != null && dataVars.Count > 0;
             // строка маппинга: активный ключ data-шаблона, затем сквозной поиск по всем
-            (string IoColumn, string Literal) row = default;
+            (string IoColumn, string Literal, string BitMode, string BitNo) row = default;
             bool found = false;
             if (hasDv)
             {
@@ -1574,7 +1574,7 @@ namespace IO_PJT.Services
         /// значение разрешается по ColumnValues первой точки привязки пакета (F38-семантика).
         /// Входы мастера при экспорте перебивают маппинг плановыми значениями (F35, см. Write).</summary>
         private static string? ApplyMainObjectMapping(XElement clone, MbPacketPlan p,
-            IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal)>>? dataVars,
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal, string BitMode, string BitNo)>>? dataVars,
             string dataVarsTemplateKey, List<string> warnings, HashSet<string> warned)
         {
             if (dataVars == null || dataVars.Count == 0) return null;
@@ -1583,7 +1583,7 @@ namespace IO_PJT.Services
             string objName = (clone.Attribute("Info")?.Value ?? "").Trim();
             if (objName.Length == 0) return null;
 
-            (string IoColumn, string Literal) row = default;
+            (string IoColumn, string Literal, string BitMode, string BitNo) row = default;
             bool found = dataVarsTemplateKey.Length > 0 &&
                          dataVars.TryGetValue(dataVarsTemplateKey, out var byKey52) &&
                          byKey52.TryGetValue(objName, out row);
@@ -1644,8 +1644,8 @@ namespace IO_PJT.Services
         /// <summary>F38/F44: строка текстового объекта в словаре маппинга шаблона — Var
         /// «ident(Text)» (маркер объекта из грида), fallback «ident» (без суффикса).</summary>
         public static bool FindTextRow(
-            IReadOnlyDictionary<string, (string IoColumn, string Literal)> vars,
-            string ident, out (string IoColumn, string Literal) row)
+            IReadOnlyDictionary<string, (string IoColumn, string Literal, string BitMode, string BitNo)> vars,
+            string ident, out (string IoColumn, string Literal, string BitMode, string BitNo) row)
         {
             if (vars.TryGetValue(ident + "(Text)", out row)) return true;
             if (vars.TryGetValue(ident, out row)) return true;

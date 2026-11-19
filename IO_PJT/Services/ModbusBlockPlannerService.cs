@@ -1234,10 +1234,10 @@ namespace IO_PJT.Services
                     using var cn = new OleDbConnection(ConnStr);
                     cn.Open();
                     string sql = key == null
-                        ? $@"SELECT ID, [Scope], [TemplateName], [Var], [IoColumn], [Literal]
+                        ? $@"SELECT ID, [Scope], [TemplateName], [Var], [IoColumn], [Literal], [BitMode], [BitNo]
                             FROM [{Schema.ScadaTemplateVarsTable}] WHERE [Scope] = ?
                             ORDER BY [Var]"
-                        : $@"SELECT ID, [Scope], [TemplateName], [Var], [IoColumn], [Literal]
+                        : $@"SELECT ID, [Scope], [TemplateName], [Var], [IoColumn], [Literal], [BitMode], [BitNo]
                             FROM [{Schema.ScadaTemplateVarsTable}]
                             WHERE [Scope] = ? AND ([TemplateName] = ? OR [TemplateName] = ''
                                   OR [TemplateName] IS NULL)
@@ -1255,7 +1255,9 @@ namespace IO_PJT.Services
                             TemplateName = rd.IsDBNull(2) ? "" : rd.GetString(2),
                             Var = rd.IsDBNull(3) ? "" : rd.GetString(3),
                             IoColumn = rd.IsDBNull(4) ? "" : rd.GetString(4),
-                            Literal = rd.IsDBNull(5) ? "" : rd.GetString(5)
+                            Literal = rd.IsDBNull(5) ? "" : rd.GetString(5),
+                            BitMode = rd.IsDBNull(6) ? "" : rd.GetString(6),
+                            BitNo = rd.IsDBNull(7) ? "" : rd.GetString(7)
                         });
                     break;
                 }
@@ -1297,7 +1299,7 @@ namespace IO_PJT.Services
                     EnsureTables();
                     using var cn = new OleDbConnection(ConnStr);
                     cn.Open();
-                    string sql = $@"SELECT ID, [Scope], [TemplateName], [Var], [IoColumn], [Literal]
+                    string sql = $@"SELECT ID, [Scope], [TemplateName], [Var], [IoColumn], [Literal], [BitMode], [BitNo]
                         FROM [{Schema.ScadaTemplateVarsTable}] WHERE [Scope] = ?
                         ORDER BY [TemplateName], [Var]";
                     using var cmd = new OleDbCommand(sql, cn);
@@ -1312,7 +1314,9 @@ namespace IO_PJT.Services
                             TemplateName = rd.IsDBNull(2) ? "" : rd.GetString(2),
                             Var = rd.IsDBNull(3) ? "" : rd.GetString(3),
                             IoColumn = rd.IsDBNull(4) ? "" : rd.GetString(4),
-                            Literal = rd.IsDBNull(5) ? "" : rd.GetString(5)
+                            Literal = rd.IsDBNull(5) ? "" : rd.GetString(5),
+                            BitMode = rd.IsDBNull(6) ? "" : rd.GetString(6),
+                            BitNo = rd.IsDBNull(7) ? "" : rd.GetString(7)
                         });
                     break;
                 }
@@ -1366,7 +1370,9 @@ namespace IO_PJT.Services
                     TemplateName = key,
                     Var = v.Var.Trim(),
                     IoColumn = (v.IoColumn ?? "").Trim(),
-                    Literal = v.Literal ?? ""
+                    Literal = v.Literal ?? "",
+                    BitMode = (v.BitMode ?? "").Trim(),
+                    BitNo = (v.BitNo ?? "").Trim()
                 })
                 .ToList();
             EnsureTables();
@@ -1402,8 +1408,8 @@ namespace IO_PJT.Services
                 }
                 using (var ins = new OleDbCommand(
                     $@"INSERT INTO [{Schema.ScadaTemplateVarsTable}]
-                       ([Scope], [TemplateName], [Var], [IoColumn], [Literal])
-                       VALUES (?, ?, ?, ?, ?)", cn, tr))
+                       ([Scope], [TemplateName], [Var], [IoColumn], [Literal], [BitMode], [BitNo])
+                       VALUES (?, ?, ?, ?, ?, ?, ?)", cn, tr))
                 {
                     ins.CommandTimeout = DbProbe.TimeoutSeconds;
                     foreach (var v in list)
@@ -1414,6 +1420,8 @@ namespace IO_PJT.Services
                         OleDbArgs.Add(ins, v.Var);
                         OleDbArgs.Add(ins, v.IoColumn);
                         OleDbArgs.Add(ins, v.Literal);
+                        OleDbArgs.Add(ins, v.BitMode);
+                        OleDbArgs.Add(ins, v.BitNo);
                         ins.ExecuteNonQuery();
                     }
                 }

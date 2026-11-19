@@ -5,7 +5,7 @@ namespace IO_PJT
     public static class AppInfo
     {
         /// <summary>Текущая версия программы. Бампить после каждого изменения кода:
-        /// F79, F80, … (первый выпуск — F79).</summary>
-        public const string Version = "F79";
+        /// F79, F80, … (F80 — битовые data-шаблоны: режим «Адрес»/«Адрес/бит» + FALSE).</summary>
+        public const string Version = "F80";
     }
 }

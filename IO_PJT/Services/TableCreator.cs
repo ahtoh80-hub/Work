@@ -220,6 +220,16 @@ namespace IO_PJT.Services
             // F23: маппинг «переменная шаблона → колонка IO_LIST/литерал»
             if (!tables.Contains(Schema.ScadaTemplateVarsTable))
                 Execute(Schema.CreateScadaTemplateVarsTable);
+            else
+            {
+                // F80: миграция старых баз — режим привязки «Адрес»/«Адрес/бит» и номер бита
+                var tvCols = new HashSet<string>(GetColumns(Schema.ScadaTemplateVarsTable),
+                    StringComparer.OrdinalIgnoreCase);
+                if (!tvCols.Contains("BitMode"))
+                    Execute($"ALTER TABLE [{Schema.ScadaTemplateVarsTable}] ADD COLUMN [BitMode] TEXT(10)");
+                if (!tvCols.Contains("BitNo"))
+                    Execute($"ALTER TABLE [{Schema.ScadaTemplateVarsTable}] ADD COLUMN [BitNo] TEXT(4)");
+            }
             // F65: генерация экземпляров типовых алгоритмов — настройки, шаблоны, привязки,
             // таблица описаний TYPNO (создаётся только при отсутствии — в рабочих базах
             // уже заполнена, существующие строки не трогаются)

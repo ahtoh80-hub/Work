@@ -2161,6 +2161,30 @@ bbox шаблона (в экспорте пользователя `ColumnsPerRow
 (F79, F80, …). **Приёмка:** `dotnet build` 0/0 (XAML-компиляция подтверждает разрешение
 обработчиков `NameWarningsBox_TextChanged`/`NameWarningsClear_Click`).
 
+**F80 — битовые data-шаблоны: режимы «Адрес»/«Адрес/бит» в маппинге, FALSE для непривязанных битов (2026-11).**
+Триггер — багрепорт: для адреса 300 (16 бит) все объекты шаблона `MB_DI_WORD16_HOLDING`
+получали один и тот же тег; в шаблоне объекты называются `BIT0..BIT15` (заглавные — F75-регекс
+был регистрозависимым и не срабатывал), в `BD Modbus 2712-PK-0001` у адреса `0300` биты 1..15
+(бита 0 нет). (1) **Маппинг.** `SCADA_TEMPLATE_VARS` +2 колонки (`BitMode TEXT(10)`,
+`BitNo TEXT(4)`; DDL + ALTER-миграция в `TableCreator.EnsureServiceTables` для старых баз);
+модели `MbTemplateVar`/`MbDataTemplateVarRow`; грид F13 «Объекты data-шаблонов» — новые колонки
+**«Режим»** (ComboBox «Адрес»/«Адрес/бит») и **«Бит»** (ComboBox 0..15). Загрузка/«Заполнить из
+шаблонов» проставляют дефолты (`ApplyBitModeDefaults`, режим пользователя не перезаписывается):
+объект `Bit_i` (IgnoreCase, в т.ч. `BIT0..BIT15`) → «Адрес/бит» + номер бита, остальные → «Адрес».
+(2) **Резолв** (`ScadaDataOutXmlService.ApplyBindingSubstitutions`, var-ветка и приёмник):
+«Адрес/бит» → `FindBitColumns(b, BitNo)` — точка адреса с `M_Bit = BitNo` (без «Смещения бит»);
+«Адрес» → прежний адресный путь, битовая ветка не выполняется; режим пуст → F75-авто по имени
+`Bit_i` **регистронезависимо** + «Смещение бит». **Бит не найден → `Info = FALSE`** (новая
+карточка, литерал строки в `<IV>`, предупреждение «F80: бит N не привязан … → FALSE» один раз на
+(пакет, бит)); F37/F35 «нет строки объекта» при этом подавлены. Бит найден → прежняя логика
+(колонка/литерал строки резолвятся по колонкам найденной точки, иначе марка `M_Marka` точки).
+(3) Тип-кортеж `dataVars` расширен до `(IoColumn, Literal, BitMode, BitNo)` —
+`Write`/`WriteProtocolSplit`/`WriteMulti`/`ApplyBindingSubstitutions`/`ApplyPrimTextSubstitution`/
+`BuildDataMaps`. **Приёмка:** смоук — 17 проверок (FindBitColumns 2→есть/0→null/16→null;
+явный режим: `BIT0`→`FALSE` ровно один, `BIT1..BIT15` → `_TAG_B1.._TAG_B15` каждый своему биту,
+предупреждение F80; режим «Адрес» — тег репрезентанта, FALSE/F80 нет; легаси IgnoreCase:
+`BIT5`→`_TAG_B5`, `BIT0`→`FALSE`); `dotnet build` 0/0.
+
 Все таблицы создаются идемпотентно в `TableCreator.EnsureServiceTables`;
 хранилище — `ModbusBlockPlannerService` (`LoadSettings`/`SaveSettings` — полная замена
 ключей, `LoadSlaveRules`/`SaveSlaveRules` — полная замена с валидацией: пустая станция/

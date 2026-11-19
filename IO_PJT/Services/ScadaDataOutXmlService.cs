@@ -362,7 +362,7 @@ namespace IO_PJT.Services
             IReadOnlyDictionary<string, string>? namedTemplates = null,
             IReadOnlyDictionary<string, string>? dataInTemplates = null,
             // F33 (этап 7): маппинг объектов data-шаблонов «имя шаблона → объект → (колонка, литерал)»
-            IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal)>>? dataVars = null,
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal, string BitMode, string BitNo)>>? dataVars = null,
             string dataVarsTemplateKey = "",
             // F69: имя блока мастера шаблона (main-токен подмены в объектах data-шаблона);
             // null — подмена main-токена не выполняется (обратная совместимость)
@@ -628,7 +628,7 @@ namespace IO_PJT.Services
                     // шаблона; ключ не найден — подстановок НЕТ (fallback «единственного
                     // шаблона» F34 удалён — недопустимы скрытые подстановки)
                     string activeTplName = mappedTplName.Length > 0 ? mappedTplName : dataVarsTemplateKey;
-                    IReadOnlyDictionary<string, (string IoColumn, string Literal)>? dv = null;
+                    IReadOnlyDictionary<string, (string IoColumn, string Literal, string BitMode, string BitNo)>? dv = null;
                     if (dataVars != null && activeTplName.Length > 0 &&
                         dataVars.TryGetValue(activeTplName, out var dvFound))
                         dv = dvFound;
@@ -744,7 +744,7 @@ namespace IO_PJT.Services
             IReadOnlyDictionary<string, (string Template, string Exemplar, string Size)>? typnoMap = null,
             IReadOnlyDictionary<string, string>? namedTemplates = null,
             IReadOnlyDictionary<string, string>? dataInTemplates = null,
-            IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal)>>? dataVars = null,
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal, string BitMode, string BitNo)>>? dataVars = null,
             string dataVarsTemplateKey = "",
             // F69: имя блока мастера шаблона (main-токен подмены в объектах data-шаблона)
             string? masterNameBase = null,
@@ -887,7 +887,7 @@ namespace IO_PJT.Services
             MbBinding b, Exemplar ex,
             IReadOnlyDictionary<string, (int CardId, string Iv)> masterMeta,
             ref int nextCard, List<XElement> outCards, HashSet<int> seenCards,
-            IReadOnlyDictionary<string, (string IoColumn, string Literal)>? dataVars = null,
+            IReadOnlyDictionary<string, (string IoColumn, string Literal, string BitMode, string BitNo)>? dataVars = null,
             List<string>? warnings = null,
             // F35: дедупликация предупреждений «приёмник без строки маппинга»
             HashSet<string>? noMapWarned = null,
@@ -929,31 +929,50 @@ namespace IO_PJT.Services
                         if (!string.Equals(fixedObj, objName, StringComparison.Ordinal))
                             clone.SetAttributeValue("Info", fixedObj);
                     }
-                    // F75: битовый объект Bit0..Bit15 - колонки точки с M_Bit=i
-                    // (+ «Смещение бит»); бит не найден - подстановка не выполняется
+                    // F80: строка маппинга объекта — режим привязки «Адрес»/«Адрес/бит»
+                    bool hasRowV = dataVars.TryGetValue(objName, out var drow);
+                    string bitMode80 = hasRowV ? (drow.BitMode ?? "").Trim() : "";
+                    string bitNo80 = hasRowV ? (drow.BitNo ?? "").Trim() : "";
+                    // F75/F80: битовый объект — колонки точки с нужным M_Bit:
+                    //   F80 «Адрес/бит» — явный бит из строки маппинга (BitNo, без «Смещения бит»);
+                    //   F80 «Адрес» — привязка только по адресу (битовая ветка не выполняется);
+                    //   режим не задан — прежнее F75-авто по имени Bit_i (+ «Смещение бит»);
+                    //   бит не найден в IO_LIST → имя объекта FALSE (F80).
                     IReadOnlyDictionary<string, string>? bitCols75 = null;
                     string bitMarka75 = "";
                     string litRow75 = "";
                     bool bitSkip75 = false;
                     bool bitApplied75 = false;
-                    var bitM75 = Regex.Match(objName, @"^Bit(\d{1,2})$", RegexOptions.CultureInvariant);
-                    if (bitM75.Success && int.TryParse(bitM75.Groups[1].Value, out var bitI75))
+                    bool bitFalse80 = false;
+                    // F80: регистронезависимо — в шаблонах объекты BIT0..BIT15 (заглавные)
+                    var bitM75 = Regex.Match(objName, @"^Bit(\d{1,2})$",
+                        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+                    int bitI75 = -1;
+                    bool nameIsBit75 = bitM75.Success && int.TryParse(bitM75.Groups[1].Value, out bitI75);
+                    int wantE80 = -1;
+                    bool explicitBit80 = string.Equals(bitMode80, "Адрес/бит", StringComparison.OrdinalIgnoreCase) &&
+                        int.TryParse(bitNo80, out wantE80) && wantE80 >= 0 && wantE80 <= 15;
+                    bool addressOnly80 = string.Equals(bitMode80, "Адрес", StringComparison.OrdinalIgnoreCase);
+                    int? want75 = null;
+                    if (explicitBit80) want75 = wantE80;
+                    else if (!addressOnly80 && nameIsBit75) want75 = bitI75 + (p.BitOffset ? 1 : 0);
+                    if (want75 is int w75)
                     {
-                        int want75 = bitI75 + (p.BitOffset ? 1 : 0);
-                        bitCols75 = FindBitColumns(b, want75);
+                        bitCols75 = FindBitColumns(b, w75);
                         if (bitCols75 == null)
                         {
                             bitSkip75 = true;
+                            bitFalse80 = true;
                             if (warnings != null &&
-                                (noMapWarned == null || noMapWarned.Add($"F75|{p.MasterName}|{want75}")))
-                                warnings.Add($"F75: {p.MasterName}: бит {want75} не найден в IO_LIST -" +
-                                    $" объект «{objName}» без изменений");
+                                (noMapWarned == null || noMapWarned.Add($"F80|{p.MasterName}|{w75}")))
+                                warnings.Add($"F80: {p.MasterName}: бит {w75} не привязан в IO_LIST -" +
+                                    $" объект «{objName}» → FALSE");
                         }
                         else if (bitCols75.TryGetValue("M_Marka", out var bm75) &&
                                  !string.IsNullOrWhiteSpace(bm75))
                             bitMarka75 = bm75.Trim();
                     }
-                    if (objName.Length > 0 && dataVars.TryGetValue(objName, out var drow))
+                    if (hasRowV)
                     {
                         rootVarRow46 = isRootVar46;
                         litRow75 = (drow.Literal ?? "").Trim();
@@ -1016,7 +1035,7 @@ namespace IO_PJT.Services
                             bitApplied75 = true;
                         }
                     }
-                    else if (warnings != null && objName.Length > 0 &&
+                    else if (warnings != null && objName.Length > 0 && !bitFalse80 &&
                              // F46: write-корень без строки — не ошибка: выполняется автотег F30
                              (isVarBlock || isSimpleRoot46) &&
                              (noMapWarned == null || noMapWarned.Add($"var|{objName}")) &&
@@ -1042,6 +1061,17 @@ namespace IO_PJT.Services
                         clone.Element("Params")?.SetAttributeValue("cardId", bitCard75);
                         if (seenCards.Add(bitCard75))
                             outCards.Add(NewCard(bitCard75, bitName75));
+                        SetIvValue(clone, litRow75);
+                    }
+                    // F80: бит не привязан (нет точки с M_Bit) — имя объекта FALSE
+                    if (bitFalse80 && !bitApplied75)
+                    {
+                        clone.SetAttributeValue("Info", "FALSE");
+                        int bitCard80 = nextCard;
+                        nextCard += 10;
+                        clone.Element("Params")?.SetAttributeValue("cardId", bitCard80);
+                        if (seenCards.Add(bitCard80))
+                            outCards.Add(NewCard(bitCard80, "FALSE"));
                         SetIvValue(clone, litRow75);
                     }
                 }
@@ -1141,22 +1171,49 @@ namespace IO_PJT.Services
                 if (!string.Equals(fixedTarget, objName, StringComparison.Ordinal))
                     clone.SetAttributeValue("Info", fixedTarget);
                 string cardTarget = fixedTarget; // F36: карточка по имени приёмника
+                // F80: строка маппинга приёмника — режим «Адрес»/«Адрес/бит»
+                (string IoColumn, string Literal, string BitMode, string BitNo) drowT = default;
+                bool hasRowT = dataVars != null && objName.Length > 0 &&
+                    dataVars.TryGetValue(objName, out drowT);
+                string bitModeT80 = hasRowT ? (drowT.BitMode ?? "").Trim() : "";
+                string bitNoT80 = hasRowT ? (drowT.BitNo ?? "").Trim() : "";
                 IReadOnlyDictionary<string, string>? bitColsT75 = null;
                 string bitMarkaT75 = "";
                 bool bitSkipT75 = false;
-                var bitMT75 = Regex.Match(objName, @"^Bit(\d{1,2})$", RegexOptions.CultureInvariant);
-                if (bitMT75.Success && int.TryParse(bitMT75.Groups[1].Value, out var bitIT75))
+                bool bitFalseT80 = false;
+                // F80: регистронезависимо — в шаблонах объекты BIT0..BIT15 (заглавные)
+                var bitMT75 = Regex.Match(objName, @"^Bit(\d{1,2})$",
+                    RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+                int bitIT75 = -1;
+                bool nameIsBitT75 = bitMT75.Success && int.TryParse(bitMT75.Groups[1].Value, out bitIT75);
+                int wantET80 = -1;
+                bool explicitBitT80 = string.Equals(bitModeT80, "Адрес/бит", StringComparison.OrdinalIgnoreCase) &&
+                    int.TryParse(bitNoT80, out wantET80) && wantET80 >= 0 && wantET80 <= 15;
+                bool addressOnlyT80 = string.Equals(bitModeT80, "Адрес", StringComparison.OrdinalIgnoreCase);
+                int? wantT75 = null;
+                if (explicitBitT80) wantT75 = wantET80;
+                else if (!addressOnlyT80 && nameIsBitT75) wantT75 = bitIT75 + (p.BitOffset ? 1 : 0);
+                if (wantT75 is int wT75)
                 {
-                    bitColsT75 = FindBitColumns(b, bitIT75 + (p.BitOffset ? 1 : 0));
-                    if (bitColsT75 == null) { bitSkipT75 = true; noMapWarned?.Add($"{p.MasterName}|{objName}"); }
+                    bitColsT75 = FindBitColumns(b, wT75);
+                    if (bitColsT75 == null)
+                    {
+                        bitSkipT75 = true;
+                        bitFalseT80 = true;
+                        noMapWarned?.Add($"{p.MasterName}|{objName}");
+                        if (warnings != null &&
+                            (noMapWarned == null ||
+                             noMapWarned.Add($"F80T|{p.MasterName}|{objName}|{wT75}")))
+                            warnings.Add($"F80: {p.MasterName}: бит {wT75} приёмника «{objName}» " +
+                                "не привязан в IO_LIST - объект → FALSE");
+                    }
                     else if (bitColsT75.TryGetValue("M_Marka", out var bmT75) && !string.IsNullOrWhiteSpace(bmT75))
                         bitMarkaT75 = bmT75.Trim();
                 }
                 string? mappedName = null;
                 bool mappedFromName = false;
                 string litRow49 = ""; // F49: литерал («Начальное значение») строки маппинга
-                if (dataVars != null && objName.Length > 0 &&
-                    dataVars.TryGetValue(objName, out var drowT))
+                if (hasRowT)
                 {
                     litRow49 = (drowT.Literal ?? "").Trim();
                     mappedName = ResolveDataVarValue(drowT.IoColumn, drowT.Literal,
@@ -1205,10 +1262,17 @@ namespace IO_PJT.Services
                     // БЕЗ изменений (в т.ч. шаблонный Info может уже содержать член, как
                     // «…_FAIL.Xin»); предупреждение — только когда таблица маппинга передана,
                     // но без строки объекта
-                    if (dataVars != null &&
+                    if (!bitFalseT80 && dataVars != null &&
                         (noMapWarned == null || noMapWarned.Add($"{p.MasterName}|{objName}")))
                         warnings?.Add($"F35: {p.MasterName}: блок-приёмник «{objName}» — в маппинге " +
                             "«Объекты data-шаблонов» нет строки объекта — Info шаблона оставлен без изменений");
+                }
+                // F80: бит приёмника не привязан — имя FALSE (вместо шаблонного Info)
+                if (bitFalseT80)
+                {
+                    clone.SetAttributeValue("Info", "FALSE" + suffix);
+                    cardTarget = "FALSE";
+                    if (litRow49.Length > 0) SetIvValue(clone, litRow49);
                 }
                 int newCard = nextCard;
                 nextCard += 10;
@@ -1230,7 +1294,7 @@ namespace IO_PJT.Services
         /// фолбэк на литерал. Нет строки/пусто — текст как в шаблоне + предупреждение
         /// один раз на (пакет, объект); dv==null — без подстановок и предупреждений.</summary>
         private static void ApplyPrimTextSubstitution(XElement prim, MbPacketPlan p, MbBinding b,
-            IReadOnlyDictionary<string, (string IoColumn, string Literal)>? dv,
+            IReadOnlyDictionary<string, (string IoColumn, string Literal, string BitMode, string BitNo)>? dv,
             List<string>? warnings, HashSet<string> warned,
             // F69: токены подмены имён в тексте [TEXT] (шаблонном и маппинга)
             string? mainToken = null, string? reserveToken = null)

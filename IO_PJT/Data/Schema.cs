@@ -273,7 +273,9 @@ CREATE TABLE [{ScadaTemplateVarsTable}] (
   [TemplateName] TEXT(255),
   [Var] TEXT(255),
   [IoColumn] TEXT(255),
-  [Literal] TEXT(255)
+  [Literal] TEXT(255),
+  [BitMode] TEXT(10),
+  [BitNo] TEXT(4)
 )";
 
 
