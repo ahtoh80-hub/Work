@@ -1654,7 +1654,8 @@ namespace IO_PJT.Services
                     using var cn = new OleDbConnection(ConnStr);
                     cn.Open();
                     using var cmd = new OleDbCommand(
-                        $"SELECT ID, [Name], [Body], [FilePath] FROM [{Schema.ScadaDataOutTemplatesTable}] ORDER BY [Name]", cn);
+                        $@"SELECT ID, [Name], [Body], [FilePath], [Version], [SavedAt]
+                            FROM [{Schema.ScadaDataOutTemplatesTable}] ORDER BY [Name]", cn);
                     cmd.CommandTimeout = DbProbe.TimeoutSeconds;
                     using var rd = cmd.ExecuteReader();
                     while (rd.Read())
@@ -1663,7 +1664,9 @@ namespace IO_PJT.Services
                             Id = Convert.ToInt64(rd.GetValue(0)),
                             Name = rd.IsDBNull(1) ? "" : rd.GetString(1),
                             Body = rd.IsDBNull(2) ? "" : rd.GetString(2),
-                            FilePath = rd.IsDBNull(3) ? "" : rd.GetString(3)
+                            FilePath = rd.IsDBNull(3) ? "" : Path.GetFileName(rd.GetString(3)),
+                            Version = rd.IsDBNull(4) ? 0 : Convert.ToInt32(rd.GetValue(4)),
+                            SavedAt = rd.IsDBNull(5) ? "" : rd.GetString(5)
                         });
                     break;
                 }
@@ -1700,6 +1703,24 @@ namespace IO_PJT.Services
             using var tr = cn.BeginTransaction();
             try
             {
+                // F81: версия (+1) и имя файла-источника — читаем до удаления строки;
+                // путь не хранится — только имя файла (пустой аргумент сохраняет прежнее)
+                int ver = 0; string oldSrc = "";
+                using (var sel = new OleDbCommand(
+                    $"SELECT [Version], [FilePath] FROM [{Schema.ScadaDataOutTemplatesTable}] WHERE [Name] = ?", cn, tr))
+                {
+                    sel.CommandTimeout = DbProbe.TimeoutSeconds;
+                    OleDbArgs.Add(sel, name);
+                    using var rd = sel.ExecuteReader();
+                    if (rd.Read())
+                    {
+                        ver = rd.IsDBNull(0) ? 0 : Convert.ToInt32(rd.GetValue(0));
+                        oldSrc = rd.IsDBNull(1) ? "" : rd.GetString(1);
+                    }
+                }
+                string source = Path.GetFileName(filePath.Trim().Length > 0 ? filePath : oldSrc);
+                ver += 1;
+                string savedAt = DateTime.Now.ToString("yyyy.MM.dd HH:mm");
                 // ACE SQL сравнивает текст без учёта регистра → замена дубля IgnoreCase
                 using (var del = new OleDbCommand(
                     $"DELETE FROM [{Schema.ScadaDataOutTemplatesTable}] WHERE [Name] = ?", cn, tr))
@@ -1709,12 +1730,15 @@ namespace IO_PJT.Services
                     del.ExecuteNonQuery();
                 }
                 using (var ins = new OleDbCommand(
-                    $"INSERT INTO [{Schema.ScadaDataOutTemplatesTable}] ([Name], [Body], [FilePath]) VALUES (?, ?, ?)", cn, tr))
+                    $@"INSERT INTO [{Schema.ScadaDataOutTemplatesTable}]
+                       ([Name], [Body], [FilePath], [Version], [SavedAt]) VALUES (?, ?, ?, ?, ?)", cn, tr))
                 {
                     ins.CommandTimeout = DbProbe.TimeoutSeconds;
                     OleDbArgs.Add(ins, name);
                     OleDbArgs.Add(ins, body);
-                    OleDbArgs.Add(ins, filePath);
+                    OleDbArgs.Add(ins, source);
+                    OleDbArgs.Add(ins, ver);
+                    OleDbArgs.Add(ins, savedAt);
                     ins.ExecuteNonQuery();
                 }
                 tr.Commit();
@@ -1767,7 +1791,7 @@ namespace IO_PJT.Services
                     using var cn = new OleDbConnection(ConnStr);
                     cn.Open();
                     using var cmd = new OleDbCommand(
-                        $@"SELECT ID, [Name], [Protocol], [Body], [FilePath]
+                        $@"SELECT ID, [Name], [Protocol], [Body], [FilePath], [Version], [SavedAt]
                             FROM [{Schema.ScadaMasterTemplatesTable}] ORDER BY [Name]", cn);
                     cmd.CommandTimeout = DbProbe.TimeoutSeconds;
                     using var rd = cmd.ExecuteReader();
@@ -1778,7 +1802,9 @@ namespace IO_PJT.Services
                             Name = rd.IsDBNull(1) ? "" : rd.GetString(1),
                             Protocol = rd.IsDBNull(2) ? "" : rd.GetString(2),
                             Body = rd.IsDBNull(3) ? "" : rd.GetString(3),
-                            FilePath = rd.IsDBNull(4) ? "" : rd.GetString(4)
+                            FilePath = rd.IsDBNull(4) ? "" : Path.GetFileName(rd.GetString(4)),
+                            Version = rd.IsDBNull(5) ? 0 : Convert.ToInt32(rd.GetValue(5)),
+                            SavedAt = rd.IsDBNull(6) ? "" : rd.GetString(6)
                         });
                     break;
                 }
@@ -1818,6 +1844,23 @@ namespace IO_PJT.Services
             using var tr = cn.BeginTransaction();
             try
             {
+                // F81: версия (+1) и имя файла-источника (без пути) — до удаления строки
+                int ver = 0; string oldSrc = "";
+                using (var sel = new OleDbCommand(
+                    $"SELECT [Version], [FilePath] FROM [{Schema.ScadaMasterTemplatesTable}] WHERE [Name] = ?", cn, tr))
+                {
+                    sel.CommandTimeout = DbProbe.TimeoutSeconds;
+                    OleDbArgs.Add(sel, name);
+                    using var rd = sel.ExecuteReader();
+                    if (rd.Read())
+                    {
+                        ver = rd.IsDBNull(0) ? 0 : Convert.ToInt32(rd.GetValue(0));
+                        oldSrc = rd.IsDBNull(1) ? "" : rd.GetString(1);
+                    }
+                }
+                string source = Path.GetFileName(filePath.Trim().Length > 0 ? filePath : oldSrc);
+                ver += 1;
+                string savedAt = DateTime.Now.ToString("yyyy.MM.dd HH:mm");
                 using (var del = new OleDbCommand(
                     $@"DELETE FROM [{Schema.ScadaMasterTemplatesTable}] WHERE [Name] = ?", cn, tr))
                 {
@@ -1827,13 +1870,15 @@ namespace IO_PJT.Services
                 }
                 using (var ins = new OleDbCommand(
                     $@"INSERT INTO [{Schema.ScadaMasterTemplatesTable}]
-                       ([Name], [Protocol], [Body], [FilePath]) VALUES (?, ?, ?, ?)", cn, tr))
+                       ([Name], [Protocol], [Body], [FilePath], [Version], [SavedAt]) VALUES (?, ?, ?, ?, ?, ?)", cn, tr))
                 {
                     ins.CommandTimeout = DbProbe.TimeoutSeconds;
                     OleDbArgs.Add(ins, name);
                     OleDbArgs.Add(ins, protocol);
                     OleDbArgs.Add(ins, body);
-                    OleDbArgs.Add(ins, filePath);
+                    OleDbArgs.Add(ins, source);
+                    OleDbArgs.Add(ins, ver);
+                    OleDbArgs.Add(ins, savedAt);
                     ins.ExecuteNonQuery();
                 }
                 tr.Commit();
@@ -1865,7 +1910,7 @@ namespace IO_PJT.Services
                     using var cn = new OleDbConnection(ConnStr);
                     cn.Open();
                     using var cmd = new OleDbCommand(
-                        $@"SELECT ID, [Name], [Body], [FilePath]
+                        $@"SELECT ID, [Name], [Body], [FilePath], [Version], [SavedAt]
                             FROM [{Schema.ScadaDataInTemplatesTable}] ORDER BY [Name]", cn);
                     cmd.CommandTimeout = DbProbe.TimeoutSeconds;
                     using var rd = cmd.ExecuteReader();
@@ -1875,7 +1920,9 @@ namespace IO_PJT.Services
                             Id = Convert.ToInt64(rd.GetValue(0)),
                             Name = rd.IsDBNull(1) ? "" : rd.GetString(1),
                             Body = rd.IsDBNull(2) ? "" : rd.GetString(2),
-                            FilePath = rd.IsDBNull(3) ? "" : rd.GetString(3)
+                            FilePath = rd.IsDBNull(3) ? "" : Path.GetFileName(rd.GetString(3)),
+                            Version = rd.IsDBNull(4) ? 0 : Convert.ToInt32(rd.GetValue(4)),
+                            SavedAt = rd.IsDBNull(5) ? "" : rd.GetString(5)
                         });
                     break;
                 }
@@ -1911,6 +1958,23 @@ namespace IO_PJT.Services
             using var tr = cn.BeginTransaction();
             try
             {
+                // F81: версия (+1) и имя файла-источника (без пути) — до удаления строки
+                int ver = 0; string oldSrc = "";
+                using (var sel = new OleDbCommand(
+                    $"SELECT [Version], [FilePath] FROM [{Schema.ScadaDataInTemplatesTable}] WHERE [Name] = ?", cn, tr))
+                {
+                    sel.CommandTimeout = DbProbe.TimeoutSeconds;
+                    OleDbArgs.Add(sel, name);
+                    using var rd = sel.ExecuteReader();
+                    if (rd.Read())
+                    {
+                        ver = rd.IsDBNull(0) ? 0 : Convert.ToInt32(rd.GetValue(0));
+                        oldSrc = rd.IsDBNull(1) ? "" : rd.GetString(1);
+                    }
+                }
+                string source = Path.GetFileName(filePath.Trim().Length > 0 ? filePath : oldSrc);
+                ver += 1;
+                string savedAt = DateTime.Now.ToString("yyyy.MM.dd HH:mm");
                 using (var del = new OleDbCommand(
                     $@"DELETE FROM [{Schema.ScadaDataInTemplatesTable}] WHERE [Name] = ?", cn, tr))
                 {
@@ -1920,12 +1984,14 @@ namespace IO_PJT.Services
                 }
                 using (var ins = new OleDbCommand(
                     $@"INSERT INTO [{Schema.ScadaDataInTemplatesTable}]
-                       ([Name], [Body], [FilePath]) VALUES (?, ?, ?)", cn, tr))
+                       ([Name], [Body], [FilePath], [Version], [SavedAt]) VALUES (?, ?, ?, ?, ?)", cn, tr))
                 {
                     ins.CommandTimeout = DbProbe.TimeoutSeconds;
                     OleDbArgs.Add(ins, name);
                     OleDbArgs.Add(ins, body);
-                    OleDbArgs.Add(ins, filePath);
+                    OleDbArgs.Add(ins, source);
+                    OleDbArgs.Add(ins, ver);
+                    OleDbArgs.Add(ins, savedAt);
                     ins.ExecuteNonQuery();
                 }
                 tr.Commit();

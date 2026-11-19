@@ -312,10 +312,7 @@ namespace IO_PJT.ViewModels
         /// <summary>F16: загрузить выбранный именованный шаблон в редактор.</summary>
         public RelayCommand LoadDataOutTemplateCommand { get; }
 
-        /// <summary>F16: перечитать Body выбранного шаблона из его файла-источника.</summary>
-        public RelayCommand UpdateDataOutTemplateFileCommand { get; }
-
-        /// <summary>F16: удалить выбранный именованный шаблон.</summary>
+        /// <summary>F81: удалить выбранный именованный шаблон.</summary>
         public RelayCommand DeleteDataOutTemplateCommand { get; }
 
         private MbSlaveIdRule? _selectedRule;
@@ -393,7 +390,6 @@ namespace IO_PJT.ViewModels
             ClearAllStationsCommand = new RelayCommand(() => SetAllStations(false));   // F28
             SaveDataOutTemplateAsCommand = new RelayCommand(SaveDataOutTemplateAs);
             LoadDataOutTemplateCommand = new RelayCommand(LoadDataOutTemplateIntoEditor);
-            UpdateDataOutTemplateFileCommand = new RelayCommand(UpdateDataOutTemplateFromFile);
             DeleteDataOutTemplateCommand = new RelayCommand(DeleteDataOutTemplate);
             // F45: PERF-замеры загрузки (открытие окна F13) — этапы в журнал INFO;
             // узкое место до оптимизации — EnsureTables на каждом Load* (см. IOclass.md F45)
@@ -671,7 +667,10 @@ namespace IO_PJT.ViewModels
                 }
                 name = name.Trim();
                 Settings.DataOutTemplateName = name;
-                _s.ModbusBlocks.SaveDataOutTemplate(name, text, Settings.DataOutTemplateFilePath ?? "");
+                // F81: источник — путь только в режиме «Файл» (имя без пути), иначе пусто →
+                // сохранится прежнее имя источника
+                _s.ModbusBlocks.SaveDataOutTemplate(name, text,
+                    ModeDataOutFile ? Settings.DataOutTemplateFilePath ?? "" : "");
                 LoadDataOutTemplateList();
                 _s.Log.Info($"F16: шаблон привязок сохранён под именем «{name}» (SCADA_DATAOUT_TEMPLATES)");
                 StatusText = $"Шаблон привязок сохранён: «{name}» ({source}).";
@@ -696,44 +695,87 @@ namespace IO_PJT.ViewModels
             InlineDataOutText = t.Body ?? "";
             ModeDataOutInline = true;
             Settings.DataOutTemplateName = t.Name;
-            if (!string.IsNullOrWhiteSpace(t.FilePath)) Settings.DataOutTemplateFilePath = t.FilePath;
+            // F81: FilePath — только имя файла-источника (без пути), в настройки «Файл» не пишем
             CheckDataOutTemplate();
             StatusText = $"Шаблон «{t.Name}» загружен в редактор: {DataOutTemplateStatus}";
         }
 
-        /// <summary>F16: «Обновить из файла» — перечитать Body выбранного шаблона по FilePath
-        /// (тело в БД — основное; изменения файла переносятся в БД кнопкой).</summary>
-        private void UpdateDataOutTemplateFromFile()
+        /// <summary>F81: тело выбранного data-шаблона для окна редактора кода
+        /// (null — нет строки или тела в БД).</summary>
+        public string? GetDataTemplateCode(MbDataTemplateRow? r)
         {
-            var t = SelectedDataOutTemplate;
-            if (t == null)
+            if (r == null)
             {
-                StatusText = "Выберите шаблон в списке «Сохранённые шаблоны».";
-                return;
+                StatusText = "Выберите шаблон в перечне «Data-шаблоны».";
+                return null;
             }
+            string? body = r.IsWrite
+                ? DataInTemplates.FirstOrDefault(t => string.Equals(t.Name, r.Name, StringComparison.OrdinalIgnoreCase))?.Body
+                : DataOutTemplates.FirstOrDefault(t => string.Equals(t.Name, r.Name, StringComparison.OrdinalIgnoreCase))?.Body;
+            if (body == null)
+            {
+                StatusText = $"Шаблон «{r.Name}» не найден в БД — обновите перечень.";
+                return null;
+            }
+            return body;
+        }
+
+        /// <summary>F81: сохранить отредактированное тело data-шаблона в БД
+        /// (Version +1, SavedAt; путь файла-источника не используется).</summary>
+        public void SaveTemplateCode(MbDataTemplateRow? r, string text)
+        {
+            if (r == null) return;
             try
             {
-                if (string.IsNullOrWhiteSpace(t.FilePath) || !File.Exists(t.FilePath))
-                {
-                    StatusText = $"Файл-источник шаблона «{t.Name}» не задан/не найден: {t.FilePath}";
-                    return;
-                }
-                string body = File.ReadAllText(t.FilePath);
-                _s.ModbusBlocks.SaveDataOutTemplate(t.Name, body, t.FilePath);
+                if (r.IsWrite) _s.ModbusBlocks.SaveDataInTemplate(r.Name, text, null);
+                else _s.ModbusBlocks.SaveDataOutTemplate(r.Name, text, null);
                 LoadDataOutTemplateList();
-                if (string.Equals(Settings.DataOutTemplateName, t.Name, StringComparison.OrdinalIgnoreCase))
-                {
-                    InlineDataOutText = body; // шаблон открыт в редакторе — обновить и его
-                    CheckDataOutTemplate();
-                }
-                _s.Log.Info($"F16: шаблон «{t.Name}» обновлён из файла {t.FilePath}");
-                StatusText = $"Шаблон «{t.Name}» обновлён из файла: {t.FilePath}";
+                LoadDataInTemplateList();
+                SelectedDataTemplate = DataTemplates.FirstOrDefault(x =>
+                    string.Equals(x.Name, r.Name, StringComparison.OrdinalIgnoreCase) && x.Kind == r.Kind);
+                _s.Log.Info($"F81: код шаблона «{r.Name}» сохранён в БД");
+                StatusText = $"Шаблон «{r.Name}» сохранён в БД (версия обновлена).";
             }
             catch (Exception ex)
             {
                 string msg = DbProbe.ClassifyMessage(ex.Message);
-                _s.Log.Error($"F16: ошибка обновления шаблона из файла: {msg}");
-                StatusText = $"Ошибка обновления из файла: {msg}";
+                _s.Log.Error($"F81: ошибка сохранения кода шаблона: {msg}");
+                StatusText = $"Ошибка сохранения шаблона: {msg}";
+            }
+        }
+
+        /// <summary>F81: тело выбранного мастер-шаблона для окна редактора кода.</summary>
+        public string? GetMasterTemplateCode()
+        {
+            var t = SelectedMasterTemplate;
+            if (t == null)
+            {
+                StatusText = "Выберите мастер-шаблон в перечне.";
+                return null;
+            }
+            return t.Body ?? "";
+        }
+
+        /// <summary>F81: сохранить отредактированный код мастер-шаблона в БД
+        /// (Version +1, SavedAt; Protocol сохраняется).</summary>
+        public void SaveMasterTemplateCode(string text)
+        {
+            var t = SelectedMasterTemplate;
+            if (t == null) return;
+            try
+            {
+                _s.ModbusBlocks.SaveMasterTemplate(t.Name, text, t.Protocol, null);
+                LoadMasterTemplateList();
+                SelectedMasterTemplate = MasterTemplates.FirstOrDefault(x =>
+                    string.Equals(x.Name, t.Name, StringComparison.OrdinalIgnoreCase));
+                _s.Log.Info($"F81: код мастер-шаблона «{t.Name}» сохранён в БД");
+                StatusText = $"Мастер-шаблон «{t.Name}» сохранён в БД (версия обновлена).";
+            }
+            catch (Exception ex)
+            {
+                string msg = DbProbe.ClassifyMessage(ex.Message);
+                _s.Log.Error($"F81: ошибка сохранения кода мастер-шаблона: {msg}");
+                StatusText = $"Ошибка сохранения мастер-шаблона: {msg}";
             }
         }
 
@@ -1351,8 +1393,9 @@ namespace IO_PJT.ViewModels
                     {
                         dName = dName.Trim();
                         Settings.DataOutTemplateName = dName;
+                        // F81: источник — путь только в режиме «Файл» (имя без пути)
                         _s.ModbusBlocks.SaveDataOutTemplate(dName, dText,
-                            Settings.DataOutTemplateFilePath ?? "");
+                            ModeDataOutFile ? Settings.DataOutTemplateFilePath ?? "" : "");
                         LoadDataOutTemplateList();
                     }
                     else
@@ -1635,8 +1678,8 @@ namespace IO_PJT.ViewModels
         private void RefreshDataTemplates()
         {
             // 1) объединённый перечень: удалённые убрать, новые добавить (чтение, затем запись)
-            var wanted = DataOutTemplates.Select(t => ("чтение", t.Name, t.FilePath))
-                .Concat(DataInTemplates.Select(t => ("запись", t.Name, t.FilePath))).ToList();
+            var wanted = DataOutTemplates.Select(t => ("чтение", t.Name, t.FilePath, t.Version, t.SavedAt))
+                .Concat(DataInTemplates.Select(t => ("запись", t.Name, t.FilePath, t.Version, t.SavedAt))).ToList();
             foreach (var gone in DataTemplates
                 .Where(r => !wanted.Any(w => string.Equals(w.Name, r.Name, StringComparison.OrdinalIgnoreCase)
                                           && w.Item1 == r.Kind)).ToList())
@@ -1646,8 +1689,17 @@ namespace IO_PJT.ViewModels
                 var cur = DataTemplates.FirstOrDefault(r =>
                     string.Equals(r.Name, w.Name, StringComparison.OrdinalIgnoreCase) && r.Kind == w.Item1);
                 if (cur == null)
-                    DataTemplates.Add(new MbDataTemplateRow { Kind = w.Item1, Name = w.Name, FilePath = w.FilePath });
-                else cur.FilePath = w.FilePath;
+                    DataTemplates.Add(new MbDataTemplateRow
+                    {
+                        Kind = w.Item1, Name = w.Name, FilePath = w.FilePath,
+                        Version = w.Version, SavedAt = w.SavedAt
+                    });
+                else
+                {
+                    cur.FilePath = w.FilePath;
+                    cur.Version = w.Version;
+                    cur.SavedAt = w.SavedAt;
+                }
             }
 
             // 2) имена для колонки «Шаблон привязок» грида Typno: dataout ∪ datain (поштучно)
@@ -1787,8 +1839,10 @@ namespace IO_PJT.ViewModels
                     StatusText = "Имя шаблона не задано — мастер-шаблон не сохранён.";
                     return;
                 }
+                // F81: источник — путь только в режиме «Файл» (имя без пути), иначе пусто →
+                // сохранится прежнее имя источника
                 _s.ModbusBlocks.SaveMasterTemplate(name, _templateText!, "",
-                    Settings.TemplateFilePath ?? "");
+                    ModeFile ? Settings.TemplateFilePath ?? "" : "");
                 LoadMasterTemplateList();
                 _s.Log.Info($"F22: мастер-шаблон сохранён «{name}» (SCADA_MASTER_TEMPLATES)");
                 StatusText = $"Мастер-шаблон сохранён: «{name}» — выберите его в «TCP-шаблон»/«RTU-шаблон».";

@@ -1,0 +1,22 @@
+﻿<Window x:Class="IO_PJT.Views.TemplateCodeWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Код шаблона" Width="1000" Height="700"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+    <!-- F81: большое всплывающее окно редактора кода шаблона (data/мастер):
+         просмотр, правка, вставка кода; «Сохранить» → тело уходит в БД (Version +1) -->
+    <DockPanel Margin="6">
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
+            <Button DockPanel.Dock="Right" Content="Сохранить" Width="110" Margin="6,0,0,0"
+                    FontWeight="SemiBold" Click="Save_Click"
+                    ToolTip="Сохранить тело шаблона в БД (версия +1, дата сохранения)" />
+            <Button DockPanel.Dock="Right" Content="Отмена" Width="90" Click="Cancel_Click" />
+            <TextBlock Text="Правки сохраняются только в БД (Version +1, SavedAt); пути к файлам-источникам не используются."
+                       TextWrapping="Wrap" VerticalAlignment="Center" Foreground="#555555" Margin="0,0,6,0" />
+        </DockPanel>
+        <TextBox x:Name="CodeBox" AcceptsReturn="True" AcceptsTab="True"
+                 FontFamily="Consolas" FontSize="12" TextWrapping="NoWrap"
+                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                 VerticalContentAlignment="Stretch" HorizontalContentAlignment="Stretch" />
+    </DockPanel>
+</Window>

@@ -243,7 +243,9 @@ CREATE TABLE [{ScadaDataOutTemplatesTable}] (
   ID COUNTER PRIMARY KEY,
   [Name] TEXT(255),
   [Body] MEMO,
-  [FilePath] TEXT(255)
+  [FilePath] TEXT(255),
+  [Version] LONG,
+  [SavedAt] TEXT(20)
 )";
 
         /// <summary>DDL F22: именованные мастер-шаблоны блоков (TCP/RTU).</summary>
@@ -253,7 +255,9 @@ CREATE TABLE [{ScadaMasterTemplatesTable}] (
   [Name] TEXT(255),
   [Protocol] TEXT(10),
   [Body] MEMO,
-  [FilePath] TEXT(255)
+  [FilePath] TEXT(255),
+  [Version] LONG,
+  [SavedAt] TEXT(20)
 )";
 
         /// <summary>DDL F22: именованные шаблоны привязок DataIn (без генерации).</summary>
@@ -262,7 +266,9 @@ CREATE TABLE [{ScadaDataInTemplatesTable}] (
   ID COUNTER PRIMARY KEY,
   [Name] TEXT(255),
   [Body] MEMO,
-  [FilePath] TEXT(255)
+  [FilePath] TEXT(255),
+  [Version] LONG,
+  [SavedAt] TEXT(20)
 )";
 
         /// <summary>DDL F23: маппинг «переменная шаблона → колонка IO_LIST/литерал».</summary>

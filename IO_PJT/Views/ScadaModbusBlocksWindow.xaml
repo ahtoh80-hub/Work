@@ -124,9 +124,20 @@
                          «первое место» по ТЗ (шаблоны пакетов TCP/RTU отдельно от data) -->
                     <GroupBox Header="Мастер-шаблоны пакетов (SCADA_MASTER_TEMPLATES)" Margin="0,0,0,6">
                         <StackPanel>
-                            <ComboBox ItemsSource="{Binding MasterTemplates}" DisplayMemberPath="Name"
-                                      SelectedItem="{Binding SelectedMasterTemplate}" Height="24"
-                                      ToolTip="F22: все залитые мастер-шаблоны; Protocol определяется по имени («RTU» → RTU, иначе TCP)" />
+                            <!-- F81: перечень мастер-шаблонов в виде списка (как data-шаблоны):
+                                 имя, протокол, источник, версия, дата сохранения -->
+                            <DataGrid ItemsSource="{Binding MasterTemplates}" SelectedItem="{Binding SelectedMasterTemplate}"
+                                      AutoGenerateColumns="False" IsReadOnly="True" Height="90"
+                                      HeadersVisibility="Column" Margin="0,2,0,4"
+                                      ToolTip="F81/F22: все залитые мастер-шаблоны; Protocol определяется по имени («RTU» → RTU, иначе TCP)">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Имя" Binding="{Binding Name}" Width="*" />
+                                    <DataGridTextColumn Header="Протокол" Binding="{Binding Protocol}" Width="65" />
+                                    <DataGridTextColumn Header="Файл-источник" Binding="{Binding FilePath}" Width="120" />
+                                    <DataGridTextColumn Header="Версия" Binding="{Binding Version}" Width="55" />
+                                    <DataGridTextColumn Header="Сохранён" Binding="{Binding SavedAt}" Width="115" />
+                                </DataGrid.Columns>
+                            </DataGrid>
                             <StackPanel Orientation="Horizontal" Margin="0,4,0,4">
                                 <Button Content="Из файла…" Command="{Binding OpenMasterTemplateCommand}" Width="90" Margin="0,0,6,0"
                                         ToolTip="F31: открыть XML-файл шаблона пакетов — сохранить в БД и добавить в перечень (Protocol по имени: «RTU» → RTU)" />
@@ -134,7 +145,9 @@
                                         ToolTip="Тело выбранного мастер-шаблона → редактор «Код» (проверка/генерация)" />
                                 <Button Content="Сохранить текущий…" Command="{Binding SaveMasterTemplateAsCommand}" Width="135" Margin="0,0,6,0"
                                         ToolTip="Текущий шаблон блоков (файла или кода) → SCADA_MASTER_TEMPLATES под именем" />
-                                <Button Content="Удалить" Command="{Binding DeleteMasterTemplateCommand}" Width="70" />
+                                <Button Content="Удалить" Command="{Binding DeleteMasterTemplateCommand}" Width="70" Margin="0,0,6,0" />
+                                <Button Content="Код" Click="OpenMasterTemplateCode_Click" Width="70"
+                                        ToolTip="F81: открыть тело выбранного мастер-шаблона в большом окне редактора — правка/вставка кода и сохранение в БД (Version +1)" />
                             </StackPanel>
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -201,8 +214,8 @@
                                         ToolTip="Текущий текст (файла или кода) сохраняется в SCADA_DATAOUT_TEMPLATES под именем из поля «Имя шаблона»; пустое имя — будет задан вопрос" />
                                 <Button Content="Загрузить" Command="{Binding LoadDataOutTemplateCommand}" Width="90" Margin="0,0,6,0"
                                         ToolTip="Вставить тело выбранного шаблона в редактор (режим «Код»)" />
-                                <Button Content="Обновить из файла" Command="{Binding UpdateDataOutTemplateFileCommand}" Width="135" Margin="0,0,6,0"
-                                        ToolTip="Перечитать тело выбранного шаблона из его файла-источника (колонка FilePath в БД)" />
+                                <!-- F81: «Обновить из файла» убрана — пути к файлам не хранятся;
+                                     обновление тела шаблона — через «Код» или повторное «Из файла…» -->
                                 <Button Content="Удалить" Command="{Binding DeleteDataOutTemplateCommand}" Width="90"
                                         ToolTip="Удалить выбранный шаблон; правила Typno на него → основной шаблон" />
                             </StackPanel>
@@ -230,7 +243,9 @@
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Направление" Binding="{Binding Kind}" Width="70" />
                                     <DataGridTextColumn Header="Имя" Binding="{Binding Name}" Width="*" />
-                                    <DataGridTextColumn Header="Файл-источник" Binding="{Binding FilePath}" Width="130" />
+                                    <DataGridTextColumn Header="Файл-источник" Binding="{Binding FilePath}" Width="120" />
+                                    <DataGridTextColumn Header="Версия" Binding="{Binding Version}" Width="55" />
+                                    <DataGridTextColumn Header="Сохранён" Binding="{Binding SavedAt}" Width="115" />
                                 </DataGrid.Columns>
                             </DataGrid>
                             <StackPanel Orientation="Horizontal">
@@ -240,6 +255,8 @@
                                         ToolTip="F31: тело выбранного шаблона чтения → редактор привязок; записи — сводка в статусе" />
                                 <Button Content="Удалить" Command="{Binding DeleteDataTemplateCommand}" Width="80"
                                         ToolTip="F31: удалить выбранный шаблон (SCADA_DATAOUT_/SCADA_DATAIN_TEMPLATES)" />
+                                <Button Content="Код" Click="OpenDataTemplateCode_Click" Width="70" Margin="6,0,0,0"
+                                        ToolTip="F81: открыть тело выбранного шаблона в большом окне редактора — правка/вставка кода и сохранение в БД (Version +1)" />
                             </StackPanel>
                         </StackPanel>
                     </GroupBox>

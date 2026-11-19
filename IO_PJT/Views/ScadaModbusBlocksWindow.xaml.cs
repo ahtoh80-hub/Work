@@ -96,6 +96,30 @@ namespace IO_PJT.Views
                 vm.NameWarningsText = "";
         }
 
+        /// <summary>F81: «Код» в перечне data-шаблонов — большое окно редактора тела
+        /// выбранного шаблона; «Сохранить» → тело в БД (Version +1, SavedAt).</summary>
+        private void OpenDataTemplateCode_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is not ViewModels.ScadaModbusBlocksViewModel vm) return;
+            var row = vm.SelectedDataTemplate;
+            string? body = vm.GetDataTemplateCode(row);
+            if (body == null || row == null) return;
+            var w = new TemplateCodeWindow($"Код data-шаблона «{row.Name}»", body) { Owner = this };
+            if (w.ShowDialog() == true) vm.SaveTemplateCode(row, w.ResultText);
+        }
+
+        /// <summary>F81: «Код» в перечне мастер-шаблонов — большое окно редактора тела
+        /// выбранного шаблона; «Сохранить» → тело в БД (Version +1, SavedAt).</summary>
+        private void OpenMasterTemplateCode_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is not ViewModels.ScadaModbusBlocksViewModel vm) return;
+            string? body = vm.GetMasterTemplateCode();
+            if (body == null) return;
+            string name = vm.SelectedMasterTemplate?.Name ?? "";
+            var w = new TemplateCodeWindow($"Код мастер-шаблона «{name}»", body) { Owner = this };
+            if (w.ShowDialog() == true) vm.SaveMasterTemplateCode(w.ResultText);
+        }
+
         /// <summary>F18.1: «залипшее» колёсико внутренней таблицы левой колонки →
         /// продолжить прокрутку внешнего ScrollViewer (до нижних групп настроек).</summary>
         private void Window_PreviewMouseWheel(object sender, MouseWheelEventArgs e)

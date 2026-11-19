@@ -2185,6 +2185,30 @@ bbox шаблона (в экспорте пользователя `ColumnsPerRow
 предупреждение F80; режим «Адрес» — тег репрезентанта, FALSE/F80 нет; легаси IgnoreCase:
 `BIT5`→`_TAG_B5`, `BIT0`→`FALSE`); `dotnet build` 0/0.
 
+**F81 — шаблоны только в БД (имя источника/версия/дата), окно редактора кода, перечень мастер-шаблонов как data-список (2026-11).**
+(1) **Хранение.** `SCADA_MASTER_TEMPLATES`/`SCADA_DATAOUT_TEMPLATES`/`SCADA_DATAIN_TEMPLATES`
++2 колонки (`Version LONG`, `SavedAt TEXT(20)`; DDL + ALTER-миграция
+`TableCreator.EnsureTemplateMetaColumns` для старых баз). При сохранении (из файла или кода):
+`Version` = прежняя + 1 (счётчик), `SavedAt` = `DateTime.Now` в формате **`yyyy.MM.dd HH:mm`**
+(«2026.11.10 18:30»), `FilePath` = **только имя файла-источника без пути** (пустой аргумент
+сохранения сохраняет прежнее имя; при чтении легаси-пути обрезаются до имени — `Path.GetFileName`).
+Пути к файлам нигде не хранятся/не используются: убрана кнопка **«Обновить из файла»**
+(+VM-команда `UpdateDataOutTemplateFileCommand`/метод), «В редактор» больше не пишет `FilePath`
+в настройки «Файл»; сохранения из редакторов передают путь только в режиме «Файл»
+(`ModeFile`/`ModeDataOutFile`), из «Кода» — `null` (прежнее имя источника).
+(2) **Окно редактора кода.** Новое `Views/TemplateCodeWindow` (1000×700, Consolas,
+«Сохранить»/«Отмена», `ResultText`); кнопки **«Код»** в перечне data-шаблонов и в перечне
+мастер-шаблонов → `ScadaModbusBlocksWindow.OpenDataTemplateCode_Click`/`OpenMasterTemplateCode_Click`
+→ VM `GetDataTemplateCode`/`SaveTemplateCode` (dataout/datain по `Kind`) и
+`GetMasterTemplateCode`/`SaveMasterTemplateCode` (сохранение с прежним Protocol) — тело пишется
+в БД, перечень перечитывается (Version/SavedAt обновляются).
+(3) **Перечень мастер-шаблонов** (группа «Мастер-шаблоны пакетов») переведён с `ComboBox` на
+`DataGrid` в стиле data-перечня: колонки Имя/Протокол/Файл-источник/Версия/Сохранён; у обоих
+перечней добавлены колонки **«Версия»** и **«Сохранён»** (`MbDataTemplateRow.Version/SavedAt`,
+`RefreshDataTemplates` синхронизирует метаданные). **Приёмка:** смоук — 20 проверок
+(ALTER-миграция старой таблицы; v1→v2→v3 с сохранением источника; `SavedAt` формата;
+легаси-путь → имя; мастер TCP/RTU-эвристика; datain; удаление), `dotnet build` 0/0.
+
 Все таблицы создаются идемпотентно в `TableCreator.EnsureServiceTables`;
 хранилище — `ModbusBlockPlannerService` (`LoadSettings`/`SaveSettings` — полная замена
 ключей, `LoadSlaveRules`/`SaveSlaveRules` — полная замена с валидацией: пустая станция/

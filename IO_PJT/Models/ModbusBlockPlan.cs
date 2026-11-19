@@ -591,8 +591,15 @@ namespace IO_PJT.Models
         /// <summary>XML-тело шаблона (BufScadaPOUS с эталонами BOOL/INT/DINT/REAL).</summary>
         public string Body { get; set; } = "";
 
-        /// <summary>Путь к файлу-источнику (справочно; «Обновить из файла» перечитывает Body).</summary>
+        /// <summary>F81: имя файла-источника БЕЗ пути (пусто — сохранён «из кода»);
+        /// пути к файлам не хранятся — шаблон живёт только в БД.</summary>
         public string FilePath { get; set; } = "";
+
+        /// <summary>F81: версия шаблона — +1 при каждом сохранении.</summary>
+        public int Version { get; set; }
+
+        /// <summary>F81: дата последнего сохранения, «yyyy.MM.dd HH:mm» (2026.11.10 18:30).</summary>
+        public string SavedAt { get; set; } = "";
     }
 
     /// <summary>F22: именованный мастер-шаблон блоков Modbus — таблица SCADA_MASTER_TEMPLATES.
@@ -612,8 +619,14 @@ namespace IO_PJT.Models
         /// <summary>XML-тело шаблона (BufScadaPOUS с блоком мастера).</summary>
         public string Body { get; set; } = "";
 
-        /// <summary>Путь к файлу-источнику (справочно).</summary>
+        /// <summary>F81: имя файла-источника БЕЗ пути (пусто — сохранён «из кода»).</summary>
         public string FilePath { get; set; } = "";
+
+        /// <summary>F81: версия шаблона — +1 при каждом сохранении.</summary>
+        public int Version { get; set; }
+
+        /// <summary>F81: дата последнего сохранения, «yyyy.MM.dd HH:mm».</summary>
+        public string SavedAt { get; set; } = "";
     }
 
     /// <summary>F22: именованный шаблон привязок DataIn — таблица SCADA_DATAIN_TEMPLATES
@@ -630,8 +643,14 @@ namespace IO_PJT.Models
         /// <summary>XML-тело шаблона.</summary>
         public string Body { get; set; } = "";
 
-        /// <summary>Путь к файлу-источнику (справочно).</summary>
+        /// <summary>F81: имя файла-источника БЕЗ пути (пусто — сохранён «из кода»).</summary>
         public string FilePath { get; set; } = "";
+
+        /// <summary>F81: версия шаблона — +1 при каждом сохранении.</summary>
+        public int Version { get; set; }
+
+        /// <summary>F81: дата последнего сохранения, «yyyy.MM.dd HH:mm».</summary>
+        public string SavedAt { get; set; } = "";
     }
 
     /// <summary>F23: строка маппинга «переменная (вход) мастер-шаблона → колонка IO_LIST
@@ -682,8 +701,14 @@ namespace IO_PJT.Models
         /// <summary>Имя шаблона (ключ SCADA_TYPNO_MAP / идентификатор).</summary>
         public string Name { get; set; } = "";
 
-        /// <summary>Путь к файлу-источнику (справочно).</summary>
+        /// <summary>F81: имя файла-источника БЕЗ пути (пусто — сохранён «из кода»).</summary>
         public string FilePath { get; set; } = "";
+
+        /// <summary>F81: версия шаблона — +1 при каждом сохранении.</summary>
+        public int Version { get; set; }
+
+        /// <summary>F81: дата последнего сохранения, «yyyy.MM.dd HH:mm».</summary>
+        public string SavedAt { get; set; } = "";
     }
 
     /// <summary>F13/F71: итог записи привязок в IO_LIST (M_BusBlock / M_BusDataOut /

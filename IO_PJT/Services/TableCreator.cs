@@ -212,11 +212,17 @@ namespace IO_PJT.Services
             // F16: именованные шаблоны привязок Data_Out (имя → XML-текст, Typno → имя)
             if (!tables.Contains(Schema.ScadaDataOutTemplatesTable))
                 Execute(Schema.CreateScadaDataOutTemplatesTable);
+            else
+                EnsureTemplateMetaColumns(Schema.ScadaDataOutTemplatesTable); // F81: Version/SavedAt
             // F22: мастер-шаблоны блоков (TCP/RTU) и шаблоны привязок DataIn
             if (!tables.Contains(Schema.ScadaMasterTemplatesTable))
                 Execute(Schema.CreateScadaMasterTemplatesTable);
+            else
+                EnsureTemplateMetaColumns(Schema.ScadaMasterTemplatesTable); // F81: Version/SavedAt
             if (!tables.Contains(Schema.ScadaDataInTemplatesTable))
                 Execute(Schema.CreateScadaDataInTemplatesTable);
+            else
+                EnsureTemplateMetaColumns(Schema.ScadaDataInTemplatesTable); // F81: Version/SavedAt
             // F23: маппинг «переменная шаблона → колонка IO_LIST/литерал»
             if (!tables.Contains(Schema.ScadaTemplateVarsTable))
                 Execute(Schema.CreateScadaTemplateVarsTable);
@@ -241,6 +247,17 @@ namespace IO_PJT.Services
                 Execute(Schema.CreateScadaAlgoBindingsTable);
             if (!tables.Contains(Schema.TypnoTable))
                 Execute(Schema.CreateTypnoTable);
+        }
+
+        /// <summary>F81: миграция таблиц шаблонов — колонки Version (LONG) и SavedAt (TEXT(20))
+        /// для старых баз (версия и дата последнего сохранения шаблона).</summary>
+        private void EnsureTemplateMetaColumns(string tableName)
+        {
+            var cols = new HashSet<string>(GetColumns(tableName), StringComparer.OrdinalIgnoreCase);
+            if (!cols.Contains("Version"))
+                Execute($"ALTER TABLE [{tableName}] ADD COLUMN [Version] LONG");
+            if (!cols.Contains("SavedAt"))
+                Execute($"ALTER TABLE [{tableName}] ADD COLUMN [SavedAt] TEXT(20)");
         }
 
         /// <summary>F12: сидирование маппинга типов IO List → SCADA по умолчанию
