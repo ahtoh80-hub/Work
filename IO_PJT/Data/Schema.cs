@@ -1,4 +1,4 @@
-namespace IO_PJT.Data
+﻿namespace IO_PJT.Data
 {
     /// <summary>
     /// Схема базы данных — производный раздел Б8 файла IOclass.md (источник истины).
@@ -301,8 +301,8 @@ CREATE TABLE [{ScadaTemplateVarsTable}] (
         };
 
 
-        /// <summary>DDL таблицы данных IO_LIST: 132 колонки данных (+ ID = 133), TEXT(255) везде,
-        /// кроме PTag_* — TEXT(50). Блок M_* (F9 27 + F13 2 + F27 1 = 30 колонок) — данные карты
+        /// <summary>DDL таблицы данных IO_LIST: 134 колонки данных (+ ID = 135), TEXT(255) везде,
+        /// кроме PTag_* — TEXT(50). Блок M_* (F9 27 + F13 2 + F27 1 + F85 2 = 32 колонки) — данные карты
         /// Modbus и привязки блоков, перед CBL_*. F14: Typno в Identification.</summary>
         public static string CreateTable(string tableName) => $@"
 CREATE TABLE [{tableName}] (
@@ -328,6 +328,7 @@ CREATE TABLE [{tableName}] (
   M_AccessType TEXT(255), M_DataType TEXT(255), M_FuncCode TEXT(255),
   M_DcsChannel TEXT(255), M_DcsTag TEXT(255), M_DcsFunctions TEXT(255), M_Note TEXT(255),
   M_BusBlock TEXT(255), M_BusBlockRes TEXT(255), M_BusDataOut TEXT(255), M_BusDataOutRes TEXT(255), M_Marka TEXT(255),
+   M_GEN_STS TEXT(255), M_Bit_Offset TEXT(255),
   CBL_Id TEXT(255), CBL_Description TEXT(255), CBL_Type TEXT(255), CBL_Designation TEXT(255),
   CBL_From TEXT(255), CBL_To TEXT(255), CBL_Length LONG, CBL_Color TEXT(255), CBL_Pair LONG,
   CBL_Note TEXT(255), CBL_VendorDesignation TEXT(255), CBL_Drum TEXT(255), CBL_Voltage TEXT(255),
@@ -415,6 +416,7 @@ CREATE TABLE MODBUS_MAP (
             "M_Scaling", "M_SigType", "M_RegType", "M_Address", "M_Bit", "M_AccessType", "M_DataType", "M_FuncCode",
             "M_DcsChannel", "M_DcsTag", "M_DcsFunctions", "M_Note",
             "M_BusBlock", "M_BusBlockRes", "M_BusDataOut", "M_BusDataOutRes", "M_Marka",
+            "M_GEN_STS", "M_Bit_Offset",
             "CBL_Id", "CBL_Description", "CBL_Type", "CBL_Designation", "CBL_From", "CBL_To",
             "CBL_Length", "CBL_Color", "CBL_Pair", "CBL_Note", "CBL_VendorDesignation",
             "CBL_Drum", "CBL_Voltage",

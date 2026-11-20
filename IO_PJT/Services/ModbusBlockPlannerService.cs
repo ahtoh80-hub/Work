@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Data.OleDb;
 using System.IO;
@@ -1680,7 +1680,7 @@ namespace IO_PJT.Services
 
         /// <summary>F16: сохранить именованный шаблон привязок (замена по имени IgnoreCase).
         /// Имя обязательно (пустое — InvalidOperationException).</summary>
-        public void SaveDataOutTemplate(string name, string body, string? filePath = null)
+        public void SaveDataOutTemplate(string name, string body, string? filePath = null, int? version = null)
         {
             string n = (name ?? "").Trim();
             if (n.Length == 0) throw new InvalidOperationException("Имя шаблона привязок не задано");
@@ -1688,7 +1688,7 @@ namespace IO_PJT.Services
             EnsureTables();
             for (int attempt = 1; ; attempt++)
             {
-                try { SaveDataOutTemplateOnce(n, body ?? "", filePath ?? ""); return; }
+                try { SaveDataOutTemplateOnce(n, body ?? "", filePath ?? "", version); return; }
                 catch (OleDbException ex) when (attempt < 3 && DbProbe.IsLockError(ex.Message))
                 {
                     System.Threading.Thread.Sleep(300 * attempt);
@@ -1696,7 +1696,7 @@ namespace IO_PJT.Services
             }
         }
 
-        private void SaveDataOutTemplateOnce(string name, string body, string filePath)
+        private void SaveDataOutTemplateOnce(string name, string body, string filePath, int? version = null)
         {
             using var cn = new OleDbConnection(ConnStr);
             cn.Open();
@@ -1719,7 +1719,7 @@ namespace IO_PJT.Services
                     }
                 }
                 string source = Path.GetFileName(filePath.Trim().Length > 0 ? filePath : oldSrc);
-                ver += 1;
+                ver = (version.HasValue && version.Value >= 0) ? version.Value : ver + 1;
                 string savedAt = DateTime.Now.ToString("yyyy.MM.dd HH:mm");
                 // ACE SQL сравнивает текст без учёта регистра → замена дубля IgnoreCase
                 using (var del = new OleDbCommand(
@@ -1818,7 +1818,7 @@ namespace IO_PJT.Services
 
         /// <summary>F22: сохранить мастер-шаблон (замена по имени IgnoreCase). Protocol пуст —
         /// эвристика: «RTU» в имени шаблона → RTU, иначе TCP; явный — нормализуется.</summary>
-        public void SaveMasterTemplate(string name, string body, string protocol, string? filePath = null)
+        public void SaveMasterTemplate(string name, string body, string protocol, string? filePath = null, int? version = null)
         {
             string n = (name ?? "").Trim();
             if (n.Length == 0) throw new InvalidOperationException("Имя мастер-шаблона не задано");
@@ -1829,7 +1829,7 @@ namespace IO_PJT.Services
             EnsureTables();
             for (int attempt = 1; ; attempt++)
             {
-                try { SaveMasterTemplateOnce(n, proto, body ?? "", filePath ?? ""); return; }
+                try { SaveMasterTemplateOnce(n, proto, body ?? "", filePath ?? "", version); return; }
                 catch (OleDbException ex) when (attempt < 3 && DbProbe.IsLockError(ex.Message))
                 {
                     System.Threading.Thread.Sleep(300 * attempt);
@@ -1837,7 +1837,7 @@ namespace IO_PJT.Services
             }
         }
 
-        private void SaveMasterTemplateOnce(string name, string protocol, string body, string filePath)
+        private void SaveMasterTemplateOnce(string name, string protocol, string body, string filePath, int? version = null)
         {
             using var cn = new OleDbConnection(ConnStr);
             cn.Open();
@@ -1859,7 +1859,7 @@ namespace IO_PJT.Services
                     }
                 }
                 string source = Path.GetFileName(filePath.Trim().Length > 0 ? filePath : oldSrc);
-                ver += 1;
+                ver = (version.HasValue && version.Value >= 0) ? version.Value : ver + 1;
                 string savedAt = DateTime.Now.ToString("yyyy.MM.dd HH:mm");
                 using (var del = new OleDbCommand(
                     $@"DELETE FROM [{Schema.ScadaMasterTemplatesTable}] WHERE [Name] = ?", cn, tr))
@@ -1935,7 +1935,7 @@ namespace IO_PJT.Services
         }
 
         /// <summary>F22: сохранить шаблон DataIn (замена по имени IgnoreCase).</summary>
-        public void SaveDataInTemplate(string name, string body, string? filePath = null)
+        public void SaveDataInTemplate(string name, string body, string? filePath = null, int? version = null)
         {
             string n = (name ?? "").Trim();
             if (n.Length == 0) throw new InvalidOperationException("Имя шаблона DataIn не задано");
@@ -1943,7 +1943,7 @@ namespace IO_PJT.Services
             EnsureTables();
             for (int attempt = 1; ; attempt++)
             {
-                try { SaveDataInTemplateOnce(n, body ?? "", filePath ?? ""); return; }
+                try { SaveDataInTemplateOnce(n, body ?? "", filePath ?? "", version); return; }
                 catch (OleDbException ex) when (attempt < 3 && DbProbe.IsLockError(ex.Message))
                 {
                     System.Threading.Thread.Sleep(300 * attempt);
@@ -1951,7 +1951,7 @@ namespace IO_PJT.Services
             }
         }
 
-        private void SaveDataInTemplateOnce(string name, string body, string filePath)
+        private void SaveDataInTemplateOnce(string name, string body, string filePath, int? version = null)
         {
             using var cn = new OleDbConnection(ConnStr);
             cn.Open();
@@ -1973,7 +1973,7 @@ namespace IO_PJT.Services
                     }
                 }
                 string source = Path.GetFileName(filePath.Trim().Length > 0 ? filePath : oldSrc);
-                ver += 1;
+                ver = (version.HasValue && version.Value >= 0) ? version.Value : ver + 1;
                 string savedAt = DateTime.Now.ToString("yyyy.MM.dd HH:mm");
                 using (var del = new OleDbCommand(
                     $@"DELETE FROM [{Schema.ScadaDataInTemplatesTable}] WHERE [Name] = ?", cn, tr))
@@ -2123,6 +2123,57 @@ namespace IO_PJT.Services
                 throw;
             }
             return result;
+        }
+
+        /// <summary>F85: mark rows generation status (M_GEN_STS). Generated signals get
+        /// the value, others are cleared (empty cell).</summary>
+        public int MarkGenerationStatus(string tableName, IReadOnlyCollection<string>? generatedTags)
+        {
+            if (string.IsNullOrEmpty(_dbPath) || !File.Exists(_dbPath) || string.IsNullOrWhiteSpace(tableName))
+                return 0;
+            new TableCreator(_dbPath).EnsureColumns(tableName);
+            var set = new HashSet<string>(generatedTags ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+            int marked = 0;
+            for (int attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    using var cn = new OleDbConnection(ConnStr);
+                    cn.Open();
+                    using var tr = cn.BeginTransaction();
+                    try
+                    {
+                        using (var clr = new OleDbCommand($"UPDATE [{tableName}] SET [M_GEN_STS] = NULL", cn, tr))
+                        {
+                            clr.CommandTimeout = DbProbe.TimeoutSeconds;
+                            clr.ExecuteNonQuery();
+                        }
+                        using (var upd = new OleDbCommand($"UPDATE [{tableName}] SET [M_GEN_STS] = ? WHERE [Tag] = ?", cn, tr))
+                        {
+                            upd.CommandTimeout = DbProbe.TimeoutSeconds;
+                            foreach (var tag in set)
+                            {
+                                if (string.IsNullOrWhiteSpace(tag)) continue;
+                                upd.Parameters.Clear();
+                                OleDbArgs.Add(upd, "сгенерирован");
+                                OleDbArgs.Add(upd, tag.Trim());
+                                marked += upd.ExecuteNonQuery();
+                            }
+                        }
+                        tr.Commit();
+                    }
+                    catch
+                    {
+                        try { tr.Rollback(); } catch { }
+                        throw;
+                    }
+                    return marked;
+                }
+                catch (OleDbException ex) when (attempt < 3 && DbProbe.IsLockError(ex.Message))
+                {
+                    System.Threading.Thread.Sleep(300 * attempt);
+                }
+            }
         }
     }
 }

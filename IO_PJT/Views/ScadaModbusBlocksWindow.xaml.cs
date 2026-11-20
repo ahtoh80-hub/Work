@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -104,8 +104,8 @@ namespace IO_PJT.Views
             var row = vm.SelectedDataTemplate;
             string? body = vm.GetDataTemplateCode(row);
             if (body == null || row == null) return;
-            var w = new TemplateCodeWindow($"Код data-шаблона «{row.Name}»", body) { Owner = this };
-            if (w.ShowDialog() == true) vm.SaveTemplateCode(row, w.ResultText);
+            var w = new TemplateCodeWindow($"Код data-шаблона «{row.Name}»", row.Name, row.Version, body) { Owner = this };
+            if (w.ShowDialog() == true) vm.SaveTemplateCode(row, w.ResultText, w.TemplateName, w.TemplateVersion);
         }
 
         /// <summary>F81: «Код» в перечне мастер-шаблонов — большое окно редактора тела
@@ -116,8 +116,8 @@ namespace IO_PJT.Views
             string? body = vm.GetMasterTemplateCode();
             if (body == null) return;
             string name = vm.SelectedMasterTemplate?.Name ?? "";
-            var w = new TemplateCodeWindow($"Код мастер-шаблона «{name}»", body) { Owner = this };
-            if (w.ShowDialog() == true) vm.SaveMasterTemplateCode(w.ResultText);
+            var w = new TemplateCodeWindow($"Код мастер-шаблона «{name}»", name, vm.SelectedMasterTemplate?.Version, body) { Owner = this };
+            if (w.ShowDialog() == true) vm.SaveMasterTemplateCode(w.ResultText, w.TemplateName, w.TemplateVersion);
         }
 
         /// <summary>F18.1: «залипшее» колёсико внутренней таблицы левой колонки →

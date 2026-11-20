@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace IO_PJT.Models
@@ -209,6 +209,15 @@ namespace IO_PJT.Models
         /// <summary>F27: Марка SCADA (MakeMarka от поля-источника F12) — заполняется кнопкой
         /// «Записать Марку в IO_LIST» в окне генератора перечня (F12).</summary>
         public string? Marka { get; set; }
+
+        /// <summary>F85: статус генерации записи modbus-адресации (M_GEN_STS). аполняется
+        /// при «Сформировать XML»: «сгенерирован» — сигнал найден и попал в data-шаблон,
+        /// пусто — не найден (ячейка очищается).</summary>
+        public string? GenSts { get; set; }
+
+        /// <summary>F85: признак смещения бита (M_Bit_Offset): 0 — нет смещения (M_Bit 0..15),
+        /// 1 — есть смещение (M_Bit 1..16).</summary>
+        public string? BitOffset { get; set; }
     }
 
     /// <summary>Кабельное хозяйство (ветвь Cable, префикс CBL_).</summary>

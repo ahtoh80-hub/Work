@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
@@ -551,30 +551,31 @@ namespace IO_PJT.Models
     /// → колонка IO_LIST / строковый шаблон «{Кол}…» / литерал». Хранится в
     /// SCADA_TEMPLATE_VARS (Scope=dataout для чтения, datain для записи;
     /// TemplateName — имя data-шаблона, Var — имя объекта).</summary>
-    public sealed class MbDataTemplateVarRow
+    public sealed class MbDataTemplateVarRow : INotifyPropertyChanged
     {
-        /// <summary>Имя data-шаблона (SCADA_DATAOUT_/SCADA_DATAIN_TEMPLATES).</summary>
+        // F85: INPC so the bit ComboBox reacts to BitMode changes live.
+        public event PropertyChangedEventHandler? PropertyChanged;
+        private void OnChanged([CallerMemberName] string? name = null) =>
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
+        {
+            if (EqualityComparer<T>.Default.Equals(field, value)) return false;
+            field = value;
+            OnChanged(name);
+            return true;
+        }
+
         public string TemplateName { get; set; } = "";
-
-        /// <summary>Направление шаблона для UI: «чтение»/«запись» (scope dataout/datain).</summary>
         public string Direction { get; set; } = "";
-
-        /// <summary>Имя переменной-объекта в шаблоне (Info блока 31/34).</summary>
         public string Var { get; set; } = "";
-
-        /// <summary>Колонка IO_LIST или строковый шаблон «{M_DcsTag} …» (F32).</summary>
         public string IoColumn { get; set; } = "";
-
-        /// <summary>Фиксированный текст (используется, если колонка/шаблон не заданы).</summary>
         public string Literal { get; set; } = "";
 
-        /// <summary>F80: режим привязки в гриде: «Адрес» / «Адрес/бит» (пусто — прежнее
-        /// поведение F75); хранится в SCADA_TEMPLATE_VARS.BitMode.</summary>
-        public string BitMode { get; set; } = "";
+        private string _bitMode = "";
+        public string BitMode { get => _bitMode; set => Set(ref _bitMode, value ?? ""); }
 
-        /// <summary>F80: номер бита 0..15 (значение M_Bit) при режиме «Адрес/бит»;
-        /// хранится в SCADA_TEMPLATE_VARS.BitNo.</summary>
-        public string BitNo { get; set; } = "";
+        private string _bitNo = "";
+        public string BitNo { get => _bitNo; set => Set(ref _bitNo, value ?? ""); }
     }
 
     /// <summary>F16: именованный шаблон привязок Data_Out — таблица SCADA_DATAOUT_TEMPLATES.

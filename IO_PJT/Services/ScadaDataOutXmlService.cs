@@ -964,7 +964,7 @@ namespace IO_PJT.Services
                     bool nameIsBit75 = bitM75.Success && int.TryParse(bitM75.Groups[1].Value, out bitI75);
                     int wantE80 = -1;
                     bool explicitBit80 = string.Equals(bitMode80, "Адрес/бит", StringComparison.OrdinalIgnoreCase) &&
-                        int.TryParse(bitNo80, out wantE80) && wantE80 >= 0 && wantE80 <= 15;
+                        int.TryParse(bitNo80, out wantE80) && wantE80 >= 0 && wantE80 <= 16;
                     bool addressOnly80 = string.Equals(bitMode80, "Адрес", StringComparison.OrdinalIgnoreCase);
                     int? want75 = null;
                     if (explicitBit80) want75 = wantE80;

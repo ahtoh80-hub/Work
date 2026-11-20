@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using IO_PJT.Models;
 
@@ -146,6 +146,8 @@ namespace IO_PJT.Services
             FS("M_BusDataOut", p => p.Modbus?.BusDataOut, (p, v) => (p.Modbus ??= new()).BusDataOut = v), // F13
             FS("M_BusDataOutRes", p => p.Modbus?.BusDataOutRes, (p, v) => (p.Modbus ??= new()).BusDataOutRes = v), // F71: путь reserve-блока
             FS("M_Marka", p => p.Modbus?.Marka, (p, v) => (p.Modbus ??= new()).Marka = v), // F27
+            FS("M_GEN_STS", p => p.Modbus?.GenSts, (p, v) => (p.Modbus ??= new()).GenSts = v), // F85: статус генерации
+            FS("M_Bit_Offset", p => p.Modbus?.BitOffset, (p, v) => (p.Modbus ??= new()).BitOffset = v), // F85: смещение бита 0/1
 
             // ===== Cable (13) =====
             FS("CBL_Id", p => p.Cable?.Id, (p, v) => (p.Cable ??= new()).Id = v),

@@ -445,30 +445,45 @@
                                             </x:Array>
                                         </DataGridComboBoxColumn.ItemsSource>
                                     </DataGridComboBoxColumn>
-                                    <DataGridComboBoxColumn Header="Бит" Width="55"
-                                        SelectedItemBinding="{Binding BitNo, UpdateSourceTrigger=PropertyChanged}"
-                                        ToolTipService.ToolTip="F80: искомый номер бита 0–15 (значение M_Bit точки) при режиме «Адрес/бит»; в явном режиме «Смещение бит» не применяется">
-                                        <DataGridComboBoxColumn.ItemsSource>
-                                            <x:Array Type="{x:Type sys:String}">
-                                                <sys:String>0</sys:String>
-                                                <sys:String>1</sys:String>
-                                                <sys:String>2</sys:String>
-                                                <sys:String>3</sys:String>
-                                                <sys:String>4</sys:String>
-                                                <sys:String>5</sys:String>
-                                                <sys:String>6</sys:String>
-                                                <sys:String>7</sys:String>
-                                                <sys:String>8</sys:String>
-                                                <sys:String>9</sys:String>
-                                                <sys:String>10</sys:String>
-                                                <sys:String>11</sys:String>
-                                                <sys:String>12</sys:String>
-                                                <sys:String>13</sys:String>
-                                                <sys:String>14</sys:String>
-                                                <sys:String>15</sys:String>
-                                            </x:Array>
-                                        </DataGridComboBoxColumn.ItemsSource>
-                                    </DataGridComboBoxColumn>
+                                        <DataGridTemplateColumn Header="&#x0411;ит" Width="60"
+                                            ToolTipService.ToolTip="bit number 0-16 (= M_Bit); disabled for address-only mode">
+                                            <DataGridTemplateColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <ComboBox SelectedItem="{Binding BitNo, UpdateSourceTrigger=PropertyChanged}">
+                                                        <ComboBox.Style>
+                                                            <Style TargetType="ComboBox">
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding BitMode}" Value="&#x0410;дрес">
+                                                                        <Setter Property="IsEnabled" Value="False"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </ComboBox.Style>
+                                                        <ComboBox.ItemsSource>
+                                                            <x:Array Type="{x:Type sys:String}">
+                                                                <sys:String>0</sys:String>
+                                                                <sys:String>1</sys:String>
+                                                                <sys:String>2</sys:String>
+                                                                <sys:String>3</sys:String>
+                                                                <sys:String>4</sys:String>
+                                                                <sys:String>5</sys:String>
+                                                                <sys:String>6</sys:String>
+                                                                <sys:String>7</sys:String>
+                                                                <sys:String>8</sys:String>
+                                                                <sys:String>9</sys:String>
+                                                                <sys:String>10</sys:String>
+                                                                <sys:String>11</sys:String>
+                                                                <sys:String>12</sys:String>
+                                                                <sys:String>13</sys:String>
+                                                                <sys:String>14</sys:String>
+                                                                <sys:String>15</sys:String>
+                                                                <sys:String>16</sys:String>
+                                                            </x:Array>
+                                                        </ComboBox.ItemsSource>
+                                                    </ComboBox>
+                                                </DataTemplate>
+                                            </DataGridTemplateColumn.CellTemplate>
+                                        </DataGridTemplateColumn>
                                     <DataGridTextColumn Header="Колонка / шаблон"
                                                         Binding="{Binding IoColumn, UpdateSourceTrigger=PropertyChanged}" Width="150"
                                                         ToolTipService.ToolTip="Имя колонки IO_LIST или строковый шаблон «{M_DcsTag} Adress: {M_Address}» (F32); при заданной колонке объект переименовывается, а начальное значение пишется в IV (F49)" />

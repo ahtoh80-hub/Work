@@ -1,12 +1,12 @@
-namespace IO_PJT
+﻿namespace IO_PJT
 {
-    /// <summary>Метаданные программы (задание 19.11.2026, п.6): текущая версия выводится
-    /// в диалоге «Справка → О программе».</summary>
+    /// <summary>Program metadata (task 19.11.2026, item 6): current version is shown
+    /// in the Help - About dialog.</summary>
     public static class AppInfo
     {
-        /// <summary>Текущая версия программы. Бампить после каждого изменения кода:
-        /// F79…F84 (F84 — AO16/AO32: цепочки по шаблону правила Typno при несовпадении
-        /// направления, предупреждение F84 вместо пропуска).</summary>
-        public const string Version = "F84";
+        /// <summary>Current program version. Bump after every code change (F79-F85).
+        /// F85 = M_GEN_STS / M_Bit_Offset columns, address/bit 0..16, manual
+        /// template version editing, single template-save flow.</summary>
+        public const string Version = "F85";
     }
 }

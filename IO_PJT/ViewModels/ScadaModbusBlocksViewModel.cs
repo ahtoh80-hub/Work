@@ -722,17 +722,18 @@ namespace IO_PJT.ViewModels
 
         /// <summary>F81: сохранить отредактированное тело data-шаблона в БД
         /// (Version +1, SavedAt; путь файла-источника не используется).</summary>
-        public void SaveTemplateCode(MbDataTemplateRow? r, string text)
+        public void SaveTemplateCode(MbDataTemplateRow? r, string text, string? newName = null, int? version = null)
         {
             if (r == null) return;
             try
             {
-                if (r.IsWrite) _s.ModbusBlocks.SaveDataInTemplate(r.Name, text, null);
-                else _s.ModbusBlocks.SaveDataOutTemplate(r.Name, text, null);
+                string name = string.IsNullOrWhiteSpace(newName) ? r.Name : newName.Trim();
+            if (r.IsWrite) _s.ModbusBlocks.SaveDataInTemplate(name, text, null, version);
+                else _s.ModbusBlocks.SaveDataOutTemplate(name, text, null, version);
                 LoadDataOutTemplateList();
                 LoadDataInTemplateList();
                 SelectedDataTemplate = DataTemplates.FirstOrDefault(x =>
-                    string.Equals(x.Name, r.Name, StringComparison.OrdinalIgnoreCase) && x.Kind == r.Kind);
+                    string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase) && x.Kind == r.Kind);
                 _s.Log.Info($"F81: код шаблона «{r.Name}» сохранён в БД");
                 StatusText = $"Шаблон «{r.Name}» сохранён в БД (версия обновлена).";
             }
@@ -758,16 +759,17 @@ namespace IO_PJT.ViewModels
 
         /// <summary>F81: сохранить отредактированный код мастер-шаблона в БД
         /// (Version +1, SavedAt; Protocol сохраняется).</summary>
-        public void SaveMasterTemplateCode(string text)
+        public void SaveMasterTemplateCode(string text, string? newName = null, int? version = null)
         {
             var t = SelectedMasterTemplate;
             if (t == null) return;
             try
             {
-                _s.ModbusBlocks.SaveMasterTemplate(t.Name, text, t.Protocol, null);
+                string name = string.IsNullOrWhiteSpace(newName) ? t.Name : newName.Trim();
+            _s.ModbusBlocks.SaveMasterTemplate(name, text, t.Protocol, null, version);
                 LoadMasterTemplateList();
                 SelectedMasterTemplate = MasterTemplates.FirstOrDefault(x =>
-                    string.Equals(x.Name, t.Name, StringComparison.OrdinalIgnoreCase));
+                    string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase));
                 _s.Log.Info($"F81: код мастер-шаблона «{t.Name}» сохранён в БД");
                 StatusText = $"Мастер-шаблон «{t.Name}» сохранён в БД (версия обновлена).";
             }
@@ -855,7 +857,8 @@ namespace IO_PJT.ViewModels
                 StatsText = $"Пакетов (блоков мастера): {result.Packets.Count} " +
                             $"(в т.ч. резервных reserve: {result.ReservePackets}); " + // F68
                             $"привязок DataOut: {BindingsPreview.Count}; " +
-                            $"точек в пакетах: {result.TotalPoints} из {result.WithAddressing} с адресацией; " +
+                            $"точек в пакетах: {result.TotalPoints} из {result.WithAddressing} с адресацией; " +
+
                             $"дублей адресации (одна точка): {result.DedupedSignals}; " +
                             $"пропущено: без адресации {result.SkippedNoAddressing}, " +
                             $"без Typno {result.SkippedNoTypno}, " +
@@ -1128,6 +1131,7 @@ namespace IO_PJT.ViewModels
                 if (splitDir != null)
                 {
                     ExportSplit(packets, splitDir, templateByStation, rtuText);
+                MarkGenerated(packets);
                     return;
                 }
 
@@ -1165,6 +1169,7 @@ namespace IO_PJT.ViewModels
                 }
                 SetNameWarnings(nameWarns); // F69: красный блок «ИМЯ:»
                 File.WriteAllText(bindingsPath, bindingsXml, new System.Text.UTF8Encoding(true));
+                MarkGenerated(packets);
                 _s.Log.Info($"F13: XML сформирован: {outFile} + привязки {bindingsPath} " +
                             $"(станций: {stSel}/{stationsTotal}, пакетов: {packets.Count}, привязок: {BindingsPreview.Count}, " +
                             (fromTemplate ? "шаблон привязок Data_Out)" : "простые привязки)"));
@@ -2165,7 +2170,7 @@ namespace IO_PJT.ViewModels
                 if (!string.IsNullOrWhiteSpace(r.BitMode)) continue;
                 string vn = (r.Var ?? "").Trim();
                 if (vn.Length > 3 && vn.StartsWith("Bit", StringComparison.OrdinalIgnoreCase) &&
-                    int.TryParse(vn.AsSpan(3), out int bi) && bi >= 0 && bi <= 15 &&
+                    int.TryParse(vn.AsSpan(3), out int bi) && bi >= 0 && bi <= 16 &&
                     string.Equals(vn, "Bit" + bi, StringComparison.OrdinalIgnoreCase))
                 {
                     r.BitMode = "Адрес/бит";
@@ -2228,6 +2233,29 @@ namespace IO_PJT.ViewModels
             // F61: привязки внизу — по выбору пакета превью (те же объекты MbBinding —
             // пересоздание строк синхронизирует смещения/пути после правки адреса)
             RefreshBindingsView();
+        }
+
+        /// <summary>F85: пометить M_GEN_STS по сформированным data-шаблонам: сигналы из
+        /// привязок пакетов — «сгенерирован», остальные строки очищаются.</summary>
+        private void MarkGenerated(IReadOnlyList<MbPacketPlan> packets)
+        {
+            try
+            {
+                var tags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var p in packets)
+                    foreach (var b in p.Bindings)
+                    {
+                        if (!string.IsNullOrWhiteSpace(b.Tag)) tags.Add(b.Tag.Trim());
+                        foreach (var sh in b.SharedTags)
+                            if (!string.IsNullOrWhiteSpace(sh)) tags.Add(sh.Trim());
+                    }
+                int n = _s.ModbusBlocks.MarkGenerationStatus(_s.Repo.TableName, tags);
+                if (n > 0) _s.Log.Info($"F85: M_GEN_STS проставлен: {n} строк");
+            }
+            catch (Exception ex)
+            {
+                _s.Log.Error($"F85: ошибка записи M_GEN_STS: {ex.Message}");
+            }
         }
     }
 }
