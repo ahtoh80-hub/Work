@@ -2051,7 +2051,7 @@ namespace IO_PJT.Services
                     byTag.TryAdd(p.Tag!.Trim(), p);
 
             // ожидаемые привязки: Tag → (main-блок, main-путь, reserve-блок, reserve-путь)
-            var wanted = new Dictionary<string, (string Block, string DataOut, string ResBlock, string ResDataOut)>(
+            var wanted = new Dictionary<string, (string Block, string DataOut, string ResBlock, string ResDataOut, int FuncCode, bool BitOffset)>(
                 StringComparer.OrdinalIgnoreCase);
             foreach (var packet in plan.Packets)
             {
@@ -2065,12 +2065,12 @@ namespace IO_PJT.Services
                         ? $"{resBlock}.{(packet.IsWrite ? "DataIn" : "DataOut")}[{DataOutByteIndex(b.Offset, packet.IsBit)}]"
                         : "";
                     if (b.Tag.Length > 0)
-                        wanted[b.Tag] = (b.BlockName, b.DataOutExpr, resBlock, resDataOut);
+                        wanted[b.Tag] = (b.BlockName, b.DataOutExpr, resBlock, resDataOut, packet.FuncCode, packet.BitOffset);
                     // F56: остальные сигналы того же адреса (одна точка адресного пространства) —
                     // тот же блок/путь (и reserve): их M_Bus* обновляются, а не очищаются
                     foreach (var sh in b.SharedTags)
                         if (sh.Length > 0)
-                            wanted[sh] = (b.BlockName, b.DataOutExpr, resBlock, resDataOut);
+                            wanted[sh] = (b.BlockName, b.DataOutExpr, resBlock, resDataOut, packet.FuncCode, packet.BitOffset);
                 }
             }
 
@@ -2097,6 +2097,10 @@ namespace IO_PJT.Services
                     // F71: reserve-пара (F68 twin) — имя/путь резервного блока либо NULL
                     p.Modbus.BusBlockRes = kv.Value.ResBlock.Length > 0 ? kv.Value.ResBlock : null;
                     p.Modbus.BusDataOutRes = kv.Value.ResDataOut.Length > 0 ? kv.Value.ResDataOut : null;
+                    // F85 (p.8): persist edited Function code + bit-offset flag to IO_LIST
+                    if (NormalizeFuncCode(p.Modbus.FuncCode) != kv.Value.FuncCode) p.Modbus.FuncCode = kv.Value.FuncCode.ToString("D2");
+                    var bo85 = kv.Value.BitOffset ? "1" : "0";
+                    if ((p.Modbus.BitOffset ?? "") != bo85) p.Modbus.BitOffset = bo85;
                     if (repo.Update(p) > 0) result.Updated++; // аудит Update по изменённым полям (F7)
                 }
 

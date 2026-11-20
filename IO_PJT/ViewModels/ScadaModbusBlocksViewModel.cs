@@ -265,6 +265,7 @@ namespace IO_PJT.ViewModels
         public RelayCommand CheckDataOutTemplateCommand { get; }
         public RelayCommand BrowseDataOutTemplateCommand { get; }
         public RelayCommand SaveSettingsCommand { get; }
+        public RelayCommand SaveAllSettingsCommand { get; } // F85 p8: save all settings at once
         public RelayCommand SaveRulesCommand { get; }
         public RelayCommand AddRuleCommand { get; }
         public RelayCommand DeleteRuleCommand { get; }
@@ -362,6 +363,7 @@ namespace IO_PJT.ViewModels
             CheckDataOutTemplateCommand = new RelayCommand(CheckDataOutTemplate);
             BrowseDataOutTemplateCommand = new RelayCommand(BrowseDataOutTemplate);
             SaveSettingsCommand = new RelayCommand(SaveSettings);
+            SaveAllSettingsCommand = new RelayCommand(SaveAllSettings); // F85 p8
             SaveRulesCommand = new RelayCommand(SaveRules);
             AddRuleCommand = new RelayCommand(AddRule);
             DeleteRuleCommand = new RelayCommand(DeleteRule, () => SelectedRule != null);
@@ -1435,6 +1437,15 @@ namespace IO_PJT.ViewModels
             }
         }
 
+        /// <summary>F85 (p.8): one button saves generation settings + SlaveId rules + Typno map.</summary>
+        private void SaveAllSettings()
+        {
+            SaveSettings();
+            SaveRules();
+            SaveTypnoMap();
+            StatusText = "Настройки сохранены.";
+        }
+
         /// <summary>F13: сохранить правила «станция → SlaveId» в SCADA_MB_SLAVE_RULES (полная замена).</summary>
         private void SaveRules()
         {
@@ -2191,14 +2202,14 @@ namespace IO_PJT.ViewModels
                              .Where(r => r.TemplateName.Trim().Length > 0 && r.Var.Trim().Length > 0)
                              .GroupBy(r => new
                              {
-                                 Scope = r.Direction == "запись" ? "datain" : "dataout",
+                                 Scope = (r.Direction == "запись" || DataTemplateVars.Any(x => x.Direction == "запись" && string.Equals(x.TemplateName.Trim(), r.TemplateName.Trim(), StringComparison.OrdinalIgnoreCase))) ? "datain" : "dataout", // F85 p6: [TEXT] rows inherit template scope
                                  Name = r.TemplateName.Trim()
                              }))
                 {
                     var rows = g.Select(r => new MbTemplateVar
                     {
                         Var = r.Var.Trim(), IoColumn = r.IoColumn.Trim(), Literal = r.Literal.Trim(),
-                        BitMode = r.BitMode.Trim(), BitNo = r.BitNo.Trim()
+                        BitMode = r.BitMode.Trim(), BitNo = r.BitMode.Trim().IndexOf('/') >= 0 ? r.BitNo.Trim() : ""
                     }).ToList();
                     total += _s.ModbusBlocks.SaveTemplateVars(g.Key.Scope, g.Key.Name, rows);
                 }

@@ -572,7 +572,7 @@ namespace IO_PJT.Models
         public string Literal { get; set; } = "";
 
         private string _bitMode = "";
-        public string BitMode { get => _bitMode; set => Set(ref _bitMode, value ?? ""); }
+        public string BitMode { get => _bitMode; set { if (Set(ref _bitMode, value ?? "") && _bitMode.IndexOf('/') < 0) BitNo = ""; } }
 
         private string _bitNo = "";
         public string BitNo { get => _bitNo; set => Set(ref _bitNo, value ?? ""); }

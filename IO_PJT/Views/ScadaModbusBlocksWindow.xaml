@@ -26,7 +26,7 @@
                     <CheckBox Content="Файлами: контроллер/станция/Typno" IsChecked="{Binding Settings.SplitByControllerStation, Mode=TwoWay}"
                               VerticalAlignment="Center" Margin="0,0,6,0"
                               ToolTip="F37: экспорт отдельными файлами на пару (Контроллер, Станция): блоки Modbus «Контроллер_Станция_№» + data-объекты «Контроллер_Станция_Typno_№» в выбранную папку; снимите галочку — сводный экспорт (один файл + _bindings, как раньше) — настройка сохраняется кнопкой «Сохранить настройки»" />
-                    <Button Content="Сохранить настройки" Command="{Binding SaveSettingsCommand}" Width="140" Margin="0,0,6,0"
+                    <Button Content="Сохранить настройки" Command="{Binding SaveAllSettingsCommand}" Width="140" Margin="0,0,6,0"
                             ToolTip="Записать параметры в SCADA_MB_SETTINGS; в режиме «Код» — и шаблон в SCADA_MB_TEMPLATE" />
                     <Button Content="Сохранить правила SlaveId" Command="{Binding SaveRulesCommand}" Width="175"
                             ToolTip="Записать таблицу «станция → SlaveId» в SCADA_MB_SLAVE_RULES (полная замена)" />
