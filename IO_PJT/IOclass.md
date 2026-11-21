@@ -2498,3 +2498,45 @@ data-шаблонах («Адрес/бит») для бита, не найден
 «F80: … → {дефолт}» показывает фактическое значение. Поиск точки бита (`FindBitColumns`)
 уже перебирает все записи адреса (`SharedColumns`) с точным `M_Bit == BitNo` (F75/F80) -
 итерация 16 битов адреса без изменений. сборка 0/0.
+---
+
+## 📝 F85–F89 — генерация блоков Modbus: превью, шаблоны, привязки (2026-11)
+
+### F85 — MarkGenerationStatus, ручное имя/версия шаблона, фикс [TEXT] (2026-11)
+
+- `MarkGenerationStatus`/`MarkGenerated()` — колонки `SCADA_MB_SETTINGS` (`M_Gen_STS`,
+  `M_Bit_Offset`) + `IoPoint` (`M_Bit_Offset`): при экспорте блоков все участвовавшие точки
+  помечаются как сгенерированные (отметка в `M_Gen_STS`).
+- `TemplateCodeWindow` — ручное имя и версия при сохранении (`SaveTemplateOnce(..., int? version)`);
+  `SaveTemplateCode`/`SaveMasterTemplateCode` принимают newName/version.
+- `[TEXT]` comment row scope fix: template-based scope → datain (раньше уходил в dataout).
+- `BitNo` очищается при address-only режиме; `WriteBindings` пишет обратно `M_FuncCode`/`M_Bit_Offset`.
+- Единый `SaveAllSettingsCommand` (settings+rules+typno); INPC на `MbDataTemplateVarRow`.
+
+### F86 — битовый default из Literal (п.1, 2026-11)
+
+- `ScadaDataOutXmlService.ApplyBindingSubstitutions` — непривязанный бит по умолчанию =
+  `Literal` из строки привязки Typno (fallback `"FALSE"`) в обеих ветках (var-object и receiver);
+  предупреждения показывают фактический default.
+- `FindBitColumns` уже итерирует все `SharedColumns` с точным `M_Bit`.
+
+### F87 — GridSplitter и auto-height (п.2, 2026-11)
+
+- XAML: ColumnDefinitions `MinWidth=260`, `GridSplitter` col1 между левой/правой колонками,
+  grid data-объектов `MinHeight=60/MaxHeight=360` вместо `Height=120`.
+
+### F88 — fallback на БД-шаблон при отсутствии файла (Этап 0, 2026-11)
+
+- `LoadTemplateText()` в `ScadaModbusBlocksViewModel` — при отсутствии файла
+  (`TemplateFilePath` не найден) fallback на `TryLoadMasterTemplateFromDb()` (тело из
+  `SCADA_MASTER_TEMPLATES` по `Settings.MasterTcpTemplateName`). Раньше `CheckTemplate()`
+  обнулял шаблон → `Build()` выходил early → превью пустое для `BD Modbus 2712-PK-0001`
+  (Settings: `TemplateMode=File`, `TemplateFilePath=C:\VSCode\Work\ModbusTCP_v0.xml` —
+  отсутствует; тело есть в БД как `ModbusTCP_v0` v2).
+
+### F89 — единый флоу «файл → окно кода → сохранить» (п.7, 2026-11)
+
+- Кнопка «Из файла…» мастер-шаблонов переключена с VM Command на code-behind Click
+  (`OpenMasterTemplateFromFile_Click`): открывает XML в `TemplateCodeWindow` с именем по
+  умолчанию (имя файла без расширения), сохранение в БД из окна кода (вместо прямой записи
+  в БД). `using System.IO;` добавлен в code-behind.
