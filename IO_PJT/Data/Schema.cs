@@ -36,6 +36,7 @@ CREATE TABLE [{ModbusLinkRulesTable}] (
   [TagPattern] TEXT(255),
   [MapField] TEXT(50),
   [ValuePattern] TEXT(255),
+  [Mask] TEXT(255),
   [FuncCode] TEXT(50),
   [Priority] LONG,
   [Enabled] YESNO

@@ -151,6 +151,14 @@ namespace IO_PJT.Services
             // F9.11: ручные правила связывания IO_LIST ↔ MODBUS_MAP (окно «Правила связывания Modbus…»)
             if (!tables.Contains(Schema.ModbusLinkRulesTable))
                 Execute(Schema.CreateModbusLinkRulesTable);
+            else
+            {
+                // п.10: миграция — колонка Mask (маска сопоставления) в старых базах
+                var lrCols = new HashSet<string>(GetColumns(Schema.ModbusLinkRulesTable),
+                    StringComparer.OrdinalIgnoreCase);
+                if (!lrCols.Contains("Mask"))
+                    Execute($"ALTER TABLE [{Schema.ModbusLinkRulesTable}] ADD COLUMN [Mask] TEXT(255)");
+            }
             // F69: настройки связывания — поле-источник Service (SCADA_LINK_SETTINGS)
             if (!tables.Contains(Schema.ScadaLinkSettingsTable))
                 Execute(Schema.CreateScadaLinkSettingsTable);

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Data.OleDb;
 using System.IO;
@@ -143,7 +143,7 @@ namespace IO_PJT.Services
             using var cn = new OleDbConnection(ConnStr);
             cn.Open();
             using var cmd = new OleDbCommand(
-                $"SELECT [ID], [Name], [IOField], [TagPattern], [MapField], [ValuePattern], " +
+                $"SELECT [ID], [Name], [IOField], [TagPattern], [MapField], [ValuePattern], [Mask], " +
                 $"[FuncCode], [Priority], [Enabled] FROM [{Schema.ModbusLinkRulesTable}] " +
                 "ORDER BY [Priority], [ID]", cn);
             cmd.CommandTimeout = DbProbe.TimeoutSeconds;
@@ -163,7 +163,7 @@ namespace IO_PJT.Services
             using var cn = new OleDbConnection(ConnStr);
             cn.Open();
             using var cmd = new OleDbCommand(
-                $"SELECT [ID], [Name], [IOField], [TagPattern], [MapField], [ValuePattern], " +
+                $"SELECT [ID], [Name], [IOField], [TagPattern], [MapField], [ValuePattern], [Mask], " +
                 $"[FuncCode], [Priority], [Enabled] FROM [{Schema.ModbusLinkRulesTable}] " +
                 "WHERE [Enabled] <> 0 ORDER BY [Priority], [ID]", cn);
             cmd.CommandTimeout = DbProbe.TimeoutSeconds;
@@ -180,9 +180,9 @@ namespace IO_PJT.Services
             IOField = rd.IsDBNull(2) ? "Tag" : rd.GetString(2),
             TagPattern = rd.IsDBNull(3) ? "" : rd.GetString(3),
             MapField = rd.IsDBNull(4) ? "Description" : rd.GetString(4),
-            ValuePattern = rd.IsDBNull(5) ? "" : rd.GetString(5),
-            FuncCode = rd.IsDBNull(6) ? null : rd.GetString(6),
-            Priority = rd.IsDBNull(7) ? 100 : rd.GetInt32(7),
+            ValuePattern = rd.IsDBNull(5) ? "" : rd.GetString(5), Mask = rd.IsDBNull(6) ? "" : rd.GetString(6),
+            FuncCode = rd.IsDBNull(7) ? null : rd.GetString(7),
+            Priority = rd.IsDBNull(8) ? 100 : rd.GetInt32(8),
             Enabled = !rd.IsDBNull(8) && Convert.ToBoolean(rd.GetValue(8))
         };
 
@@ -297,7 +297,7 @@ namespace IO_PJT.Services
                 }
                 using var ins = new OleDbCommand(
                     $"INSERT INTO [{Schema.ModbusLinkRulesTable}] " +
-                    "([Name], [IOField], [TagPattern], [MapField], [ValuePattern], [FuncCode], [Priority], [Enabled]) " +
+                    "([Name], [IOField], [TagPattern], [MapField], [ValuePattern], [Mask], [FuncCode], [Priority], [Enabled]) " +
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", cn, tr);
                 ins.CommandTimeout = DbProbe.TimeoutSeconds;
                 foreach (var r in list)
@@ -307,7 +307,7 @@ namespace IO_PJT.Services
                     OleDbArgs.Add(ins, r.IOField);
                     OleDbArgs.Add(ins, r.TagPattern);
                     OleDbArgs.Add(ins, r.MapField);
-                    OleDbArgs.Add(ins, r.ValuePattern);
+                    OleDbArgs.Add(ins, r.ValuePattern); OleDbArgs.Add(ins, r.Mask);
                     OleDbArgs.Add(ins, r.FuncCode);
                     OleDbArgs.Add(ins, r.Priority);
                     OleDbArgs.Add(ins, r.Enabled);

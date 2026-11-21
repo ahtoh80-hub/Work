@@ -28,6 +28,11 @@ namespace IO_PJT.Models
         /// <summary>Шаблон по значению MapField (например «*Fault*»).</summary>
         public string ValuePattern { get; set; } = string.Empty;
 
+        /// <summary>п.10: маска сопоставления (см. MaskPattern). Пусто — полное совпадение
+        /// IOField ↔ MapField. Непустая — маска оценивается по строке IO_LIST → паттерн
+        /// ищется в значении MapField.</summary>
+        public string Mask { get; set; } = string.Empty;
+
         /// <summary>Фильтр Function Code строки карты («02»/«03»/«06»); пусто — без фильтра.</summary>
         public string? FuncCode { get; set; }
 
