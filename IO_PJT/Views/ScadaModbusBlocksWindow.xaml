@@ -79,10 +79,12 @@
         <Grid>
             <Grid.ColumnDefinitions>
                 <!-- F33 (этап 8): левая колонка шире ×1.5 — текст/лимиты (Регистры/Бит)
-                     полностью видны и редактируемы; окно шире, правая колонка не сжимается -->
-                <ColumnDefinition Width="630" />
-                <ColumnDefinition Width="6" />
-                <ColumnDefinition Width="*" />
+                     полностью видны и редактируемы; окно шире, правая колонка не сжимается.
+                     F87 (п.2): левая/правая панели раздвигаемы по горизонтали — GridSplitter
+                     в колонке 1; MinWidth не даёт схлопнуть панель -->
+                <ColumnDefinition Width="630" MinWidth="260" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" MinWidth="260" />
             </Grid.ColumnDefinitions>
 
             <ScrollViewer x:Name="LeftScroller" VerticalScrollBarVisibility="Auto">
@@ -429,7 +431,8 @@
                         <StackPanel>
                             <DataGrid ItemsSource="{Binding DataTemplateVarsView}"
                                       AutoGenerateColumns="False" CanUserAddRows="False"
-                                      HeadersVisibility="Column" Height="120" Margin="0,0,0,4"
+                                      HeadersVisibility="Column" MinHeight="60" MaxHeight="360"
+                                      VerticalScrollBarVisibility="Auto" Margin="0,0,0,4"
                                       ToolTip="F33: блок-переменная шаблона (константа 34 / тег 31) → значение привязки: колонка IO_LIST, строковый шаблон «{M_DcsTag} …» или начальное значение; подставляется при экспорте (константе — Info/T11Text + IV, тегу — IV; F49: при заданной колонке имя И IV разом). F38: текстовые объекты примитивов основного шаблона ([TEXT]=LOOPComment …, объект «LOOPComment(Text)», направление «текст») — при резолве заменяется ВСЯ строка [TEXT] примитива (канал значения: колонка/шаблон/начальное значение)">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Шаблон" Binding="{Binding TemplateName}" Width="130" IsReadOnly="True" />
@@ -730,6 +733,12 @@
 
                 </StackPanel>
             </ScrollViewer>
+
+            <!-- F87 (п.2): разделитель левой/правой панелей — горизонтальное изменение размера -->
+            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          ResizeBehavior="PreviousAndNext" ResizeDirection="Columns"
+                          Background="#DDDDDD"
+                          ToolTip="Потянуть — изменить ширину левой и правой панелей окна" />
 
             <!-- Правая колонка: превью пакетов + привязки DataOut -->
             <Grid Grid.Column="2">
