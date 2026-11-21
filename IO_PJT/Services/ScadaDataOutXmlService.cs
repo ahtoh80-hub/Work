@@ -976,10 +976,13 @@ namespace IO_PJT.Services
                         {
                             bitSkip75 = true;
                             bitFalse80 = true;
+                            // F86 (p.1): значение по умолчанию — из привязки Typno (Literal)
+                            string defWarn80 = hasRowV && !string.IsNullOrWhiteSpace(drow.Literal)
+                                ? drow.Literal.Trim() : "FALSE";
                             if (warnings != null &&
                                 (noMapWarned == null || noMapWarned.Add($"F80|{p.MasterName}|{w75}")))
                                 warnings.Add($"F80: {p.MasterName}: бит {w75} не привязан в IO_LIST -" +
-                                    $" объект «{objName}» → FALSE");
+                                    $" объект «{objName}» → {defWarn80}");
                         }
                         else if (bitCols75.TryGetValue("M_Marka", out var bm75) &&
                                  !string.IsNullOrWhiteSpace(bm75))
@@ -1076,15 +1079,18 @@ namespace IO_PJT.Services
                             outCards.Add(NewCard(bitCard75, bitName75));
                         SetIvValue(clone, litRow75);
                     }
-                    // F80: бит не привязан (нет точки с M_Bit) — имя объекта FALSE
+                    // F80/F86 (p.1): бит не привязан (нет точки с M_Bit) — значение по
+                    // умолчанию из привязки Typno (Literal «Начальное значение»); если не
+                    // задано — прежний "FALSE" (обратная совместимость)
                     if (bitFalse80 && !bitApplied75)
                     {
-                        clone.SetAttributeValue("Info", "FALSE");
+                        string defVal80 = litRow75.Length > 0 ? litRow75 : "FALSE";
+                        clone.SetAttributeValue("Info", defVal80);
                         int bitCard80 = nextCard;
                         nextCard += 10;
                         clone.Element("Params")?.SetAttributeValue("cardId", bitCard80);
                         if (seenCards.Add(bitCard80))
-                            outCards.Add(NewCard(bitCard80, "FALSE"));
+                            outCards.Add(NewCard(bitCard80, defVal80));
                         SetIvValue(clone, litRow75);
                     }
                 }
@@ -1214,11 +1220,14 @@ namespace IO_PJT.Services
                         bitSkipT75 = true;
                         bitFalseT80 = true;
                         noMapWarned?.Add($"{p.MasterName}|{objName}");
+                        // F86 (p.1): значение по умолчанию — из привязки Typno (Literal)
+                        string defWarnT80 = hasRowT && !string.IsNullOrWhiteSpace(drowT.Literal)
+                            ? drowT.Literal.Trim() : "FALSE";
                         if (warnings != null &&
                             (noMapWarned == null ||
                              noMapWarned.Add($"F80T|{p.MasterName}|{objName}|{wT75}")))
                             warnings.Add($"F80: {p.MasterName}: бит {wT75} приёмника «{objName}» " +
-                                "не привязан в IO_LIST - объект → FALSE");
+                                $"не привязан в IO_LIST - объект → {defWarnT80}");
                     }
                     else if (bitColsT75.TryGetValue("M_Marka", out var bmT75) && !string.IsNullOrWhiteSpace(bmT75))
                         bitMarkaT75 = bmT75.Trim();
@@ -1280,11 +1289,13 @@ namespace IO_PJT.Services
                         warnings?.Add($"F35: {p.MasterName}: блок-приёмник «{objName}» — в маппинге " +
                             "«Объекты data-шаблонов» нет строки объекта — Info шаблона оставлен без изменений");
                 }
-                // F80: бит приёмника не привязан — имя FALSE (вместо шаблонного Info)
+                // F80/F86 (p.1): бит приёмника не привязан — значение по умолчанию из
+                // привязки Typno (Literal); если не задано — прежний "FALSE"
                 if (bitFalseT80)
                 {
-                    clone.SetAttributeValue("Info", "FALSE" + suffix);
-                    cardTarget = "FALSE";
+                    string defValT80 = litRow49.Length > 0 ? litRow49 : "FALSE";
+                    clone.SetAttributeValue("Info", defValT80 + suffix);
+                    cardTarget = defValT80;
                     if (litRow49.Length > 0) SetIvValue(clone, litRow49);
                 }
                 int newCard = nextCard;
