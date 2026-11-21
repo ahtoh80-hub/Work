@@ -563,3 +563,18 @@ data-шаблонах («Адрес/бит») для бита, не найден
   `{PTAG_TagArea}&{PTag_DeviceClass}&{Ptag_LoopNumber}&{Ptag_TagNumber}&{PTag_Suffix}` (полное совпадение
   по имени тега); **«Служебное поле» (ServiceField) удалено** из окна и VM (F69-эвристики отключены).
   `&` в ToolTip XAML экранирован как `&amp;`.
+### F95 — удаление мёртвого кода эвристики после п.10 (2026-11)
+
+- `ModbusLinkService.cs`: удалён мёртвый код после F93/F94 (масочный матчинг — единственная
+  фаза `Link()`): локальные `FamilyKey`/`FilterFamily`/`GetFamily`/`FamilyAllows` (CS8321),
+  индексы `byObject`/`byFullKey`/`baseByKey`/`famCache`/`loopPresent`/`byObjectAll`, каркас
+  `phase` (инкременты/log-блоки `LinkedFullMatch`/`LinkedApprox`, маркер `LinkStateLinkedApprox`
+  → всегда `LinkStateLinked`).
+- Удалены методы без вызовов: `DetectRole`, `CanonTag`, `ClassVariants`, `ClassEquivalents`,
+  `FullKey`, `FullKeyVariants`, `ObjectBase`, `LoopFamilyMatches`, `CommonPrefixLen`,
+  `FindFullMatchRow`, `FindMapRow`, `FindMapRowByRules`, `FilterLocked`, `FilterLockedMap`,
+  `PickByRole`, `PickByRuleRows`, `RoleDescriptionKeywords`, `BaseDevice`. Ядро п.10
+  `FindMapRowByMask`, `ExtractCandidates`, `UpdateAddressing`, `IsModbusSignal` — сохранены.
+- `IO_PJT.Smoke` (вне sln): починена компиляция (40×CS0117 удалённые методы + 44×CS1503
+  предсуществующая поломка F86 — обёртка `Dv()` для `dataVars`; пути `c:\VSCode\...` →
+  фактические). Смоук HEAD == F95: 42 OK / 21 FAIL, регрессий нет (FAIL'ы — ожидания до п.10).

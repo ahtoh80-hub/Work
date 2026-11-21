@@ -2573,3 +2573,24 @@ data-шаблонах («Адрес/бит») для бита, не найден
   `{PTAG_TagArea}&{PTag_DeviceClass}&{Ptag_LoopNumber}&{Ptag_TagNumber}&{PTag_Suffix}` (полное совпадение
   по имени тега); **«Служебное поле» (ServiceField) удалено** из окна и VM (F69-эвристики отключены).
   `&` в ToolTip XAML экранирован как `&amp;`.
+### F95 — удаление мёртвого кода эвристики после п.10 (2026-11)
+
+- `ModbusLinkService.cs`: удалён мёртвый код, оставшийся после F93/F94 (масочный матчинг
+  `FindMapRowByMask` — единственная фаза `Link()`): локальные функции `FamilyKey`/`FilterFamily`/
+  `GetFamily`/`FamilyAllows` (предупреждение CS8321), индексы `byObject`/`byFullKey`/`baseByKey`/
+  `famCache`/`loopPresent`/`byObjectAll`, каркас `phase` (цикл `phase<1`, инкременты
+  `LinkedFullMatch`/`LinkedApprox`, их log-блоки, маркер `LinkStateLinkedApprox` в `Link()`
+  всегда → `LinkStateLinked`).
+- Удалены приватные/публичные методы без вызовов: `DetectRole`, `CanonTag`, `ClassVariants`,
+  `ClassEquivalents`, `FullKey`, `FullKeyVariants`, `ObjectBase`, `LoopFamilyMatches`,
+  `CommonPrefixLen`, `FindFullMatchRow`, `FindMapRow`, `FindMapRowByRules`, `FilterLocked`,
+  `FilterLockedMap`, `PickByRole`, `PickByRuleRows`, `RoleDescriptionKeywords`, `BaseDevice`.
+  Сохранены: `FindMapRowByMask`, `ExtractCandidates`/`ServiceText`/`NormalizePlcTag`/
+  `NormalizeFullName`, `UpdateAddressing`, `IsModbusSignal`, `FillModbus`, `SplitTags`,
+  `AppendLinkTag`, `WriteLinkAudit`; сообщение «Не связано» — без роли (`DetectRole` удалён).
+- `IO_PJT.Smoke/Program.cs` (проект не входит в IO_PJT.sln): починена компиляция —
+  удалены проверки удалённых методов (40×CS0117), обёртка `Dv()` для `dataVars` сигнатуры
+  `Write` с `(IoColumn, Literal, BitMode, BitNo)` (44×CS1503 — предсуществующая поломка F86),
+  пути `c:\VSCode\...` → фактические. Проверка: сборки 0/0; смоук на HEAD и на F95 дают
+  идентичный результат 42 OK / 21 FAIL + падение на строке 482 (списки FAIL совпадают) —
+  регрессий нет, FAIL'ы предсуществующие (ожидания до п.10 и схемы 130→135 колонок).
