@@ -155,8 +155,8 @@
                                 </DataGrid.Columns>
                             </DataGrid>
                             <StackPanel Orientation="Horizontal" Margin="0,4,0,4">
-                                <Button Content="Из файла…" Command="{Binding OpenMasterTemplateCommand}" Width="90" Margin="0,0,6,0"
-                                        ToolTip="F31: открыть XML-файл шаблона пакетов — сохранить в БД и добавить в перечень (Protocol по имени: «RTU» → RTU)" />
+                                <Button Content="Из файла…" Click="OpenMasterTemplateFromFile_Click" Width="90" Margin="0,0,6,0"
+                                        ToolTip="п.7: открыть XML-файл шаблона пакетов в окне редактора кода — правка/вставка и сохранение в БД под именем (по умолчанию — имя файла)" />
                                 <Button Content="В редактор" Command="{Binding LoadMasterTemplateCommand}" Width="85" Margin="0,0,6,0"
                                         ToolTip="Тело выбранного мастер-шаблона → редактор «Код» (проверка/генерация)" />
                                 <Button Content="Сохранить текущий…" Command="{Binding SaveMasterTemplateAsCommand}" Width="135" Margin="0,0,6,0"

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -118,6 +119,33 @@ namespace IO_PJT.Views
             string name = vm.SelectedMasterTemplate?.Name ?? "";
             var w = new TemplateCodeWindow($"Код мастер-шаблона «{name}»", name, vm.SelectedMasterTemplate?.Version, body) { Owner = this };
             if (w.ShowDialog() == true) vm.SaveMasterTemplateCode(w.ResultText, w.TemplateName, w.TemplateVersion);
+        }
+
+        /// <summary>п.7 (F89): «Из файла…» — открыть XML-файл мастер-шаблона в окне редактора
+        /// кода; сохранение в БД под именем (по умолчанию — имя файла без расширения).
+        /// Единый флоу: файл → окно кода → сохранить (вместо прямого сохранения в БД).</summary>
+        private void OpenMasterTemplateFromFile_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is not ViewModels.ScadaModbusBlocksViewModel vm) return;
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Filter = "XML шаблон пакетов (*.xml)|*.xml|Все файлы (*.*)|*.*"
+            };
+            if (dlg.ShowDialog() != true) return;
+            try
+            {
+                string body = File.ReadAllText(dlg.FileName);
+                string name = Path.GetFileNameWithoutExtension(dlg.FileName);
+                var w = new TemplateCodeWindow(
+                    $"Код мастер-шаблона «{name}» (из файла)", name, null, body) { Owner = this };
+                if (w.ShowDialog() == true)
+                    vm.SaveMasterTemplateCode(w.ResultText, w.TemplateName, w.TemplateVersion);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка чтения файла: {ex.Message}", "Из файла",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         /// <summary>F18.1: «залипшее» колёсико внутренней таблицы левой колонки →
