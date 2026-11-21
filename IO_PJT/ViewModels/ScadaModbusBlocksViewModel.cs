@@ -1602,9 +1602,22 @@ namespace IO_PJT.ViewModels
         {
             try
             {
+                // п.9: direction validation — warn if Typno direction doesn't match template direction
+                var warnings9 = ValidateTypnoDirections();
                 int n = _s.ModbusBlocks.SaveTypnoMap(TypnoRules);
                 _s.Log.Info($"F14: сопоставлений Typno сохранено: {n} (SCADA_TYPNO_MAP)");
-                StatusText = $"Сохранено сопоставлений Typno: {n}.";
+                string status9 = $"Сохранено сопоставлений Typno: {n}.";
+                if (warnings9.Count > 0)
+                {
+                    foreach (var w in warnings9) _s.Log.Warn(w);
+                    status9 += $" Предупреждений (направление): {warnings9.Count}.";
+                    System.Windows.MessageBox.Show(
+                        string.Join("\n", warnings9.Take(15)),
+                        "Направление Typno → шаблон (п.9)",
+                        System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Warning);
+                }
+                StatusText = status9;
                 LoadTypnoRules(); // перечитать с ID
             }
             catch (Exception ex)
@@ -1613,6 +1626,50 @@ namespace IO_PJT.ViewModels
                 _s.Log.Error($"F14: ошибка сохранения SCADA_TYPNO_MAP: {msg}");
                 StatusText = $"Ошибка сохранения сопоставления Typno: {msg}";
             }
+        }
+
+        /// <summary>п.9: направление Typno (по кодам функций сигналов из плана) ↔ направление
+        /// шаблона (dataout=чтение / datain=запись). Несовпадение → предупреждение.</summary>
+        private List<string> ValidateTypnoDirections()
+        {
+            var warnings = new List<string>();
+            if (_built == null) return warnings;
+            // 1. направление Typno из плана пакетов
+            var typnoDir = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var packet in _built.Packets)
+            {
+                string dir = packet.IsWrite ? "запись" : "чтение";
+                foreach (var b in packet.Bindings)
+                {
+                    string t = (b.Typno ?? "").Trim();
+                    if (t.Length == 0) continue;
+                    if (typnoDir.TryGetValue(t, out var existing))
+                    {
+                        if (existing != dir && existing != "смешанное") typnoDir[t] = "смешанное";
+                    }
+                    else
+                    {
+                        typnoDir[t] = dir;
+                    }
+                }
+            }
+            // 2. направление шаблонов из DataTemplates
+            var tmplDir = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var row in DataTemplates)
+                if (!string.IsNullOrWhiteSpace(row.Name))
+                    tmplDir[row.Name.Trim()] = row.IsWrite ? "запись" : "чтение";
+            // 3. валидация каждого правила
+            foreach (var rule in TypnoRules)
+            {
+                string t = (rule.Typno ?? "").Trim();
+                string tmpl = (rule.Template ?? "").Trim();
+                if (t.Length == 0 || tmpl.Length == 0) continue;
+                if (!typnoDir.TryGetValue(t, out var td)) continue;
+                if (!tmplDir.TryGetValue(tmpl, out var md)) continue;
+                if (td != "смешанное" && md != td)
+                    warnings.Add($"Typno «{t}» ({td}) → шаблон «{tmpl}» ({md}) — направление не совпадает");
+            }
+            return warnings;
         }
 
         /// <summary>F14: заполнить грид уникальными Typno точек текущей таблицы с адресацией
