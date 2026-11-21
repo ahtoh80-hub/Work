@@ -468,12 +468,34 @@ namespace IO_PJT.ViewModels
             {
                 if (File.Exists(Settings.TemplateFilePath))
                     return (File.ReadAllText(Settings.TemplateFilePath), Settings.TemplateFilePath);
+                // F88 (Этап 0): файл не найден — fallback на мастер-шаблон из БД
+                // (SCADA_MASTER_TEMPLATES по MasterTemplateName); позволяет работать
+                // без привязки к путям файлов (задача п.7: хранение только в БД)
+                var fb = TryLoadMasterTemplateFromDb();
+                if (fb != null)
+                    return (fb, $"БД «{(Settings.MasterTcpTemplateName ?? "").Trim()}» " +
+                        $"(файл не найден: {Settings.TemplateFilePath})");
                 return (null, $"файл по пути не найден: {Settings.TemplateFilePath}");
             }
             string? path = ScadaTemplateXmlService.ResolveDefaultTemplatePath();
-            return path != null
-                ? (File.ReadAllText(path), path)
-                : (null, "шаблон не найден — укажите файл или вставьте код");
+            if (path != null)
+                return (File.ReadAllText(path), path);
+            // F88: авто-поиск не дал результата — fallback на БД
+            var fb2 = TryLoadMasterTemplateFromDb();
+            if (fb2 != null)
+                return (fb2, $"БД «{(Settings.MasterTcpTemplateName ?? "").Trim()}»");
+            return (null, "шаблон не найден — укажите файл или вставьте код");
+        }
+
+        /// <summary>F88: попытка загрузить тело мастер-шаблона из БД (SCADA_MASTER_TEMPLATES)
+        /// по имени Settings.MasterTemplateName; null — нет шаблона или тело пустое.</summary>
+        private string? TryLoadMasterTemplateFromDb()
+        {
+            string name = (Settings.MasterTcpTemplateName ?? "").Trim();
+            if (name.Length == 0) return null;
+            var tpl = MasterTemplates.FirstOrDefault(t =>
+                string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
+            return tpl != null && !string.IsNullOrWhiteSpace(tpl.Body) ? tpl.Body : null;
         }
 
         /// <summary>F13: загрузить и провалидировать шаблон (кнопка «Проверить шаблон»).</summary>
