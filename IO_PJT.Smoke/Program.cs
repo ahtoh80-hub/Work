@@ -24,7 +24,7 @@ namespace IO_PJT.Smoke
 
         public static int Main()
         {
-            string work = @"c:\VSCode\Work";
+            string work = @"c:\Users\RAN-Notebook\Desktop\Work\Work";
             string map102 = Path.Combine(work, "IMCS TO DCS Register Table Modbus - EBSM102.xlsx");
             string map103 = Path.Combine(work, "IMCS TO DCS Register Table Modbus - EBSM103.xlsx");
             if (!File.Exists(map102) || !File.Exists(map103))
@@ -61,19 +61,6 @@ namespace IO_PJT.Smoke
             var cands = ModbusLinkService.ExtractCandidates(pStop);
             Check(cands.Count > 0 && cands[0].Tag == "1115-PM-101A",
                 $"Service → 1115-PM-101A (факт {cands.FirstOrDefault().Tag})");
-            Check(ModbusLinkService.DetectRole(pStop) == "", "команда → Control word (Function 06)");
-
-            var pFault = MakePoint("1115-MXA-00101A", "1115-M-00101A", "DI-COM",
-                "1115-P-101A motor Motor status:fault");
-            Check(ModbusLinkService.DetectRole(pFault) == "FAULT.MCU", "fault → FAULT.MCU");
-
-            var pRun = MakePoint("1115-MXA-00101B", "1115-M-00101A", "DI-COM",
-                "1115-P-101A motor Motor status:running");
-            Check(ModbusLinkService.DetectRole(pRun) == "STA.MCU", "running → STA.MCU");
-
-            var pCur = MakePoint("1115-MII-00101", "1115-M-00101A", "AI-COM",
-                "1115-P-101A motor Motor status:current");
-            Check(ModbusLinkService.DetectRole(pCur) == "I_A", "current → I_A");
 
             var pBr = MakePoint("1110-MHS-00101A", "1110-M-00101A", "DO-COM",
                 "1110-K-101A main driver motor (1110-KM-101A-1)DCS command:stop");
@@ -100,32 +87,6 @@ namespace IO_PJT.Smoke
             var cDup = ModbusLinkService.ExtractCandidates(pEn);
             Check(cDup.Count(c => c.Tag == "1115-PM-101A") == 1,
                 $"скобочный дедуп: 1 кандидат 1115-PM-101A (факт {cDup.Count(c => c.Tag == "1115-PM-101A")})");
-
-            var pReady = MakePoint("1115-MXA-00101F", "1115-M-00101A", "DI-COM",
-                "1115-P-101A motor Motor status:ready");
-            Check(ModbusLinkService.DetectRole(pReady) == "REDAY.MCU", "ready → REDAY.MCU");
-
-            // ===== F9.10: run-сигнал, MSC/MSI (скорость VFD), роль по суффиксу тега =====
-            var pRunSig = MakePoint("2711-MXA-27116B", "2711-M-27116", "DI-COM",
-                "SM Transfer Pump 2711-P-1302A run signal");
-            Check(ModbusLinkService.DetectRole(pRunSig) == "STA.MCU",
-                "F9.10: run signal → STA.MCU");
-            var pMsc = MakePoint("2701-MSC-31201", "2701-M-31201", "AO-COM",
-                "ITF Waste Gas Fan 2701-PK-1201B speed control");
-            Check(ModbusLinkService.DetectRole(pMsc) == "FREQ_SET",
-                "F9.10: speed control (AO-COM) → FREQ_SET");
-            var pMsi = MakePoint("2701-MSI-31201", "2701-M-31201", "AI-COM",
-                "ITF Waste Gas Fan 2701-PK-1201B speed signal");
-            Check(ModbusLinkService.DetectRole(pMsi) == "SPEED",
-                "F9.10: speed signal (AI-COM) → SPEED, не I_A");
-            var pSfxC = MakePoint("9967-MXA-1007C", "9967-M-1007", "DI-COM",
-                "9967-P-1007 motor сервис без ключевых слов");
-            Check(ModbusLinkService.DetectRole(pSfxC) == "REDAY.MCU",
-                "F9.10: суффикс тега MXA…C → REDAY.MCU");
-            var pSfxB = MakePoint("9967-MXA-1007B", "9967-M-1007", "DI-COM",
-                "9967-P-1007 motor сервис без ключевых слов");
-            Check(ModbusLinkService.DetectRole(pSfxB) == "STA.MCU",
-                "F9.10: суффикс тега MXA…B → STA.MCU");
 
             Console.WriteLine("== F9 Парсинг карт EBSM102/103 ==");
             var svc = new ModbusMapService();
@@ -177,14 +138,11 @@ namespace IO_PJT.Smoke
                 var cRunReal = ModbusLinkService.ExtractCandidates(pRunReal);
                 Check(cRunReal.Count > 0 && cRunReal[0].Tag == "2711-PM-1302A",
                     $"run signal → кандидат 2711-PM-1302A (факт {cRunReal.FirstOrDefault().Tag ?? "нет"})");
-                Check(ModbusLinkService.DetectRole(pRunReal) == "STA.MCU",
-                    "run signal (2000 MCC) → STA.MCU");
                 var pMsiReal = MakePoint("2701-MSI-31201", "2701-M-31201", "AI-COM",
                     "ITF Waste Gas Fan 2701-PK-1201B speed signal");
                 var cMsiReal = ModbusLinkService.ExtractCandidates(pMsiReal);
-                Check(ModbusLinkService.DetectRole(pMsiReal) == "SPEED" &&
-                      cMsiReal.Count > 0 && cMsiReal[0].Tag == "2701-PK-1201B",
-                    "MSI (2000 MCC) → SPEED, кандидат 2701-PK-1201B");
+                Check(cMsiReal.Count > 0 && cMsiReal[0].Tag == "2701-PK-1201B",
+                    "MSI (2000 MCC) → кандидат 2701-PK-1201B");
             }
             else
             {
@@ -200,6 +158,17 @@ namespace IO_PJT.Smoke
             Signal = new Signal { Service = service },
             Revision = new Revision { FileName = "MCC.xlsx", Sheet = "ALL" }
         };
+
+        // F86: dataVars в Write() — кортеж (IoColumn, Literal, BitMode, BitNo); старые словари
+        // Smoke (IoColumn, Literal) конвертируются при вызове, битовые поля не используются
+        private static IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal, string BitMode, string BitNo)>>? Dv(
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal)>>? m)
+            => m?.ToDictionary(
+                kv => kv.Key,
+                kv => (IReadOnlyDictionary<string, (string IoColumn, string Literal, string BitMode, string BitNo)>)
+                    kv.Value.ToDictionary(
+                        p => p.Key,
+                        p => (p.Value.IoColumn, p.Value.Literal, "", "")));
 
         /// <summary>Часть смоука с реальной БД Access: MCC-строки → карта → связывание → аудит.</summary>
         private static int RunDbPart(List<ModbusMapEntry> entries, string file102, string file103)
@@ -519,22 +488,7 @@ namespace IO_PJT.Smoke
                 Check(repo.GetByTag("1115-AIN-00101")?.Modbus?.FuncCode == null,
                     "не-Modbus точка: M_-поля не заполнены кнопкой");
 
-                // ===== F9.6/F9.7: гибкое сопоставление классов и ведущие нули номера =====
-                Console.WriteLine("== F9.6/F9.7 ClassVariants / CanonTag ==");
-                Check(ModbusLinkService.CanonTag("1120-PM-003A") == "1120-PM-3A",
-                    "CanonTag: 003A → 3A");
-                Check(ModbusLinkService.CanonTag("1120-M-00003A_TX.PLC") == "1120-M-3A_TX.PLC",
-                    "CanonTag: 00003A_TX.PLC → 3A_TX.PLC");
-                var vPM = ModbusLinkService.ClassVariants("1162-PM-401");
-                Check(vPM.Count > 0 && vPM[0] == "1162-PM-401" && vPM.Contains("1162-M-401"),
-                    $"ClassVariants(PM): точное первым + таблица → M (факт {string.Join(", ", vPM.Take(3))})");
-                Check(ModbusLinkService.ClassVariants("1162-M-401").Contains("1162-PM-401"),
-                    "ClassVariants(M): обратная таблица → PM");
-                Check(ModbusLinkService.ClassVariants("1162-AGM-401").Contains("1162-AG-401"),
-                    "ClassVariants(AGM): таблица → AG");
-                Check(!ModbusLinkService.ClassVariants("1162-M-401").Any(v => v.Contains("--")),
-                    "ClassVariants: пустой класс не генерируется");
-
+                // ===== F9.6/F9.7 Связывание: PM↔M, AGM↔AG, 0003A↔3A =====
                 Console.WriteLine("== F9.6/F9.7 Связывание: PM↔M, AGM↔AG, 0003A↔3A ==");
                 var s9961 = states.FirstOrDefault(s => s.PlcTag == "9961-M-401_FAULT.MCU");
                 Check(s9961?.LinkState == ModbusMapService.LinkStateLinked &&
@@ -1163,45 +1117,6 @@ namespace IO_PJT.Smoke
         {
             Console.WriteLine("== F66 Семейство объекта: разделение A/B, LinkState отклонения ==");
 
-            // ===== (1) unit: ObjectBase — базовый ключ семейства =====
-            Check(ModbusLinkService.ObjectBase("2701-PK-1201B-M") == "2701-PK-1201B",
-                "F66(1): ObjectBase срезает «-M» после литеры");
-            Check(ModbusLinkService.ObjectBase("1612-PM-611A.HE-JB") == "1612-PM-611A",
-                "F66(1): ObjectBase срезает «.HE-JB»");
-            Check(ModbusLinkService.ObjectBase("1110-KM-101A-1") == "1110-KM-101A",
-                "F66(1): ObjectBase срезает машинный номер «-1»");
-            Check(ModbusLinkService.ObjectBase("9999-P-999A.HE-JB") == "9999-PM-999A",
-                "F66(1): ObjectBase нормализует класс P→PM");
-            Check(ModbusLinkService.ObjectBase("2701-PM-1201B") !=
-                      ModbusLinkService.ObjectBase("2701-PK-1201B-M"),
-                "F66(1): 2701-PM-1201B и 2701-PK-1201B — разные семейства");
-
-            // ===== (2) unit: LoopFamilyMatches — якорь Loop-контура =====
-            Check(ModbusLinkService.LoopFamilyMatches("2701-PK-1201A",
-                      ModbusLinkService.ObjectBase("2701-PK-1201A-M")),
-                "F66(2): Loop литеры A пускает строку A своего объекта");
-            Check(!ModbusLinkService.LoopFamilyMatches("2701-PK-1201A",
-                      ModbusLinkService.ObjectBase("2701-PK-1201B-M")),
-                "F66(2): Loop литеры A не пускает строку B");
-            Check(!ModbusLinkService.LoopFamilyMatches("2701-PK-1201A",
-                      ModbusLinkService.ObjectBase("2701-PM-1201B")),
-                "F66(2): Loop PK не пускает строку PM (класс чужого объекта)");
-            Check(ModbusLinkService.LoopFamilyMatches("9964-M-9904",
-                      ModbusLinkService.ObjectBase("9964-PK-9904B-M")),
-                "F66(2): Loop без литеры — литера строки не значима (VFD)");
-            Check(ModbusLinkService.LoopFamilyMatches("9962-AGM-1202A",
-                      ModbusLinkService.ObjectBase("9962-AG-1202A")),
-                "F66(2): Loop AGM ↔ строка AG — эквивалент класса F9.6");
-            Check(ModbusLinkService.LoopFamilyMatches("1612-M-611A",
-                      ModbusLinkService.ObjectBase("1612-PM-611A.HE01")),
-                "F66(2): однобуквенный Loop-класс не раскрывает класс — строка PM в семействе");
-            Check(!ModbusLinkService.LoopFamilyMatches("1612-M-611A",
-                      ModbusLinkService.ObjectBase("1612-PM-611B-HE-JB")),
-                "F66(2): Loop литеры A не пускает строку 611B");
-            Check(!ModbusLinkService.LoopFamilyMatches("1115-M-00101A",
-                      ModbusLinkService.ObjectBase("1120-PM-203A")),
-                "F66(2): Loop другого титула/номера — чужая строка");
-
             // ===== (3) интеграция: tmp-БД, карта из семейств A / B / PM-B =====
             string tmp66 = Path.Combine(Path.GetTempPath(), $"iosmoke_{Guid.NewGuid():N}.accdb");
             try
@@ -1809,7 +1724,7 @@ namespace IO_PJT.Smoke
                 "F13: ParseAddress («602»/«0500»/«12.3»/мусор)");
 
             // (3) шаблон: файл Work\MB_TCP_MASTER_пример_new.xml + валидация + имена пакетов
-            string tplPath = Path.Combine(@"c:\VSCode\Work", "MB_TCP_MASTER_пример_new.xml");
+            string tplPath = Path.Combine(@"c:\Users\RAN-Notebook\Desktop\Work\Work", "MB_TCP_MASTER_пример_new.xml");
             Check(File.Exists(tplPath), $"F13: шаблон найден: {tplPath}");
             string tpl = File.ReadAllText(tplPath);
             var xmlSvc = new ScadaTemplateXmlService();
@@ -2751,7 +2666,7 @@ namespace IO_PJT.Smoke
                 "F13: коллизия имени (нет {Seq}) — MakeUniqueName добавляет суффикс");
 
             // ===== F13.1: шаблон привязок Data_Out (отдельный от шаблона блоков) =====
-            string doTplPath = Path.Combine(@"c:\VSCode\Work", "Data_Out_пример.xml");
+            string doTplPath = Path.Combine(@"c:\Users\RAN-Notebook\Desktop\Work\Work", "Data_Out_пример.xml");
             Check(File.Exists(doTplPath), $"F13: шаблон привязок найден: {doTplPath}");
             string doTpl = File.ReadAllText(doTplPath);
             var doSvc = new ScadaDataOutXmlService();
@@ -2781,7 +2696,7 @@ namespace IO_PJT.Smoke
             // генерация привязок из эталонов по типам точек (stRules: BOOL×4, REAL×2, FC06×1)
             // F30: dataInTemplates — datain-шаблон (Work\MB_AO_WORD16.xml) для пакета записи C-WR
             var doWarn = new List<string>();
-            string datainTpl = File.ReadAllText(@"c:\VSCode\Work\MB_AO_WORD16.xml");
+            string datainTpl = File.ReadAllText(@"c:\Users\RAN-Notebook\Desktop\Work\Work\MB_AO_WORD16.xml");
             var dataInDict = new Dictionary<string, string> { ["MB_AO_WORD16"] = datainTpl };
             var doGen = doSvc.Write(stRules.Packets, doTpl, gen.MasterMeta,
                 new ScadaMbGenSettings(), doWarn, null, null, dataInDict);
@@ -2995,7 +2910,7 @@ namespace IO_PJT.Smoke
 
             // (2) шаблон пользователя Work\MB_TCP_MASTER_Шаблон.xml: rec ISAOBJSINFO ID=17573 —
             // раньше отвергался («нет блока мастера IsaObjId 15003»), теперь валиден
-            string userTplPath = Path.Combine(@"c:\VSCode\Work", "MB_TCP_MASTER_Шаблон.xml");
+            string userTplPath = Path.Combine(@"c:\Users\RAN-Notebook\Desktop\Work\Work", "MB_TCP_MASTER_Шаблон.xml");
             Check(File.Exists(userTplPath), $"F15: шаблон найден: {userTplPath}");
             string userTpl = File.ReadAllText(userTplPath);
             var infoU = xmlSvc.Parse(userTpl);
@@ -3363,12 +3278,12 @@ namespace IO_PJT.Smoke
 
             // ===== F18.1: прокрутка окна генерации (левая колонка настроек) =====
             string mbWinXaml = File.ReadAllText(Path.Combine(
-                @"c:\VSCode\IO_PJT", "Views", "ScadaModbusBlocksWindow.xaml"));
+                @"c:\Users\RAN-Notebook\Desktop\Work\IO_PJT", "Views", "ScadaModbusBlocksWindow.xaml"));
             Check(mbWinXaml.Contains("PreviewMouseWheel=\"Window_PreviewMouseWheel\"") &&
                   mbWinXaml.Contains("x:Name=\"LeftScroller\""),
                 "F18.1: окно — обработчик PreviewMouseWheel + имя внешнего ScrollViewer (LeftScroller)");
             string mbWinCs = File.ReadAllText(Path.Combine(
-                @"c:\VSCode\IO_PJT", "Views", "ScadaModbusBlocksWindow.xaml.cs"));
+                @"c:\Users\RAN-Notebook\Desktop\Work\IO_PJT", "Views", "ScadaModbusBlocksWindow.xaml.cs"));
             Check(mbWinCs.Contains("SystemParameters.WorkArea") &&
                   mbWinCs.Contains("ScrollToVerticalOffset"),
                 "F18.1: code-behind — вписывание окна в экран + доскролл внешнего ScrollViewer");
@@ -3502,11 +3417,11 @@ namespace IO_PJT.Smoke
 
             // авто-размер по телу data-шаблонов Work (число источников первого эталона)
             var doSvc33 = new ScadaDataOutXmlService();
-            var szReal32 = doSvc33.DetectTemplateSize(File.ReadAllText(@"c:\VSCode\Work\MB_AI_REAL32.xml"));
-            var szWord16 = doSvc33.DetectTemplateSize(File.ReadAllText(@"c:\VSCode\Work\MB_AI_WORD16.xml"));
-            var szDisc = doSvc33.DetectTemplateSize(File.ReadAllText(@"c:\VSCode\Work\MB_DI_DISCRETE_INPUT.xml"));
-            var szCoil = doSvc33.DetectTemplateSize(File.ReadAllText(@"c:\VSCode\Work\MB_DO_COIL.xml"));
-            var szAo = doSvc33.DetectTemplateSize(File.ReadAllText(@"c:\VSCode\Work\MB_AO_WORD16.xml"));
+            var szReal32 = doSvc33.DetectTemplateSize(File.ReadAllText(@"c:\Users\RAN-Notebook\Desktop\Work\Work\MB_AI_REAL32.xml"));
+            var szWord16 = doSvc33.DetectTemplateSize(File.ReadAllText(@"c:\Users\RAN-Notebook\Desktop\Work\Work\MB_AI_WORD16.xml"));
+            var szDisc = doSvc33.DetectTemplateSize(File.ReadAllText(@"c:\Users\RAN-Notebook\Desktop\Work\Work\MB_DI_DISCRETE_INPUT.xml"));
+            var szCoil = doSvc33.DetectTemplateSize(File.ReadAllText(@"c:\Users\RAN-Notebook\Desktop\Work\Work\MB_DO_COIL.xml"));
+            var szAo = doSvc33.DetectTemplateSize(File.ReadAllText(@"c:\Users\RAN-Notebook\Desktop\Work\Work\MB_AO_WORD16.xml"));
             Check(szReal32 == (4, "32bit") && szWord16 == (2, "16bit") &&
                   szDisc == (1, "bit") && szCoil == (1, "bit") && szAo == (2, "16bit"),
                 $"F33: авто-размер шаблонов: REAL32→4/32bit, WORD16→2/16bit, DISCRETE→1/bit, " +
@@ -3613,7 +3528,7 @@ namespace IO_PJT.Smoke
                 new ScadaMbGenSettings(), warnDv,
                 new Dictionary<string, (string Template, string Exemplar, string Size)>
                 { ["DV-T"] = ("DV-TPL", "BOOL", "bit") },
-                dvNamed, null, dvMap, "");
+                dvNamed, null, Dv(dvMap), "");
             Check(genDv.Contains("Info=\"TAG_A A7\"") && genDv.Contains("T11Text=\"TAG_A A7\""),
                 $"F33: объект-константа получил значение строкового шаблона «TAG_A A7» " +
                 $"(warnings: {string.Join("; ", warnDv)})");
@@ -3628,7 +3543,7 @@ namespace IO_PJT.Smoke
                 new ScadaMbGenSettings(), warnDv2,
                 new Dictionary<string, (string Template, string Exemplar, string Size)>
                 { ["DV-T"] = ("DV-TPL", "BOOL", "bit") },
-                dvNamed, null, dvMap, "");
+                dvNamed, null, Dv(dvMap), "");
             Check(genDv2.Contains("Info=\"LIT-VAL\"") &&
                   warnDv2.Any(w => w.Contains("NOPE") && w.Contains("не разрешился")),
                 $"F33: объект — неразрешённая колонка «NOPE» → предупреждение + литерал " +
@@ -3733,7 +3648,7 @@ namespace IO_PJT.Smoke
                 new ScadaMbGenSettings(), warnT,
                 new Dictionary<string, (string Template, string Exemplar, string Size)>
                 { ["DV-T"] = ("DV-TPL", "BOOL", "bit") },
-                dvNamed, null, dvMapT, "DV-TPL");
+                dvNamed, null, Dv(dvMapT), "DV-TPL");
             Check(genT.Contains("Info=\"_TAG_A\""),
                 $"F34→F35: приёмник — значение маппинга «TAG_A» + TagNameFor («_TAG_A») " +
                 $"({string.Join("; ", warnT)})");
@@ -3759,7 +3674,7 @@ namespace IO_PJT.Smoke
 
             // ===== F34 (4): MB_AI_REAL32 — DCSTAG и SLAVE_BYTES_ORGER в перечне объектов =====
             var objsReal = doSvc33.ParseTemplateObjects(
-                File.ReadAllText(@"c:\VSCode\Work\MB_AI_REAL32.xml"));
+                File.ReadAllText(@"c:\Users\RAN-Notebook\Desktop\Work\Work\MB_AI_REAL32.xml"));
             Check(objsReal.Any(o => o.Name == "SLAVE_BYTES_ORGER") &&
                   objsReal.Any(o => o.Name == "DCSTAG"),
                 $"F34: MB_AI_REAL32 — SLAVE_BYTES_ORGER и DCSTAG (приёмник) в объектах " +
@@ -3776,7 +3691,7 @@ namespace IO_PJT.Smoke
                 new ScadaMbGenSettings(), warnK,
                 new Dictionary<string, (string Template, string Exemplar, string Size)>
                 { ["DV-T"] = ("DV-TPL", "BOOL", "bit") },
-                dvNamed, null, dvMap1k, "");
+                dvNamed, null, Dv(dvMap1k), "");
             Check(!genK.Contains("FALLBACK-NAME") && genK.Contains("Info=\"TAG_OUT\"") &&
                   warnK.Any(w => w.Contains("не найден")),
                 $"F35: несовпавший ключ + один шаблон маппинга — подстановок НЕТ " +
@@ -3811,7 +3726,7 @@ namespace IO_PJT.Smoke
                 new ScadaMbGenSettings(), warnP,
                 new Dictionary<string, (string Template, string Exemplar, string Size)>
                 { ["DV-T"] = ("DV-TPL", "BOOL", "bit") },
-                dvNamed, null, dvMapP, "DV-TPL");
+                dvNamed, null, Dv(dvMapP), "DV-TPL");
             Check(genP.Contains("Info=\"_1130_MXA_01301A\"") &&
                   genP.Contains("Info=\"_1130_MXA_01302A\""),
                 $"F35: пер-точечный маппинг — каждый приёмник получил M_Marka СВОЕЙ точки " +
@@ -3863,7 +3778,7 @@ namespace IO_PJT.Smoke
             };
             var f36WarnCol = new List<string>();
             string f36GenCol = doSvc.Write(f36Pkts, f36Tpl, new Dictionary<string, (int, string)>(),
-                new ScadaMbGenSettings(), f36WarnCol, f36Typno, f36Named, null, f36MapCol, "F36-TPL");
+                new ScadaMbGenSettings(), f36WarnCol, f36Typno, f36Named, null, Dv(f36MapCol), "F36-TPL");
             var f36DocCol = System.Xml.Linq.XDocument.Parse(f36GenCol);
             var f36Renamed = f36DocCol.Root!.Descendants("Block")
                 .Where(bl => bl.Attribute("GROBJTYPE")?.Value == "31" &&
@@ -3894,7 +3809,7 @@ namespace IO_PJT.Smoke
             };
             var f36WarnLit = new List<string>();
             string f36GenLit = doSvc.Write(f36Pkts, f36Tpl, new Dictionary<string, (int, string)>(),
-                new ScadaMbGenSettings(), f36WarnLit, f36Typno, f36Named, null, f36MapLit, "F36-TPL");
+                new ScadaMbGenSettings(), f36WarnLit, f36Typno, f36Named, null, Dv(f36MapLit), "F36-TPL");
             var f36DocLit = System.Xml.Linq.XDocument.Parse(f36GenLit);
             var f36VarLit = f36DocLit.Root!.Descendants("Block")
                 .FirstOrDefault(bl => bl.Attribute("Info")?.Value == "TAG_VAR");
@@ -3925,7 +3840,7 @@ namespace IO_PJT.Smoke
                 $"(факт «{ivTrunc}»)");
 
             // ===== F34 (6): UI — маппинг мастер-шаблона убран, превью редактируемо =====
-            string mbXaml34 = File.ReadAllText(@"c:\VSCode\IO_PJT\Views\ScadaModbusBlocksWindow.xaml");
+            string mbXaml34 = File.ReadAllText(@"c:\Users\RAN-Notebook\Desktop\Work\IO_PJT\Views\ScadaModbusBlocksWindow.xaml");
             Check(!mbXaml34.Contains("Переменные мастер-шаблона") &&
                   !mbXaml34.Contains("RefreshTemplateVarsCommand"),
                 "F34: группa «Переменные мастер-шаблона (F23)» удалена из окна");
@@ -3933,7 +3848,7 @@ namespace IO_PJT.Smoke
                   mbXaml34.Contains("x:Name=\"PreviewGrid\"") &&
                   mbXaml34.Contains("IsReadOnly=\"False\""),
                 "F34: превью пакетов — редактируемые ячейки (CellEditEnding + IsReadOnly=False)");
-            string mbCs34 = File.ReadAllText(@"c:\VSCode\IO_PJT\Views\ScadaModbusBlocksWindow.xaml.cs");
+            string mbCs34 = File.ReadAllText(@"c:\Users\RAN-Notebook\Desktop\Work\IO_PJT\Views\ScadaModbusBlocksWindow.xaml.cs");
             Check(mbCs34.Contains("NotifyPacketEdited"),
                 "F34: code-behind — обработчик правки ячейки превью → VM");
 
@@ -3957,7 +3872,7 @@ namespace IO_PJT.Smoke
             // ===== F37 (1): MB_AI_REAL32 — литерал «2» → <IV> SLAVE_BYTES_ORGER =====
             // баг-репорт: литерал не прописывался — воспроизведение на реальном эталоне Work\
             // + диагностика «var-объект без строки маппинга» (раньше молчал — этап F37.1)
-            string f37RealTpl = File.ReadAllText(@"c:\VSCode\Work\MB_AI_REAL32.xml");
+            string f37RealTpl = File.ReadAllText(@"c:\Users\RAN-Notebook\Desktop\Work\Work\MB_AI_REAL32.xml");
             var f37VPkts = new List<MbPacketPlan>
             {
                 new MbPacketPlan { No = 1, FuncCode = 3, Address = 100, Count = 2,
@@ -3978,7 +3893,7 @@ namespace IO_PJT.Smoke
             };
             var f37VWarn = new List<string>();
             string f37VGen = doSvc.Write(f37VPkts, f37RealTpl, new Dictionary<string, (int, string)>(),
-                new ScadaMbGenSettings(), f37VWarn, f37VTypno, f37VNamed, null, f37VMap, "MB_AI_REAL32");
+                new ScadaMbGenSettings(), f37VWarn, f37VTypno, f37VNamed, null, Dv(f37VMap), "MB_AI_REAL32");
             var f37VDoc = System.Xml.Linq.XDocument.Parse(f37VGen);
             var f37Orger = f37VDoc.Root!.Descendants("Block")
                 .FirstOrDefault(bl => bl.Attribute("Info")?.Value == "SLAVE_BYTES_ORGER");
@@ -3996,7 +3911,7 @@ namespace IO_PJT.Smoke
             };
             var f37NW = new List<string>();
             string f37NGen = doSvc.Write(f37VPkts, f37RealTpl, new Dictionary<string, (int, string)>(),
-                new ScadaMbGenSettings(), f37NW, f37VTypno, f37VNamed, null, f37NoRow, "MB_AI_REAL32");
+                new ScadaMbGenSettings(), f37NW, f37VTypno, f37VNamed, null, Dv(f37NoRow), "MB_AI_REAL32");
             var f37NDoc = System.Xml.Linq.XDocument.Parse(f37NGen);
             var f37NOrger = f37NDoc.Root!.Descendants("Block")
                 .FirstOrDefault(bl => bl.Attribute("Info")?.Value == "SLAVE_BYTES_ORGER");
@@ -4031,7 +3946,7 @@ namespace IO_PJT.Smoke
             };
             var f37DW = new List<string>();
             string f37DGen = doSvc.Write(f37DPkts, f36Tpl, new Dictionary<string, (int, string)>(),
-                new ScadaMbGenSettings(), f37DW, f36Typno, f36Named, null, f37DMap, "F36-TPL");
+                new ScadaMbGenSettings(), f37DW, f36Typno, f36Named, null, Dv(f37DMap), "F36-TPL");
             var f37DDoc = System.Xml.Linq.XDocument.Parse(f37DGen);
             var f37Targets = f37DDoc.Root!.Descendants("Block")
                 .Where(bl => bl.Attribute("GROBJTYPE")?.Value == "31" &&
@@ -4093,7 +4008,7 @@ namespace IO_PJT.Smoke
                     ["TagComment"] = ("", "Фиксированный комментарий") // fallback без «(Text)»
                 }
             };
-            var f38Gen = svc38.Write(f38Pkts, f38Tpl, new ScadaMbGenSettings(), f38Vars, "MAIN-TPL");
+            var f38Gen = svc38.Write(f38Pkts, f38Tpl, new ScadaMbGenSettings(), Dv(f38Vars), "MAIN-TPL");
             var f38Doc = System.Xml.Linq.XDocument.Parse(f38Gen.PousXml);
             var f38Prims = f38Doc.Root!.Descendants("OnePrim").ToList();
             string F38TextOf(System.Xml.Linq.XElement pr) =>
@@ -4118,7 +4033,7 @@ namespace IO_PJT.Smoke
                 ["MAIN-TPL"] = new Dictionary<string, (string IoColumn, string Literal)>
                 { ["OTHER"] = ("", "x") }
             };
-            var f38GenNo = svc38.Write(f38Pkts, f38Tpl, new ScadaMbGenSettings(), f38VarsNo, "MAIN-TPL");
+            var f38GenNo = svc38.Write(f38Pkts, f38Tpl, new ScadaMbGenSettings(), Dv(f38VarsNo), "MAIN-TPL");
             var f38DocNo = System.Xml.Linq.XDocument.Parse(f38GenNo.PousXml);
             Check(f38DocNo.Root!.Descendants("OnePrim").Count(pr =>
                       F38TextOf(pr).StartsWith("LOOPComment,")) == 2 &&
@@ -4138,7 +4053,7 @@ namespace IO_PJT.Smoke
                 ["MAIN-TPL"] = new Dictionary<string, (string IoColumn, string Literal)>
                 { ["LOOPComment(Text)"] = ("M_NetTakoyKolonki", "ЛИТ") }
             };
-            var f38GenBad = svc38.Write(f38Pkts, f38Tpl, new ScadaMbGenSettings(), f38VarsBad, "MAIN-TPL");
+            var f38GenBad = svc38.Write(f38Pkts, f38Tpl, new ScadaMbGenSettings(), Dv(f38VarsBad), "MAIN-TPL");
             Check(f38GenBad.PousXml.Contains("[TEXT]=ЛИТ") &&
                   f38GenBad.Warnings.Any(w => w.Contains("F38") && w.Contains("не разрешился")),
                 $"F38: неразрешённая колонка — фолбэк литерал «ЛИТ» + предупреждение " +
@@ -4357,7 +4272,7 @@ namespace IO_PJT.Smoke
             // F44.2: колонка/литерал — подстановка в клон примитива СВОЕЙ точки привязки
             var f44Warn = new List<string>();
             string f44Gen = f44Svc.Write(f44Pkts, f44Tpl, new Dictionary<string, (int, string)>(),
-                new ScadaMbGenSettings(), f44Warn, f44Typno, f44Named, null, f44Map, "F44-TPL");
+                new ScadaMbGenSettings(), f44Warn, f44Typno, f44Named, null, Dv(f44Map), "F44-TPL");
             var f44Doc = System.Xml.Linq.XDocument.Parse(f44Gen);
             var f44Prims = f44Doc.Root!.Descendants("OnePrim").ToList();
             Check(f44Prims.Count == 4,
@@ -4391,7 +4306,7 @@ namespace IO_PJT.Smoke
             };
             var f44WarnMiss = new List<string>();
             string f44GenMiss = f44Svc.Write(f44Pkts, f44Tpl, new Dictionary<string, (int, string)>(),
-                new ScadaMbGenSettings(), f44WarnMiss, f44Typno, f44Named, null, f44MapMiss, "F44-TPL");
+                new ScadaMbGenSettings(), f44WarnMiss, f44Typno, f44Named, null, Dv(f44MapMiss), "F44-TPL");
             var f44MissPrims = System.Xml.Linq.XDocument.Parse(f44GenMiss).Root!
                 .Descendants("OnePrim").ToList();
             Check(f44MissPrims.Count == 4 &&
@@ -4548,7 +4463,7 @@ namespace IO_PJT.Smoke
             string f46WrGen = doSvc.Write(f46WrPkts, f46Tpl, f46WrMeta, new ScadaMbGenSettings(), f46WrWarn,
                 new Dictionary<string, (string Template, string Exemplar, string Size)>
                 { ["F46-W"] = ("MB_AO_WORD16", "MB_AO_WORD16", "16bit") },
-                null, f46WrDict, f46WrMap, "MB_AO_WORD16");
+                null, f46WrDict, Dv(f46WrMap), "MB_AO_WORD16");
             Check(f46WrGen.Contains("Info=\"_TAG_W\"") && f46WrGen.Contains("Info=\"SLAVE_SWAP_BYTES\"") &&
                   f46WrGen.Contains("<IV>TRUE</IV>") && !f46WrGen.Contains("_C_WR"),
                 $"F46: write-корень с маппингом — литерал «TRUE» в <IV> (Info шаблонный, автотег " +
@@ -4585,7 +4500,7 @@ namespace IO_PJT.Smoke
             string f46Gen = doSvc.Write(f46Pkts, f46Tpl, f46WrMeta, new ScadaMbGenSettings(), f46Warn,
                 new Dictionary<string, (string Template, string Exemplar, string Size)>
                 { ["F46-R"] = ("DI-TPL", "MB_DI_TO_LOOP", "bit") },
-                new Dictionary<string, string> { ["DI-TPL"] = f46Tpl }, null, f46Map, "");
+                new Dictionary<string, string> { ["DI-TPL"] = f46Tpl }, null, Dv(f46Map), "");
             Check(f46Gen.Contains("Info=\"_TAG_A\"") && f46Gen.Contains("<IV>FALSE</IV>") &&
                   f46Gen.Contains("Info=\"DCSTAG_IN\"") && !f46Gen.Contains(".DataOut["),
                 $"F46: простой эталон — корень по маппингу (<IV>FALSE, без автоподстановки " +
@@ -4597,8 +4512,8 @@ namespace IO_PJT.Smoke
                 new Dictionary<string, (string Template, string Exemplar, string Size)>
                 { ["F46-R"] = ("DI-TPL", "MB_DI_TO_LOOP", "bit") },
                 new Dictionary<string, string> { ["DI-TPL"] = f46Tpl }, null,
-                new Dictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal)>>
-                { ["DI-TPL"] = new Dictionary<string, (string IoColumn, string Literal)>() }, "");
+                Dv(new Dictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal)>>
+                { ["DI-TPL"] = new Dictionary<string, (string IoColumn, string Literal)>() }), "");
             Check(f46Gen2.Contains("Info=\"DCSTAG_IN\"") && f46Gen2.Contains("Info=\"DCS_LOOP_TAG\"") &&
                   f46Warn2.Any(w => w.Contains("F37") && w.Contains("DCSTAG_IN")),
                 $"F46: простой эталон без строк маппинга — шаблонные Info + предупреждение F37 " +
@@ -4635,7 +4550,7 @@ namespace IO_PJT.Smoke
             };
             var f49Warn = new List<string>();
             string f49Gen = doSvc.Write(f36Pkts, f36Tpl, new Dictionary<string, (int, string)>(),
-                new ScadaMbGenSettings(), f49Warn, f36Typno, f36Named, null, f49Map, "F36-TPL");
+                new ScadaMbGenSettings(), f49Warn, f36Typno, f36Named, null, Dv(f49Map), "F36-TPL");
             var f49Doc = System.Xml.Linq.XDocument.Parse(f49Gen);
             var f49Tags = f49Doc.Root!.Descendants("Block")
                 .Where(bl => bl.Attribute("GROBJTYPE")?.Value == "31" &&
@@ -4674,7 +4589,7 @@ namespace IO_PJT.Smoke
             string f49WrGen = doSvc.Write(f46WrPkts, f46Tpl, f46WrMeta, new ScadaMbGenSettings(), f49WrWarn,
                 new Dictionary<string, (string Template, string Exemplar, string Size)>
                 { ["F46-W"] = ("MB_AO_WORD16", "MB_AO_WORD16", "16bit") },
-                null, f46WrDict, f49WrMap, "MB_AO_WORD16");
+                null, f46WrDict, Dv(f49WrMap), "MB_AO_WORD16");
             Check(f49WrGen.Contains("Info=\"_TAG_W\"") && f49WrGen.Contains("<IV>TRUE</IV>") &&
                   !f49WrGen.Contains("Info=\"SLAVE_SWAP_BYTES\"") && !f49WrGen.Contains("_C_WR"),
                 $"F49: write-корень «колонка + начальное значение» — Info переименован (автотег _C_WR " +
@@ -4692,7 +4607,7 @@ namespace IO_PJT.Smoke
             };
             var f49WarnE = new List<string>();
             string f49GenE = doSvc.Write(f36Pkts, f36Tpl, new Dictionary<string, (int, string)>(),
-                new ScadaMbGenSettings(), f49WarnE, f36Typno, f36Named, null, f49MapEmpty, "F36-TPL");
+                new ScadaMbGenSettings(), f49WarnE, f36Typno, f36Named, null, Dv(f49MapEmpty), "F36-TPL");
             var f49DocE = System.Xml.Linq.XDocument.Parse(f49GenE);
             Check(f49DocE.Root!.Descendants("Block").Any(bl => bl.Attribute("Info")?.Value == "TAG_VAR") &&
                   f49DocE.Root.Descendants("Block").Any(bl => bl.Attribute("Info")?.Value == "TAG_OUT") &&
@@ -4703,7 +4618,7 @@ namespace IO_PJT.Smoke
                 "F49: пустые колонка и начальное значение — Info/IV шаблонные без изменений");
 
             // F49 (4): UI — колонка «Литерал» переименована в «Начальное значение»
-            string mbXaml49 = File.ReadAllText(@"c:\VSCode\IO_PJT\Views\ScadaModbusBlocksWindow.xaml");
+            string mbXaml49 = File.ReadAllText(@"c:\Users\RAN-Notebook\Desktop\Work\IO_PJT\Views\ScadaModbusBlocksWindow.xaml");
             Check(mbXaml49.Contains("Header=\"Начальное значение\"") &&
                   !mbXaml49.Contains("Header=\"Литерал\""),
                 "F49: грид объектов data-шаблонов — колонка «Начальное значение» (бывш. «Литерал»)");
@@ -4819,7 +4734,7 @@ namespace IO_PJT.Smoke
             svc51.SaveTypnoMap(new List<MbTypnoMapRule>());
 
             // ===== F51 (2): WriteMulti — цепочка КАЖДОГО правила Typno =====
-            string doTpl51 = File.ReadAllText(@"c:\VSCode\Work\Data_Out_пример.xml");
+            string doTpl51 = File.ReadAllText(@"c:\Users\RAN-Notebook\Desktop\Work\Work\Data_Out_пример.xml");
             Check(doSvc51.Parse(doTpl51).Valid, "F51: шаблон привязок Work\\Data_Out_пример.xml валиден");
             string tplB51 = doTpl51.Replace("T11Text=\".Xin\"", "T11Text=\".Y\"");
             Check(tplB51 != doTpl51, "F51: шаблон «B» — приёмник BOOL с членом .Y (отличим от основного)");
@@ -4925,7 +4840,7 @@ namespace IO_PJT.Smoke
                     ["SLAVEID"] = ("", "999")         // вход мастера — план ПЕРЕБИВАЕТ (F35)
                 }
             };
-            var gen52 = xmlSvc51.Write(pkts52, tpl52, new ScadaMbGenSettings(), dv52, "cur52");
+            var gen52 = xmlSvc51.Write(pkts52, tpl52, new ScadaMbGenSettings(), Dv(dv52), "cur52");
             var doc52 = System.Xml.Linq.XDocument.Parse(gen52.PousXml);
             var bLoop52 = doc52.Root!.Descendants("Block")
                 .FirstOrDefault(b => b.Attribute("Info")?.Value == "_1130_MXA_01501A");
@@ -5044,7 +4959,7 @@ namespace IO_PJT.Smoke
                 "F61: Direction привязки — «чтение»/«запись» (колонка превью)");
 
             // (6) UI окна F13: новые поля настроек + превью пакетов вместо тегов F58
-            string mbXaml61 = File.ReadAllText(@"c:\VSCode\IO_PJT\Views\ScadaModbusBlocksWindow.xaml");
+            string mbXaml61 = File.ReadAllText(@"c:\Users\RAN-Notebook\Desktop\Work\IO_PJT\Views\ScadaModbusBlocksWindow.xaml");
             Check(mbXaml61.Contains("DataChainGap") && mbXaml61.Contains("Зазор между цепочками data") &&
                   mbXaml61.Contains("PouCommentPattern") && mbXaml61.Contains("Комментарий POU (мастер-блоки)") &&
                   mbXaml61.Contains("DataOutPouCommentPattern") && mbXaml61.Contains("Комментарий POU (привязки)"),
@@ -5321,21 +5236,21 @@ namespace IO_PJT.Smoke
             foreach (var l in loops65) l.Generate = true;
 
             // (13) XAML/VM: меню главного окна, окно генератора, команды VM
-            string mainXaml65 = File.ReadAllText(@"c:\VSCode\IO_PJT\Views\MainWindow.xaml");
+            string mainXaml65 = File.ReadAllText(@"c:\Users\RAN-Notebook\Desktop\Work\IO_PJT\Views\MainWindow.xaml");
             Check(mainXaml65.Contains("Генерация экземпляров типовых алгоритмов") &&
                   mainXaml65.Contains("ScadaAlgoInstancesCommand"),
                 "F65: пункт меню «Генерация экземпляров типовых алгоритмов» + команда в MainWindow.xaml");
-            string winXaml65 = File.ReadAllText(@"c:\VSCode\IO_PJT\Views\ScadaAlgoInstancesWindow.xaml");
+            string winXaml65 = File.ReadAllText(@"c:\Users\RAN-Notebook\Desktop\Work\IO_PJT\Views\ScadaAlgoInstancesWindow.xaml");
             Check(winXaml65.Contains("BufScadaPOUS") && winXaml65.Contains("InstancesPerFile") &&
                   winXaml65.Contains("TYPNO") && winXaml65.Contains("BuildCommand") &&
                   winXaml65.Contains("GenerateCommand") && winXaml65.Contains("SaveBindingsCommand") &&
                   winXaml65.Contains("FillBindingsFromTypnoCommand") && winXaml65.Contains("DeleteTemplateCommand"),
                 "F65: ScadaAlgoInstancesWindow — шаблон/настройки/сетка TYPNO/команды");
-            string vmXaml65 = File.ReadAllText(@"c:\VSCode\IO_PJT\ViewModels\ScadaAlgoInstancesViewModel.cs");
+            string vmXaml65 = File.ReadAllText(@"c:\Users\RAN-Notebook\Desktop\Work\IO_PJT\ViewModels\ScadaAlgoInstancesViewModel.cs");
             Check(vmXaml65.Contains("AlgoXml.Generate") && vmXaml65.Contains("LoadLoops") &&
                   vmXaml65.Contains("FillBindingsFromTypno"),
                 "F65: VM использует ScadaAlgoService/ScadaAlgoXmlService");
-            string mainVm65 = File.ReadAllText(@"c:\VSCode\IO_PJT\ViewModels\MainViewModel.cs");
+            string mainVm65 = File.ReadAllText(@"c:\Users\RAN-Notebook\Desktop\Work\IO_PJT\ViewModels\MainViewModel.cs");
             Check(mainVm65.Contains("ScadaAlgoInstancesCommand") && mainVm65.Contains("OpenScadaAlgoInstancesWindow"),
                 "F65: MainViewModel — команда и открытие окна генератора");
 

@@ -8,30 +8,22 @@ namespace IO_PJT.Services
 {
     /// <summary>
     /// F9: связывание записей IO_LIST со строками карты адресации Modbus (MODBUS_MAP).
-    /// Алгоритм (по результатам анализа файлов EBSM102/EBSM103):
-    /// 1) из Service записи извлекается кандидат-объект ПЛК: текст в скобках «(1110-KM-101A-1)»
-    ///    (прямая ссылка) либо ведущее обозначение «1115-P-101A» с нормализацией класса
-    ///    привода P→PM, K→KM; fallback — Loop с подстановкой классов PM/KM по номеру;
-    /// 2) по типу сигнала определяется строка карты: команда (DO-COM / «command:») → Function 06
-    ///    (Control word, PlcTag = объект без суффикса); статусы → Function 02 с суффиксом
-    ///    _FAULT.MCU / _STA.MCU / _REDAY.MCU / _TX.MCU / _PERMIT.MCU / _EM_STOP.MCU /
-    ///    _SWITCH_ON.MCU / «_MCCB POSITION.MCU»; ток (AI / «current») → Function 03 «_I_A»;
-    /// 3) совпадение: точное по ObjectTag → по префиксу → по базовому устройству (срез .XX / -N);
-    /// 4) при совпадении заполняются LinkTag/DcsTag строки карты (F9.4: M_-поля в IO_LIST при
-    ///    импорте НЕ пишутся — запись адресации выполняет кнопка «Обновить адресацию Modbus»,
-    ///    UpdateAddressing); связь допустима только для Modbus-сигнала (IO Type «M…»/«COM»).
+    /// п.10: связывание ТОЛЬКО по правилам (маски) MODBUS_LINK_RULES — встроенные эвристики
+    /// F9/F55/F66 (роль сигнала, полное совпадение имени, семейство объекта) отключены и
+    /// из кода удалены. Маска правила оценивается по колонкам IO_LIST точки
+    /// (ModbusBlockPlannerService.ColumnValuesOf) → паттерн ищется в значении MapField
+    /// каждой строки карты (FindMapRowByMask, wildcard «*»); без маски — точное совпадение
+    /// IOField ↔ MapField; FuncCode — опциональный фильтр строки карты.
+    /// Из Service/Loop/Tag записи извлекаются кандидаты-объекты ПЛК (ExtractCandidates) —
+    /// они отбирают MCC-сигналы (не-MCC точки в связывании не участвуют) и показываются
+    /// в сообщении «Не связано».
+    /// При совпадении заполняются LinkTag/DcsTag/LinkState строки карты (F9.4: M_-поля в
+    /// IO_LIST при импорте НЕ пишутся — запись адресации выполняет кнопка
+    /// «Обновить адресацию Modbus», UpdateAddressing); связь допустима только для
+    /// Modbus-сигнала (IO Type «M…»/«COM»).
     /// Несопоставимые записи попадают в UnlinkedSamples (превью окна импорта карты).
-    /// F9.6: класс объекта сопоставляется гибко — точное написание → таблица эквивалентов
-    /// {PM↔M, EM↔E, AGM↔AG} → итеративное удаление букв (титул/числовой номер строго).
-    /// F9.7: теги сравниваются в канонизированном виде (ведущие нули номера: 003A ↔ 3A).
     /// F9.8: сообщения связывания/адресации («Не связано», ошибки) пишутся в аудит
     /// IO_LIST_Audit (ModbusWarning — жёлтый, ModbusError — красный).
-    /// F55: связывание в три фазы — R: ручные правила F9.11; 1: полное совпадение имени
-    /// (FullKey — сравнение «по буквам»: разделители «.»/«-» и класс P/PM не значимы), совпавшие
-    /// строки закрепляются; 2: остальные точки по прежним трём уровням, но без закреплённых
-    /// строк («совпавшие не трогать»), кандидаты ранжируются по длине общего префикса имени
-    /// («максимальное количество букв»). Полные имена извлекаются из тега точки, скобок и
-    /// Service с хвостом суффикса (ExtractCandidates → NormalizeFullName/HeadTagFull).
     /// F59: два режима связывания — Full (полное обновление: LinkTag/DcsTag/LinkState всех строк
     /// карты пересчитываются заново, устаревшие DcsTag стираются) и FillEmpty (заполняются только
     /// строки без привязки; заполненные — ручные или из файла — не трогаются, их теги не
@@ -76,8 +68,8 @@ namespace IO_PJT.Services
                 return result;
             }
 
-            // F55: строки, закреплённые от матчинга (фаза 1 F55) или уже заполненные
-            // вручную (F59 FillEmpty), — остальные фазы/точки их не трогают
+            // F59: закреплённые строки — заполненные вручную/из файла (FillEmpty);
+            // масочный матчинг (FindMapRowByMask) их не трогает
             var locked = new HashSet<long>();
 
             // F9.3/F59: полное обновление — сброс устаревшей привязки перед новым прогоном:
@@ -115,21 +107,10 @@ namespace IO_PJT.Services
                 }
             }
 
-            // Индекс карты: CanonTag(ObjectTag) (upper + ведущие нули номера → 1120-PM-3A) → строки
-            var byObject = map
-                .Where(m => !string.IsNullOrWhiteSpace(m.ObjectTag))
-                .GroupBy(m => CanonTag(m.ObjectTag!))
-                .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
-
-            // F66: базовый ключ семейства по каждому ключу индекса (ObjectBase — один раз;
-            // ключи фильтрованного FilterLockedMap — подмножество исходных)
-            var baseByKey = new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (var k in byObject.Keys) baseByKey[k] = ObjectBase(k);
-
-            // F9.11: ручные правила связывания (MODBUS_LINK_RULES) — применяются ПЕРЕД
-            // встроенными ролями DetectRole; невалидный шаблон правила пропускается с предупреждением
+            // F9.11: ручные правила связывания (MODBUS_LINK_RULES) — невалидный шаблон
+            // правила пропускается с предупреждением
             var rules = new List<ModbusLinkRule>();
-            // F69: поле-источник Service для ExtractCandidates/DetectRole (SCADA_LINK_SETTINGS)
+            // F69: поле-источник Service для ExtractCandidates (SCADA_LINK_SETTINGS)
             string serviceField = _rules?.LoadServiceField() ?? ModbusLinkRuleService.ServiceFieldDefault;
             if (_rules != null)
             {
@@ -159,8 +140,7 @@ namespace IO_PJT.Services
             // (JET 3260 «Could not update; currently locked» при параллельных соединениях).
             // F9.4: M_-поля в IO_LIST при импорте НЕ пишутся — только связь карты
             // (LinkTag/LinkState/DcsTag); адресацию заполняет кнопка «Обновить адресацию Modbus».
-            // F66: каждая строка несёт своё состояние — «привязано» (фазы R/1) либо
-            // «привязано не по полным совпадением!» (фаза 2).
+            // каждая строка несёт своё состояние LinkState («привязано» при привязке)
             var pending = new List<(long Id, string? LinkTag, string? DcsTag, string LinkState)>();
 
             // F66: один сигнал — не более одного объекта: тег точки, уже привязанный к строке
@@ -168,11 +148,7 @@ namespace IO_PJT.Services
             // второй адрес на один сигнал запрещён
             var boundTags = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
 
-            // F55: точки с кандидатами готовятся один раз (Examined не зависит от проходов);
-            // далее три фазы на весь прогон: R — ручные правила F9.11 (прежняя логика трёх
-            // уровней), 1 — полное совпадение имени (FullKey: разделители «.»/«-» и класс
-            // P/PM не значимы), 2 — остальные точки: прежние три уровня без строк,
-            // закреплённых фазой 1 («совпавшие не трогать»), ранжирование «по буквам».
+            // F55: точки с кандидатами готовятся один раз (Examined не зависит от проходов)
             var work = new List<(IoPoint P, List<Candidate> Cands)>();
             foreach (var wp in points)
             {
@@ -190,98 +166,17 @@ namespace IO_PJT.Services
             }
             result.Examined = work.Count;
 
-            // F55: индекс полного имени: FullKey(ObjectTag) → строки карты
-            var byFullKey = map
-                .Where(m => !string.IsNullOrWhiteSpace(m.ObjectTag))
-                .GroupBy(m => FullKey(m.ObjectTag!))
-                .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
-
-            // F59: FillEmpty — заполненные строки убираются из индексов поиска целиком,
-            // чтобы все три фазы (R/1/2) работали только с пустыми строками карты
-            var byObjectAll = byObject; // F66: все строки карты — «представлено семейство?» без учёта locked
-            if (fillEmpty && locked.Count > 0)
-            {
-                byObject = FilterLockedMap(byObject, locked);
-                byFullKey = FilterLockedMap(byFullKey, locked);
-            }
-
             var done = new bool[work.Count];
 
-            // F66: семейство объекта — фильтр строк фазы 2. Loop-контура точки — авторитет
-            // данных (буква/номер Loop различают объекты: 2701-PK-1201A ↔ 2701-PK-1201B);
-            // при непригодном Loop — семейство лучшего кандидата точки. Строки чужого
-            // семейства в поиске не участвуют: к сигналам объекта 2701-PK-1201A не могут
-            // привязаться 2701-PK-1201B-M / 2701-PM-1201B. Отфильтрованные индексы
-            // кэшируются по ключу семейства на весь прогон.
-            var famCache = new Dictionary<string, Dictionary<string, List<ModbusMapEntry>>>(
-                StringComparer.Ordinal);
-
-            string FamilyKey(IoPoint p, List<Candidate> cands)
-            {
-                string loop = (p.Identification.Loop ?? "").Trim();
-                if (Regex.IsMatch(loop, @"^[0-9]{3,4}-[A-Z]{1,3}-[0-9]+[A-Z]?$"))
-                    return "L:" + CanonTag(loop);            // Loop парсится — якорь семейства
-                return "C:" + ObjectBase(cands[0].Tag);      // fallback — семейство кандидата
-            }
-
-            Dictionary<string, List<ModbusMapEntry>> FilterFamily(
-                Dictionary<string, List<ModbusMapEntry>> idx, string famKey)
-            {
-                var res = new Dictionary<string, List<ModbusMapEntry>>(StringComparer.Ordinal);
-                foreach (var kv in idx)
-                {
-                    string rowBase = baseByKey.TryGetValue(kv.Key, out var b) ? b : kv.Key;
-                    bool ok = famKey.StartsWith("L:", StringComparison.Ordinal)
-                        ? LoopFamilyMatches(famKey.Substring(2), rowBase)
-                        : ClassVariants(famKey.Substring(2)).Contains(rowBase);
-                    if (ok) res[kv.Key] = kv.Value;
-                }
-                return res;
-            }
-
-            // F66: кэшированное семейство точки. Fallback (Loop → семейство кандидата) —
-            // только когда Loop-семейство не представлено в карте ВООБЩЕ (Loop противоречит
-            // Service/карте — напр. «9999-M-9999» при объекте 9999-PM-999A); «все строки
-            // семейства закреплены» (FillEmpty) fallback не оправдывает.
-            var loopPresent = new Dictionary<string, bool>(StringComparer.Ordinal);
-            Dictionary<string, List<ModbusMapEntry>> GetFamily(IoPoint p, List<Candidate> cands)
-            {
-                string famKey = FamilyKey(p, cands);
-                if (famKey.StartsWith("L:", StringComparison.Ordinal))
-                {
-                    if (!loopPresent.TryGetValue(famKey, out bool present))
-                    {
-                        present = FilterFamily(byObjectAll, famKey).Count > 0;
-                        loopPresent[famKey] = present;
-                    }
-                    if (!present) famKey = "C:" + ObjectBase(cands[0].Tag);
-                }
-                if (!famCache.TryGetValue(famKey, out var idx))
-                {
-                    idx = FilterFamily(byObject, famKey);
-                    famCache[famKey] = idx;
-                }
-                return idx;
-            }
-
-            // F66: строка (найденная фазой 1 по полному совпадению имени) принадлежит
-            // семейству точки — полное имя чужого объекта (Loop другого контура) не привязывается
-            bool FamilyAllows(IoPoint p, List<Candidate> cands, ModbusMapEntry row) =>
-                string.IsNullOrWhiteSpace(row.ObjectTag) ||
-                GetFamily(p, cands).ContainsKey(CanonTag(row.ObjectTag!));
-
             // п.10: связывание ТОЛЬКО по правилам (маски) — эвристики F9/F55/F66 отключены
-            for (int phase = 0; phase < 1; phase++)
             for (int wi = 0; wi < work.Count; wi++)
             {
-                if (done[wi]) continue;
                 var (p, candidates) = work[wi];
                 if (wi % 25 == 0)
-                    progress?.Report((phase * work.Count + wi, work.Count, p.Tag));
+                    progress?.Report((wi, work.Count, p.Tag));
 
                 ModbusMapEntry? entry = null;
                 ModbusLinkRule? matchedRule = null;
-                string? role = null;
                 {
                     // п.10: масочный матчинг по правилам (MODBUS_LINK_RULES) —
                     // маска оценивается по колонкам точки, паттерн ищется в MapField
@@ -298,7 +193,7 @@ namespace IO_PJT.Services
                     result.Unlinked++;
                     if (result.UnlinkedSamples.Count < 20)
                     {
-                        string msg = $"{p.Tag} (кандидат: {candidates[0].Tag}; роль: {role ?? "?"})";
+                        string msg = $"{p.Tag} (кандидат: {candidates[0].Tag})";
                         result.UnlinkedSamples.Add(msg);
                         // F9.8: то же сообщение, что в журнале («Не связано: …»), — в аудит
                         auditMsgs.Add((p.Tag, AuditAction.ModbusWarning,
@@ -307,7 +202,7 @@ namespace IO_PJT.Services
                     continue;
                 }
 
-                done[wi] = true; // точка обработана (успех или ошибка) — дальше фазы пропускаются
+                done[wi] = true; // точка обработана (успех или ошибка)
 
                 // F9.4: связь с картой допустима только для Modbus-сигнала (IO Type «M…» либо
                 // содержит «COM»); не-Modbus точка не должна иметь адресацию — связь не
@@ -329,12 +224,6 @@ namespace IO_PJT.Services
 
                 result.Linked++;
                 result.MapRowsMatched++;
-                if (phase == 1)
-                {
-                    // F55: полное совпадение имени — строка закрепляется, фаза 2 её не трогает
-                    result.LinkedFullMatch++;
-                    locked.Add(entry.Id);
-                }
                 // F9.11: статистика срабатывания ручного правила (LinkedByRule — только
                 // реально записанные связи, т.е. после проверки IsModbusSignal)
                 if (matchedRule != null)
@@ -367,18 +256,9 @@ namespace IO_PJT.Services
                 {
                     entry.LinkTag = nextLink;
                     entry.DcsTag = nextDcs;
-                    // F66: фаза 2 привязывает с отклонением от полного совпадения имени
-                    // (усечённое имя/базовое устройство) — в LinkState пишется маркер;
-                    // полные совпадения (фазы R/1) — «привязано» и не деградируют
-                    entry.LinkState = phase == 2 &&
-                                      entry.LinkState != ModbusMapService.LinkStateLinked
-                        ? ModbusMapService.LinkStateLinkedApprox
-                        : ModbusMapService.LinkStateLinked;
+                    entry.LinkState = ModbusMapService.LinkStateLinked;
                     boundTags[p.Tag!] = entry.Id;
                     pending.Add((entry.Id, entry.LinkTag, entry.DcsTag, entry.LinkState));
-                    if (phase == 2 &&
-                        entry.LinkState == ModbusMapService.LinkStateLinkedApprox)
-                        result.LinkedApprox++;
                 }
             }
 
@@ -392,18 +272,8 @@ namespace IO_PJT.Services
             foreach (var t in _maps.GetUnlinkedPlcTags(10))
                 result.MapUnlinkedSamples.Add(t);
 
-            progress?.Report((work.Count * 3, work.Count * 3, null));
+            progress?.Report((work.Count, work.Count, null));
             _log.Info("Связывание Modbus завершено. " + result.Summary);
-            // F55: строки полных совпадений закреплены — на втором проходе им не дописываются теги
-            if (result.LinkedFullMatch > 0)
-                _log.Info($"F55: полных совпадений имени — {result.LinkedFullMatch}; " +
-                          "закреплённые строки на втором проходе не изменяются");
-            // F66: семейство объекта + привязки с отклонением от полного совпадения имени
-            if (result.LinkedApprox > 0)
-                _log.Info($"F66: привязано с отклонением от полного совпадения — " +
-                          $"{result.LinkedApprox} тег(ов) (LinkState «" +
-                          $"{ModbusMapService.LinkStateLinkedApprox}»); семейство объекта " +
-                          "ограничено Loop-контура (иначе — лучшим кандидатом точки)");
             // F9.11: какие ручные правила сработали и сколько точек они связали
             if (result.LinkedByRule > 0)
                 _log.Info("F9.11: ручные правила связали " + result.LinkedByRule + " тег(ов): " +
@@ -544,9 +414,9 @@ namespace IO_PJT.Services
         /// <summary>Извлечь кандидатов объекта ПЛК из Service/Loop/Tag записи (по приоритету).
         /// F9.3/A: сканируются оба поля — Service и ServiceEnglish (дубли скобочных ссылок отбрасываются).
         /// F55: приоритет 0 — сам тег точки, если это полное имя объекта («1612-P-611A.HE-JB»);
-        /// приоритет 2 — ведущее обозначение Service ВМЕСТЕ с хвостом суффикса — полные имена
-        /// участвуют в проходе полного совпадения (FindFullMatchRow).</summary>
-        // F69: текст-источник Service для кандидатов/роли: default (null/иное) — Service +
+        /// приоритет 2 — ведущее обозначение Service ВМЕСТЕ с хвостом суффикса.
+        /// Кандидаты используются для отбора MCC-сигналов и сообщения «Не связано» (п.10).</summary>
+        // F69: текст-источник Service для кандидатов: default (null/иное) — Service +
         // ServiceEnglish; "Service"/"ServiceEnglish" — только выбранное поле (SCADA_LINK_SETTINGS)
         private static string ServiceText(IoPoint p, string? serviceField)
         {
@@ -664,81 +534,11 @@ namespace IO_PJT.Services
             return $"{m.Groups[1].Value}-{cls}-{num}{tail}";
         }
 
-        /// <summary>F9.7: канонический вид тега для сравнения — ведущие нули номера срезаются
-        /// (1120-PM-003A ↔ 1120-PM-3A); титул/класс/хвост (суффикс «_…», «-N», «.XX») не меняются.
-        /// Нормализуется только числовой номер после класса: «1120-M-00003A_TX.PLC» → «1120-M-3A_TX.PLC».</summary>
-        public static string CanonTag(string tag)
-        {
-            string t = tag.Trim().ToUpperInvariant();
-            var m = Regex.Match(t, @"^([0-9]{3,4}-[A-Z]{1,3}-)([0-9]+)(.*)$");
-            if (!m.Success) return t;
-            string num = m.Groups[2].Value.TrimStart('0');
-            if (num.Length == 0) num = "0";
-            return m.Groups[1].Value + num + m.Groups[3].Value;
-        }
-
-        /// <summary>F9.6: варианты записи класса объекта для сопоставления кандидата со строками карты:
-        /// 1) точное написание (приоритет выше всех); 2) таблица эквивалентов {PM↔M, EM↔E, AGM↔AG} —
-        /// карта пишет «1162-M-401», IO_LIST — «1162-PM-401»; 3) итеративное удаление букв класса
-        /// (сначала «M» — наиболее вероятная разница карты, затем по одной букве; класс не может
-        /// стать пустым — должна остаться минимум 1 буква). Титул и номер (включая хвосты
-        /// «-N»/«_…»/«.XX») сохраняются строго.</summary>
-        public static List<string> ClassVariants(string tag)
-        {
-            string t = tag.Trim().ToUpperInvariant();
-            var parts = t.Split('-');
-            var result = new List<string> { t };
-            if (parts.Length < 3 || parts[0].Length == 0 || !Regex.IsMatch(parts[1], "^[A-Z]+$"))
-                return result; // нестандартная форма — только точное совпадение
-            string title = parts[0], cls = parts[1], rest = string.Join('-', parts.Skip(2));
-            var seen = new HashSet<string>(result) { t };
-            void Add(string c)
-            {
-                if (c.Length == 0) return;
-                string v = $"{title}-{c}-{rest}";
-                if (seen.Add(v)) result.Add(v);
-            }
-
-            // 2) таблица эквивалентов класса
-            foreach (var v in ClassEquivalents(cls)) Add(v);
-
-            // 3) итеративные удаления букв (BFS по уровням удалений; на уровне сначала удаляется
-            //    «M», затем буквы слева направо — «больше удалённых M» приоритетнее «меньше удалений»)
-            var level = new List<string> { cls };
-            var visited = new HashSet<string>(level) { cls };
-            while (level.Count > 0)
-            {
-                var next = new List<string>();
-                foreach (var c in level)
-                {
-                    if (c.Length <= 1) continue; // минимум 1 буква должна остаться
-                    foreach (var r in c.Select((ch, i) => (ch, v: c.Remove(i, 1)))
-                                       .OrderByDescending(x => x.ch == 'M'))
-                    {
-                        if (visited.Add(r.v)) { next.Add(r.v); Add(r.v); }
-                    }
-                }
-                level = next;
-            }
-            return result;
-        }
-
-        /// <summary>F9.6: эквиваленты класса привода (симметричная таблица PM↔M, EM↔E, AGM↔AG).</summary>
-        private static IEnumerable<string> ClassEquivalents(string cls)
-        {
-            (string A, string B)[] pairs = { ("PM", "M"), ("EM", "E"), ("AGM", "AG"), ("BLM", "BL") };
-            foreach (var (a, b) in pairs)
-            {
-                if (cls == a) yield return b;
-                if (cls == b) yield return a;
-            }
-        }
-
         // ================== F55: полное совпадение имени ==================
 
         /// <summary>F55: полное имя объекта — NNNN-КЛАСС-НОМЕР + хвост-суффикс
         /// («.HE-JB», «-HE-JB», «.EH02», «-1»); класс нормализуется P→PM/K→KM, номер — без
-        /// ведущих нулей (как NormalizePlcTag/CanonTag). Возвращает null, если тег — не полное
+        /// ведущих нулей (как NormalizePlcTag). Возвращает null, если тег — не полное
         /// имя объекта (нет хвоста-суффикса, напр. DCS-тег «1612-MXA-611A»).</summary>
         public static string? NormalizeFullName(string raw)
         {
@@ -751,113 +551,6 @@ namespace IO_PJT.Services
             string num = m.Groups[3].Value.TrimStart('0');
             if (num.Length == 0) num = "0";
             return $"{m.Groups[1].Value}-{cls}-{num}{m.Groups[4].Value}";
-        }
-
-        /// <summary>F55: сравнительный ключ полного имени — ТОЛЬКО буквы/цифры верхнего регистра:
-        /// разделители «.»/«-»/«_» не значимы (1612-P-611A.HE-JB ≡ 1612-PM-611A-HE-JB
-        /// ≡ 1612PM611AHEJB после нормализации класса P→PM и ведущих нулей номера).</summary>
-        public static string FullKey(string tag)
-        {
-            string t = CanonTag(tag);
-            var m = Regex.Match(t, @"^([0-9]{3,4}-)([A-Z]{1,3}-)(.*)$");
-            if (m.Success)
-            {
-                string cls = m.Groups[2].Value.TrimEnd('-');
-                if (cls == "P") cls = "PM";
-                else if (cls == "K") cls = "KM";
-                t = m.Groups[1].Value + cls + "-" + m.Groups[3].Value;
-            }
-            return Regex.Replace(t, "[^A-Z0-9]", "");
-        }
-
-        /// <summary>F55: ключи полного имени кандидата по вариантам записи класса (F9.6) —
-        /// для поиска строки карты с равным полным именем.</summary>
-        public static List<string> FullKeyVariants(string tag) =>
-            ClassVariants(CanonTag(tag)).Select(FullKey).Distinct(StringComparer.Ordinal).ToList();
-
-        // ================== F66: семейство объекта ==================
-
-        /// <summary>F66: базовый ключ семейства объекта — NNNN-КЛАСС-НОМЕР[ЛИТЕРА]
-        /// («2701-PK-1201B-M» → «2701-PK-1201B», «1612-PM-611A.HE-JB» → «1612-PM-611A»,
-        /// «1110-KM-101A-1» → «1110-KM-101A», «9999-P-999A.HE-JB» → «9999-PM-999A»):
-        /// хвосты-суффиксы («.HE01», «-HE-JB», машинный «-N», «-M» после литеры) отбрасываются,
-        /// класс нормализуется P→PM/K→KM, номер — без ведущих нулей. Строки с равным
-        /// ObjectBase — один физический объект (под-строки «.HE01»/«.HE-JB1»); строки разных
-        /// семейств (2701-PK-1201A ↔ 2701-PK-1201B ↔ 2701-PM-1201B) — разные объекты.</summary>
-        public static string ObjectBase(string tag)
-        {
-            string t = CanonTag(tag ?? "");
-            var m = Regex.Match(t, @"^([0-9]{3,4}-)([A-Z]{1,3}-)([0-9]+)([A-Z]?)");
-            if (!m.Success) return t;
-            string cls = m.Groups[2].Value.TrimEnd('-');
-            if (cls == "P") cls = "PM";
-            else if (cls == "K") cls = "KM";
-            return m.Groups[1].Value + cls + "-" + m.Groups[3].Value + m.Groups[4].Value;
-        }
-
-        /// <summary>F66: строка (в базовом ключе семейства) принадлежит семейству Loop-контура
-        /// точки — Loop несёт идентичность объекта («у loop контура объекта буквенный суффикс
-        /// различает объекты» — заказчик): титул и номер обязаны совпасть; буквенный суффикс
-        /// Loop обязан совпасть с литерой строки, Loop без литеры — литера строки не значима
-        /// (VFD-контуры пишутся без неё: «9964-M-9904»); класс сравнивается по эквивалентам
-        /// F9.6, только если Loop-класс многобуквенный (однобуквенный M/P/K в Loop класс
-        /// не раскрывает — как в Loop-кандидатах ExtractCandidates). Возвращает false для
-        /// нестандартного Loop/строки — вызывающая сторона использует семейство кандидата.</summary>
-        public static bool LoopFamilyMatches(string loop, string rowBase)
-        {
-            var l = Regex.Match(CanonTag(loop ?? ""), @"^([0-9]{3,4}-)([A-Z]{1,3}-)([0-9]+)([A-Z]?)$");
-            if (!l.Success) return false;
-            var r = Regex.Match(CanonTag(rowBase ?? ""), @"^([0-9]{3,4}-)([A-Z]{1,3}-)([0-9]+)([A-Z]?)$");
-            if (!r.Success) return false;
-            if (!string.Equals(l.Groups[1].Value, r.Groups[1].Value, StringComparison.Ordinal))
-                return false; // титул
-            if (!string.Equals(l.Groups[3].Value, r.Groups[3].Value, StringComparison.Ordinal))
-                return false; // номер (CanonTag уже убрал ведущие нули)
-            string loopLetter = l.Groups[4].Value, rowLetter = r.Groups[4].Value;
-            if (loopLetter.Length > 0 && loopLetter != rowLetter)
-                return false; // литер различает объекты (A ↔ B)
-            string loopCls = l.Groups[2].Value.TrimEnd('-');
-            if (loopCls.Length > 1)
-            {
-                string rowProbe = r.Groups[1].Value + r.Groups[2].Value.TrimEnd('-') +
-                                  "-" + r.Groups[3].Value;
-                string loopProbe = l.Groups[1].Value + loopCls + "-" + l.Groups[3].Value;
-                if (!ClassVariants(rowProbe).Contains(loopProbe))
-                    return false; // класс строке чужого объекта (PK ≠ PM, AGM ↔ AG и т.д.)
-            }
-            return true;
-        }
-
-        /// <summary>F55: длина общего префикса двух ключей — «максимальное количество букв».</summary>
-        private static int CommonPrefixLen(string a, string b)
-        {
-            int n = Math.Min(a.Length, b.Length), i = 0;
-            while (i < n && a[i] == b[i]) i++;
-            return i;
-        }
-
-        /// <summary>F55: строка карты по ПОЛНОМУ совпадению имени — ключ FullKey кандидата (в
-        /// вариантах класса F9.6) равен FullKey(ObjectTag) строки. Роль/суффикс отбираются как
-        /// на уровне 1 FindMapRow (стандартный суффикс → по описанию строки карты).</summary>
-        private static ModbusMapEntry? FindFullMatchRow(
-            Dictionary<string, List<ModbusMapEntry>> byFullKey,
-            List<Candidate> candidates, string suffix)
-        {
-            foreach (var cand in candidates)
-            {
-                var spellings = ClassVariants(CanonTag(cand.Tag)); // написания — для want/рангира
-                foreach (var fkey in FullKeyVariants(cand.Tag))
-                {
-                    if (!byFullKey.TryGetValue(fkey, out var rows)) continue;
-                    foreach (var spelling in spellings)
-                    {
-                        var hit = PickByRole(rows, spelling, suffix, byDescription: false)
-                                  ?? PickByRole(rows, spelling, suffix, byDescription: true);
-                        if (hit != null) return hit;
-                    }
-                }
-            }
-            return null;
         }
 
         /// <summary>F9.8: записать сообщения связывания/адресации в аудит (IO_LIST_Audit) —
@@ -883,242 +576,9 @@ namespace IO_PJT.Services
             }
         }
 
-        // ================== Роль сигнала → строка карты ==================
-
-        /// <summary>Роль сигнала: суффикс PLC Tag карты ПОСЛЕ «_» (пустая строка — Control word
-        /// Function 06, PlcTag = объект без суффикса), либо null — роль не распознана.
-        /// F9.10: распознаются также MSC/MSI (задание/считывание скорости VFD), run-сигналы
-        /// («run signal» без «running») и роль по суффиксу тега DCS (MXA…A/B/C, MII, MHS, MSC, MSI),
-        /// если Service не распознан ключевыми словами.</summary>
-        public static string? DetectRole(IoPoint p, string? serviceField = null) // F69
-        {
-            string io = (p.Identification.IoType ?? "").Trim().ToUpperInvariant();
-            string svc = ServiceText(p, serviceField).ToLowerInvariant(); // F69
-            string tag = (p.Tag ?? "").Trim().ToUpperInvariant(); // F9.10: тег DCS — источник роли
-
-            // Команды: DO-COM или «DCS command:…» → Function 06 (Control word, без суффикса)
-            if (io == "DO-COM" || svc.Contains("command:")) return "";
-
-            // F9.10: задание скорости VFD (MSC: AO-COM / «speed control») → Function 06
-            // «Frequency Setting» — строка, на которую претендует только один сигнал
-            if (io == "AO-COM" || svc.Contains("speed control") ||
-                Regex.IsMatch(tag, @"^[0-9]{3,4}-MSC-"))
-                return "FREQ_SET";
-
-            // F9.10: считывание скорости VFD (MSI) — раньше ветки тока, иначе AI-COM уводит
-            // MSI в «Output Current» (_I_A по описанию «current»)
-            if (svc.Contains("speed signal") || Regex.IsMatch(tag, @"^[0-9]{3,4}-MSI-") ||
-                (io == "AI-COM" && svc.Contains("speed")))
-                return "SPEED";
-
-            // Ток: AI или «status:current» → Function 03 «_I_A»
-            if (io == "AI-COM" || svc.Contains("status:current") || svc.Contains(":current") ||
-                Regex.IsMatch(svc, @"\bcurrent\b"))
-                return "I_A";
-
-            // Статусы DI: по ключевым словам Service (суффиксы карты — без ведущего «_»);
-            // F9.10: «run signal»/«Run» — то же состояние, что и «running»
-            if (svc.Contains("fault")) return "FAULT.MCU";
-            if (svc.Contains("running") || Regex.IsMatch(svc, @"\brun\b")) return "STA.MCU";
-            if (svc.Contains("ready")) return "REDAY.MCU"; // опечатка «REDAY» сохранена в карте
-            if (svc.Contains("communication")) return "TX.MCU";
-            if (svc.Contains("permitted") || svc.Contains("permissive")) return "PERMIT.MCU";
-            if (svc.Contains("emergency")) return "EM_STOP.MCU";
-            if (svc.Contains("switch")) return "SWITCH_ON.MCU";
-            if (svc.Contains("mccb")) return "MCCB POSITION.MCU";
-
-            // F9.10: роль по суффиксу тега DCS, если Service не распознан ключевыми словами:
-            // MXA…A — авария, MXA…B — работа, MXA…C — готовность; MII — ток; MHS — команда;
-            // MSC/MSI — задание/считывание скорости (страховка к верхним веткам)
-            var mt = Regex.Match(tag, @"^[0-9]{3,4}-([A-Z]{1,3})-[0-9]+([A-Z]?)$");
-            if (mt.Success)
-            {
-                switch (mt.Groups[1].Value)
-                {
-                    case "MII": return "I_A";
-                    case "MHS": return "";
-                    case "MSC": return "FREQ_SET";
-                    case "MSI": return "SPEED";
-                    case "MXA":
-                        return mt.Groups[2].Value switch
-                        {
-                            "A" => "FAULT.MCU",
-                            "B" => "STA.MCU",
-                            "C" => "REDAY.MCU",
-                            _ => null
-                        };
-                }
-            }
-            return null;
-        }
-
-        /// <summary>Найти строку карты: точное совпадение ObjectTag → префикс → базовое устройство.
-        /// suffix: «» — Function 06 (Control word); иначе PlcTag = объект + «_» + suffix.
-        /// F9.3/C: на КАЖДОМ уровне сначала стандартный суффикс (точное совпадение / EndsWith),
-        /// затем — запасной уровень «по описанию строки карты» (_Q3_F.PLC / _Q3_READY.PLC /
-        /// _Q3_BYPS.PLC / _M3_PERMIT.PLC и т.п.). Так строки точного объекта-кандидата
-        /// приоритетнее строк другого объекта, совпавшего только по базовому устройству.
-        /// F55: locked — строки, закреплённые проходом полного совпадения, исключаются
-        /// («совпавшие не трогать»); на уровнях 2–3 строки ранжируются по длине общего префикса
-        /// полного имени («максимальное количество букв»), прежний ранжир PickByRole — тай-брейк.</summary>
-        private static ModbusMapEntry? FindMapRow(
-            Dictionary<string, List<ModbusMapEntry>> byObject,
-            List<Candidate> candidates, string suffix, HashSet<long>? locked = null)
-        {
-            foreach (var cand in candidates)
-            {
-                // F9.6/F9.7: варианты класса на канонизированном теге (ведущие нули: 003A ↔ 3A):
-                // точное написание → таблица {PM↔M, EM↔E, AGM↔AG} → удаление букв; точные
-                // совпадения всех вариантов приоритетнее префиксных (уровень 2)
-                var variants = ClassVariants(CanonTag(cand.Tag));
-                string candFull = FullKey(cand.Tag); // F55: ключ для ранжирования «по буквам»
-
-                // 1) точное совпадение ObjectTag
-                foreach (var key in variants)
-                {
-                    if (byObject.TryGetValue(key, out var exact))
-                    {
-                        var rows = FilterLocked(exact, locked);
-                        if (rows.Count == 0) continue;
-                        var hit = PickByRole(rows, key, suffix, byDescription: false, candFull)
-                                  ?? PickByRole(rows, key, suffix, byDescription: true, candFull);
-                        if (hit != null) return hit;
-                    }
-                }
-
-                // 2) префикс: ObjectTag = кандидат + «.XX»/«-…» (напр. 1110-KM-101A.EH02);
-                //    F55: кандидаты-ключи варианта — по убыванию длины общего префикса полного имени
-                foreach (var key in variants)
-                {
-                    var prefixKvs = byObject
-                        .Where(kv => kv.Key.Length > key.Length &&
-                                     kv.Key.StartsWith(key, StringComparison.Ordinal) &&
-                                     !char.IsLetterOrDigit(kv.Key[key.Length]))
-                        .OrderByDescending(kv => CommonPrefixLen(candFull, FullKey(kv.Key)))
-                        .ToList();
-                    foreach (var kv in prefixKvs)
-                    {
-                        var rows = FilterLocked(kv.Value, locked);
-                        if (rows.Count == 0) continue;
-                        var hit = PickByRole(rows, key, suffix, byDescription: false, candFull)
-                                  ?? PickByRole(rows, key, suffix, byDescription: true, candFull);
-                        if (hit != null) return hit;
-                    }
-                }
-
-                // 3) базовое устройство: срез «-N» / «.XX» у ObjectTag и кандидата.
-                //    Строки всех объектов-совпадений собираются в один список; F55: ранжирование
-                //    «по буквам» выполняется внутри PickByRole (lettersKey), затем прежний ранжир
-                //    по машинному номеру/базовому объекту
-                string baseCand = BaseDevice(CanonTag(cand.Tag));
-                var baseVariants = ClassVariants(baseCand).ToHashSet(StringComparer.Ordinal);
-                var baseRows = new List<ModbusMapEntry>();
-                foreach (var kv in byObject)
-                    if (baseVariants.Contains(BaseDevice(kv.Key)))
-                        baseRows.AddRange(kv.Value);
-                baseRows = FilterLocked(baseRows, locked);
-                if (baseRows.Count > 0)
-                {
-                    var hit = PickByRole(baseRows, CanonTag(cand.Tag), suffix, byDescription: false, candFull)
-                              ?? PickByRole(baseRows, CanonTag(cand.Tag), suffix, byDescription: true, candFull);
-                    if (hit != null) return hit;
-                }
-            }
-            return null;
-        }
-
-        /// <summary>F55: отфильтровать закреплённые строки (locked — Id строк полного совпадения;
-        /// null/пусто — без ограничений).</summary>
-        private static List<ModbusMapEntry> FilterLocked(List<ModbusMapEntry> rows, HashSet<long>? locked) =>
-            locked == null || locked.Count == 0 ? rows : rows.Where(r => !locked.Contains(r.Id)).ToList();
-
-        /// <summary>F59: убрать из индекса «ключ → строки карты» закреплённые строки
-        /// (заполненные в режиме FillEmpty); ключи без оставшихся строк не переносятся.</summary>
-        private static Dictionary<string, List<ModbusMapEntry>> FilterLockedMap(
-            Dictionary<string, List<ModbusMapEntry>> index, HashSet<long> locked)
-        {
-            var res = new Dictionary<string, List<ModbusMapEntry>>(StringComparer.Ordinal);
-            foreach (var kv in index)
-            {
-                var rows = kv.Value.Where(r => !locked.Contains(r.Id)).ToList();
-                if (rows.Count > 0) res[kv.Key] = rows;
-            }
-            return res;
-        }
-
         /// <summary>F59: разбор списка тегов из LinkTag/DcsTag («A, B») — отдельные теги.</summary>
         private static IEnumerable<string> SplitTags(string? s) =>
             (s ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-        /// <summary>F9.11: поиск строки карты ручными правилами MODBUS_LINK_RULES (ПЕРЕД встроенными
-        /// ролями). Для каждого правила по порядку Priority: поле IO точки (IOField) матчится с
-        /// TagPattern → собираются строки карты-объекта теми же тремя уровнями, что и FindMapRow
-        /// (точный ObjectTag → префикс «.XX» → базовое устройство), но фильтр строки — поле
-        /// MapField матчится с ValuePattern (+ FuncCode, если задан). Ранжирование строк — как в
-        /// PickByRole (точный объект → машинный номер → базовый). Возвращает строку и правило,
-        /// которое сработало (matchedRule) — для статистики/журнала.</summary>
-        private static ModbusMapEntry? FindMapRowByRules(
-            Dictionary<string, List<ModbusMapEntry>> byObject,
-            List<Candidate> candidates, List<ModbusLinkRule> rules, IoPoint p,
-            out ModbusLinkRule? matchedRule)
-        {
-            matchedRule = null;
-            foreach (var rule in rules)
-            {
-                // Шаг 1: поле IO-стороны точки против TagPattern (например Tag «2711-MXA-27116A»
-                // против regex «MXA+A» либо wildcard «*MXA*A»)
-                string ioValue = ModbusLinkRuleService.GetIoValue(p, rule.IOField) ?? "";
-                if (!ModbusLinkRuleService.PatternMatch(ioValue, rule.TagPattern)) continue;
-
-                // Шаг 2: строки карты-кандидата, чьё поле MapField совпадает с ValuePattern
-                bool RowMatch(ModbusMapEntry r)
-                {
-                    if (!string.IsNullOrWhiteSpace(rule.FuncCode) &&
-                        !string.Equals(r.FuncCode?.Trim(), rule.FuncCode.Trim(),
-                            StringComparison.OrdinalIgnoreCase))
-                        return false;
-                    return ModbusLinkRuleService.PatternMatch(
-                        ModbusLinkRuleService.GetMapValue(r, rule.MapField), rule.ValuePattern);
-                }
-
-                foreach (var cand in candidates)
-                {
-                    var variants = ClassVariants(CanonTag(cand.Tag));
-
-                    // 1) точное совпадение ObjectTag
-                    foreach (var key in variants)
-                        if (byObject.TryGetValue(key, out var exact))
-                        {
-                            var hit = PickByRuleRows(exact, key, RowMatch);
-                            if (hit != null) { matchedRule = rule; return hit; }
-                        }
-
-                    // 2) префикс: ObjectTag = кандидат + «.XX»
-                    foreach (var key in variants)
-                        foreach (var kv in byObject)
-                            if (kv.Key.Length > key.Length && kv.Key.StartsWith(key, StringComparison.Ordinal) &&
-                                !char.IsLetterOrDigit(kv.Key[key.Length]))
-                            {
-                                var hit = PickByRuleRows(kv.Value, key, RowMatch);
-                                if (hit != null) { matchedRule = rule; return hit; }
-                            }
-
-                    // 3) базовое устройство (срез «-N»/«.XX»)
-                    string baseCand = BaseDevice(CanonTag(cand.Tag));
-                    var baseVariants = ClassVariants(baseCand).ToHashSet(StringComparer.Ordinal);
-                    var baseRows = new List<ModbusMapEntry>();
-                    foreach (var kv in byObject)
-                        if (baseVariants.Contains(BaseDevice(kv.Key)))
-                            baseRows.AddRange(kv.Value);
-                    if (baseRows.Count > 0)
-                    {
-                        var hit = PickByRuleRows(baseRows, CanonTag(cand.Tag), RowMatch);
-                        if (hit != null) { matchedRule = rule; return hit; }
-                    }
-                }
-            }
-            return null;
-        }
 
         /// <summary>п.10: строка карты по МАСКЕ правила — маска оценивается по колонкам IO_LIST
         /// точки (ColumnValuesOf) → паттерн ищется в значении MapField каждой строки карты
@@ -1161,129 +621,6 @@ namespace IO_PJT.Services
             return null;
         }
 
-        /// <summary>F9.11: выбор строки из отфильтрованных правилом (RowMatch) строк карты —
-        /// тот же ранжиринг, что в PickByRole: точный объект → машинный номер «-N» → базовый объект.</summary>
-        private static ModbusMapEntry? PickByRuleRows(List<ModbusMapEntry> rows, string objectTag,
-            Func<ModbusMapEntry, bool> rowMatch)
-        {
-            string baseObj = BaseDevice(objectTag);
-            string tail = objectTag.Length > baseObj.Length ? objectTag[baseObj.Length..] : "";
-            bool tailIsMachine = tail.Length > 0 && char.IsDigit(tail[^1]);
-
-            string objCanon = CanonTag(objectTag);
-            return rows.OrderByDescending(r =>
-            {
-                string? ot = r.ObjectTag == null ? null : CanonTag(r.ObjectTag);
-                if (ot == null) return 0;
-                if (tailIsMachine && ot.StartsWith(objCanon, StringComparison.OrdinalIgnoreCase))
-                    return 2;
-                if (!Regex.IsMatch(ot, @"-[0-9]$"))
-                    return 1;
-                return 0;
-            }).FirstOrDefault(rowMatch);
-        }
-
-        /// <summary>Выбор строки карты по роли: suffix «» → Function 06; иначе PlcTag = объект + «_» + suffix.
-        /// Приоритет объектов: точное совпадение → тот же хвост «-N» → базовый объект («.XX», без «-N»).
-        /// byDescription=true — запасной уровень F9.3/C: совпадение по ключевым словам роли
-        /// в Description строки карты (только FuncCode роли).
-        /// lettersKey (F55): полное имя кандидата — строки ранжируются ПО УБЫВАНИЮ длины общего
-        /// префикса («максимальное количество букв»), равные буквы → прежний ранжир (хвост «-N»/база);
-        /// null — прежнее поведение (правила F9.11 и проход полного совпадения).</summary>
-        private static ModbusMapEntry? PickByRole(List<ModbusMapEntry> rows, string objectTag, string suffix,
-            bool byDescription, string? lettersKey = null)
-        {
-            string baseObj = BaseDevice(objectTag);
-            string tail = objectTag.Length > baseObj.Length ? objectTag[baseObj.Length..] : "";
-            bool tailIsMachine = tail.Length > 0 && char.IsDigit(tail[^1]); // «-1»/«-2» — машинный номер
-
-            // Предпочтение: тот же хвост «-N» → базовый объект (без «-N», в т.ч. «.XX») → прочие
-            // F9.7: ObjectTag сравнивается в канонизированном виде (ведущие нули номера)
-            string objCanon = CanonTag(objectTag);
-            int Rank(ModbusMapEntry r)
-            {
-                string? ot = r.ObjectTag == null ? null : CanonTag(r.ObjectTag);
-                if (ot == null) return 0;
-                if (tailIsMachine && ot.StartsWith(objCanon, StringComparison.OrdinalIgnoreCase))
-                    return 2; // тот же машинный номер
-                if (!Regex.IsMatch(ot, @"-[0-9]$"))
-                    return 1; // базовый объект (в т.ч. «.XX»)
-                return 0;     // другой машинный номер
-            }
-
-            IEnumerable<ModbusMapEntry> q = lettersKey == null
-                ? rows.OrderByDescending(Rank)
-                : rows.OrderByDescending(r => CommonPrefixLen(lettersKey, FullKey(r.ObjectTag ?? "")))
-                      .ThenByDescending(Rank);
-
-            if (suffix.Length == 0)
-            {
-                // Control word: Function 06, PlcTag = объект без суффикса;
-                // если точного нет (машинный номер «-1» отсутствует в карте) — базовая строка
-                // объекта с предпочтительным рангом (например, 1110-KM-101A.EH02)
-                // F9.7: PlcTag сравнивается канонизированно (1120-PM-003A ↔ 1120-PM-3A)
-                // F9.10: у VFD рядом с Control word лежит строка «Frequency Setting» (задание
-                // скорости, только для MSC) — сначала ищется именно Control word
-                // («Value:1=Stop,…»), и только затем действует прежняя логика
-                bool Fc06(ModbusMapEntry r) =>
-                    string.Equals(r.FuncCode?.Trim(), "06", StringComparison.OrdinalIgnoreCase);
-                bool ControlWord(ModbusMapEntry r) =>
-                    !string.IsNullOrEmpty(r.Description) &&
-                    (r.Description!.Contains("control word", StringComparison.OrdinalIgnoreCase) ||
-                     r.Description!.Contains("Value:1=Stop", StringComparison.OrdinalIgnoreCase));
-                bool ExactPlc(ModbusMapEntry r) =>
-                    string.Equals(CanonTag(r.PlcTag?.Trim() ?? ""), objCanon, StringComparison.OrdinalIgnoreCase);
-
-                return q.FirstOrDefault(r => Fc06(r) && ExactPlc(r) && ControlWord(r))
-                       ?? q.FirstOrDefault(r => Fc06(r) && ExactPlc(r))
-                       ?? q.FirstOrDefault(r => Fc06(r) && ControlWord(r))
-                       ?? q.FirstOrDefault(r => Fc06(r));
-            }
-
-            // Запасной уровень F9.3/C: описание строки карты (ключевые слова роли) —
-            // для карт с «нестандартными» суффиксами (_Q3_F.PLC, _Q3_READY.PLC, _Q3_BYPS.PLC,
-            // _M3_PERMIT.PLC, _FAULT.PLC, _REDAY.PLC …). Словарь IO и карты совпадает по-английски
-            // (fault/Ready/Running/Permit/Communication/Emergency…); фильтр FuncCode обязателен —
-            // отсекает Control word (06, «…1024=Permit…») и ток (03).
-            if (byDescription)
-            {
-                if (!RoleDescriptionKeywords.TryGetValue(suffix, out var kw)) return null;
-                return q.FirstOrDefault(r =>
-                    string.Equals(r.FuncCode?.Trim(), kw.Func, StringComparison.OrdinalIgnoreCase) &&
-                    !string.IsNullOrEmpty(r.Description) &&
-                    kw.Words.Any(w => r.Description!.Contains(w, StringComparison.OrdinalIgnoreCase)));
-            }
-
-            string want = objCanon + "_" + suffix; // F9.7: objCanon — канонический объект
-            return q.FirstOrDefault(r =>
-                string.Equals(CanonTag(r.PlcTag?.Trim() ?? ""), want, StringComparison.OrdinalIgnoreCase))
-                ?? q.FirstOrDefault(r =>
-                r.PlcTag != null && r.PlcTag.Trim().EndsWith("_" + suffix, StringComparison.OrdinalIgnoreCase));
-        }
-
-        /// <summary>F9.3/C: ключевые слова роли в Description строки карты (запасной уровень сопоставления).
-        /// Ключ — суффикс роли из DetectRole; значение — FuncCode строки и слова описания.
-        /// Неоднозначных совпадений на данных EBSM102/103 нет, кроме двух каналов связи
-        /// 2701-PK-1201A/B-M (_TX.VFD + _TX.PLC) — берётся первый (порядок строк карты).</summary>
-        private static readonly Dictionary<string, (string Func, string[] Words)> RoleDescriptionKeywords =
-            new(StringComparer.OrdinalIgnoreCase)
-            {
-                ["FAULT.MCU"] = ("02", new[] { "fault" }),
-                ["STA.MCU"] = ("02", new[] { "running", "operation" }),
-                ["REDAY.MCU"] = ("02", new[] { "ready" }),
-                ["PERMIT.MCU"] = ("02", new[] { "permit" }),
-                ["TX.MCU"] = ("02", new[] { "communication" }),
-                ["EM_STOP.MCU"] = ("02", new[] { "emergency" }),
-                ["SWITCH_ON.MCU"] = ("02", new[] { "switch on", "switching on" }),
-                ["MCCB POSITION.MCU"] = ("02", new[] { "mccb" }),
-                ["I_A"] = ("03", new[] { "current" }),
-                // F9.10: VFD — задание скорости (Function 06 «Frequency Setting») и считывание
-                // скорости (Function 03 «Operating Frequency»); фильтр FuncCode исключает
-                // Control word (06) и Status Word (03, «…Forward Running…» — без «speed»)
-                ["FREQ_SET"] = ("06", new[] { "frequency setting", "speed setpoint" }),
-                ["SPEED"] = ("03", new[] { "operating frequency", "speed" }),
-            };
-
         /// <summary>F9.3: добавить тег в LinkTag строки карты (несколько команд делят один Control word;
         /// перечисление через запятую, без дублей).</summary>
         private static string AppendLinkTag(string? current, string tag)
@@ -1293,27 +630,6 @@ namespace IO_PJT.Services
                 if (string.Equals(part.Trim(), tag, StringComparison.OrdinalIgnoreCase))
                     return current; // уже указан
             return current + ", " + tag;
-        }
-
-        /// <summary>Базовое устройство: срез суффикса «.XX» и хвоста «-N» (1110-KM-101A.EH02 → 1110-KM-101A).
-        /// F9.3/C: нормализуются и классы привода карты P→PM, K→KM — строка «1120-P-203A.HE-JB»
-        /// (насос) сопоставляется с кандидатом «1120-PM-203A» (двигатель того же насоса).</summary>
-        private static string BaseDevice(string tag)
-        {
-            string t = tag.Trim().ToUpperInvariant();
-            int dot = t.IndexOf('.');
-            if (dot > 0) t = t[..dot];
-            // хвост «-N» (одна цифра) — после как минимум двух дефисов: 1110-KM-101A-1 → 1110-KM-101A
-            var m = Regex.Match(t, @"^(.*-[A-Z]+-[0-9]+[A-Z]?)-[0-9]$");
-            if (m.Success) t = m.Groups[1].Value;
-            var cls = Regex.Match(t, @"^([0-9]{3,4})-([A-Z])-");
-            if (cls.Success)
-            {
-                string c = cls.Groups[2].Value;
-                if (c is "P" or "K") // однобуквенный класс привода → нормализованный (как NormalizePlcTag)
-                    t = $"{cls.Groups[1].Value}-{c}M-{t[cls.Length..]}";
-            }
-            return CanonTag(t); // F9.7: ведущие нули номера — и здесь (срез 003A → 3A)
         }
 
         // ================== Заполнение M_-полей ==================
