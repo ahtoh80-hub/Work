@@ -270,56 +270,39 @@ namespace IO_PJT.Services
                 string.IsNullOrWhiteSpace(row.ObjectTag) ||
                 GetFamily(p, cands).ContainsKey(CanonTag(row.ObjectTag!));
 
-            for (int phase = 0; phase < 3; phase++)
+            // п.10: связывание ТОЛЬКО по правилам (маски) — эвристики F9/F55/F66 отключены
+            for (int phase = 0; phase < 1; phase++)
             for (int wi = 0; wi < work.Count; wi++)
             {
                 if (done[wi]) continue;
                 var (p, candidates) = work[wi];
                 if (wi % 25 == 0)
-                    progress?.Report((phase * work.Count + wi, work.Count * 3, p.Tag));
+                    progress?.Report((phase * work.Count + wi, work.Count, p.Tag));
 
-                ModbusMapEntry? entry;
+                ModbusMapEntry? entry = null;
                 ModbusLinkRule? matchedRule = null;
                 string? role = null;
-                if (phase == 0)
                 {
-                    // Фаза R: ручные правила связывания (MODBUS_LINK_RULES) — приоритетнее
-                    // встроенных ролей DetectRole (F9.11; прежняя логика трёх уровней).
-                    // F66: ручные правила авторитетны — семейство объекта их не ограничивает
-                    entry = FindMapRowByRules(byObject, candidates, rules, p, out matchedRule);
-                }
-                else
-                {
-                    role = DetectRole(p, serviceField); // F69
-                    if (role == null) entry = null;
-                    else if (phase == 1)
+                    // п.10: масочный матчинг по правилам (MODBUS_LINK_RULES) —
+                    // маска оценивается по колонкам точки, паттерн ищется в MapField
+                    var cols = ModbusBlockPlannerService.ColumnValuesOf(p);
+                    foreach (var rule in rules)
                     {
-                        entry = FindFullMatchRow(byFullKey, candidates, role); // F55
-                        // F66: полное совпадение имени чужого семейства точки не
-                        // привязывается (Loop другого контура приоритетнее совпадения
-                        // по одному упоминанию в Service)
-                        if (entry != null && !FamilyAllows(p, candidates, entry)) entry = null;
-                    }
-                    else
-                    {
-                        // F66: только строки семейства объекта точки (Loop-якорь либо
-                        // семейство лучшего кандидата, fallback — внутри GetFamily)
-                        entry = FindMapRow(GetFamily(p, candidates), candidates, role, locked);
+                        entry = FindMapRowByMask(map, rule, p, locked, cols);
+                        if (entry != null) { matchedRule = rule; break; }
                     }
                 }
                 if (entry == null)
                 {
-                    if (phase == 2) // F55: «Не связано» — только после прохода по трём уровням
+                    // п.10: «Не связано» — после единственной фазы (правила/маски)
+                    result.Unlinked++;
+                    if (result.UnlinkedSamples.Count < 20)
                     {
-                        result.Unlinked++;
-                        if (result.UnlinkedSamples.Count < 20)
-                        {
-                            string msg = $"{p.Tag} (кандидат: {candidates[0].Tag}; роль: {role ?? "?"})";
-                            result.UnlinkedSamples.Add(msg);
-                            // F9.8: то же сообщение, что в журнале («Не связано: …»), — в аудит
-                            auditMsgs.Add((p.Tag, AuditAction.ModbusWarning,
-                                p.Revision?.FileName, p.Revision?.Sheet, $"Не связано: {msg}"));
-                        }
+                        string msg = $"{p.Tag} (кандидат: {candidates[0].Tag}; роль: {role ?? "?"})";
+                        result.UnlinkedSamples.Add(msg);
+                        // F9.8: то же сообщение, что в журнале («Не связано: …»), — в аудит
+                        auditMsgs.Add((p.Tag, AuditAction.ModbusWarning,
+                            p.Revision?.FileName, p.Revision?.Sheet, $"Не связано: {msg}"));
                     }
                     continue;
                 }
@@ -1132,6 +1115,47 @@ namespace IO_PJT.Services
                         var hit = PickByRuleRows(baseRows, CanonTag(cand.Tag), RowMatch);
                         if (hit != null) { matchedRule = rule; return hit; }
                     }
+                }
+            }
+            return null;
+        }
+
+        /// <summary>п.10: строка карты по МАСКЕ правила — маска оценивается по колонкам IO_LIST
+        /// точки (ColumnValuesOf) → паттерн ищется в значении MapField каждой строки карты
+        /// (wildcard «*» = любые символы). Без маски — полное совпадение IOField ↔ MapField.
+        /// FuncCode — опциональный фильтр строки карты. locked — закреплённые строки (FillEmpty).</summary>
+        private static ModbusMapEntry? FindMapRowByMask(
+            List<ModbusMapEntry> map, ModbusLinkRule rule, IoPoint p,
+            HashSet<long> locked, IReadOnlyDictionary<string, string> cols)
+        {
+            string? mask = string.IsNullOrWhiteSpace(rule.Mask) ? null : rule.Mask;
+            MaskPattern? mp = mask != null ? MaskPattern.Parse(mask) : null;
+            string pattern;
+            if (mp != null)
+            {
+                pattern = mp.Evaluate(cols);
+                if (pattern.Length == 0) return null;
+            }
+            else
+            {
+                pattern = ModbusLinkRuleService.GetIoValue(p, rule.IOField) ?? "";
+                if (pattern.Length == 0) return null;
+            }
+            foreach (var r in map)
+            {
+                if (locked.Contains(r.Id)) continue;
+                if (!string.IsNullOrWhiteSpace(rule.FuncCode) &&
+                    !string.Equals(r.FuncCode?.Trim(), rule.FuncCode.Trim(),
+                        StringComparison.OrdinalIgnoreCase))
+                    continue;
+                string mapVal = ModbusLinkRuleService.GetMapValue(r, rule.MapField) ?? "";
+                if (mp != null)
+                {
+                    if (MaskPattern.IsMatch(pattern, mapVal)) return r;
+                }
+                else
+                {
+                    if (string.Equals(pattern, mapVal, StringComparison.OrdinalIgnoreCase)) return r;
                 }
             }
             return null;
