@@ -22,10 +22,6 @@
                             ToolTip="Проверить шаблоны и поля всех правил без записи" />
                     <Button Content="Сохранить" Command="{Binding SaveCommand}" Width="100" FontWeight="SemiBold"
                             ToolTip="Записать все правила в MODBUS_LINK_RULES (полная замена)" />
-                    <TextBlock Text="Служебное поле:" VerticalAlignment="Center" Margin="8,0,4,0"
-                               ToolTip="F69: поле, из которого ExtractCandidates/DetectRole берут Service (SCADA_LINK_SETTINGS.ServiceField)" />
-                    <ComboBox Width="200" ItemsSource="{Binding ServiceFieldOptions}" SelectedItem="{Binding ServiceField}"
-                              ToolTip="Service+ServiceEnglish (по умолчанию) / Service / ServiceEnglish — влияет на кандидаты и роли при следующем связывании" />
                 </StackPanel>
             </StackPanel>
         </Border>
@@ -56,6 +52,9 @@
                 <DataGridTextColumn Header="Шаблон значения (ValuePattern)" Binding="{Binding ValuePattern, UpdateSourceTrigger=PropertyChanged}"
                                     Width="160"
                                     ToolTipService.ToolTip="Шаблон по значению поля карты (напр. *Fault*)" />
+                <DataGridTextColumn Header="Маска (п.10)" Binding="{Binding Mask, UpdateSourceTrigger=PropertyChanged}"
+                                    Width="220"
+                                    ToolTipService.ToolTip="Маска сопоставления: {Колонка}&amp;*(-N)(+N); пусто — полное совпадение IOField↔MapField; напр. {PTAG_TagArea}&amp;{PTag_DeviceClass}(-1)&amp;*&amp;{Ptag_LoopNumber}&amp;{Ptag_TagNumber}&amp;{PTag_Suffix}" />
                 <DataGridTextColumn Header="FuncCode" Binding="{Binding FuncCode, UpdateSourceTrigger=PropertyChanged}"
                                     Width="75"
                                     ToolTipService.ToolTip="Фильтр Function Code строки карты (02/03/06); пусто — без фильтра" />

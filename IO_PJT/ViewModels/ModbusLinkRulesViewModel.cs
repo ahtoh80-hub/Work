@@ -25,30 +25,6 @@ namespace IO_PJT.ViewModels
         private ModbusLinkRule? _selectedRule;
         public ModbusLinkRule? SelectedRule { get => _selectedRule; set => Set(ref _selectedRule, value, nameof(SelectedRule)); }
 
-        /// <summary>F69: поле-источник Service для ExtractCandidates/DetectRole.</summary>
-        public IReadOnlyList<string> ServiceFieldOptions { get; } = ModbusLinkRuleService.ServiceFieldOptions;
-
-        private string _serviceField = ModbusLinkRuleService.ServiceFieldDefault;
-        /// <summary>F69: выбранное поле — сохраняется в SCADA_LINK_SETTINGS при смене.</summary>
-        public string ServiceField
-        {
-            get => _serviceField;
-            set
-            {
-                if (!Set(ref _serviceField, value ?? "", nameof(ServiceField))) return;
-                try
-                {
-                    _s.ModbusLinkRules.SaveServiceField(_serviceField);
-                    _s.Log.Info($"F69: поле связывания Service = {_serviceField}");
-                    StatusText = $"Поле Service для связывания: {_serviceField} (сохранено)";
-                }
-                catch (Exception ex)
-                {
-                    StatusText = $"сбой сохранения поля Service: {DbProbe.ClassifyMessage(ex.Message)}";
-                }
-            }
-        }
-
         public RelayCommand AddCommand { get; }
         public RelayCommand DeleteCommand { get; }
         public RelayCommand SaveCommand { get; }
@@ -67,7 +43,6 @@ namespace IO_PJT.ViewModels
             DeleteCommand = new RelayCommand(Delete, () => SelectedRule != null);
             SaveCommand = new RelayCommand(Save);
             ValidateCommand = new RelayCommand(Validate);
-            _serviceField = _s.ModbusLinkRules.LoadServiceField(); // F69: без автосохранения
             Load();
         }
 
@@ -96,9 +71,9 @@ namespace IO_PJT.ViewModels
             {
                 Name = $"Правило {Rules.Count + 1}",
                 IOField = "Tag",
-                TagPattern = "*MXA*A",
                 MapField = "Description",
-                ValuePattern = "*Fault*",
+                // п.10: маска по умолчанию — полное совпадение по имени тега (PTag_* колонки)
+                Mask = "{PTAG_TagArea}&{PTag_DeviceClass}&{Ptag_LoopNumber}&{Ptag_TagNumber}&{PTag_Suffix}",
                 Priority = 100 + Rules.Count,
                 Enabled = true
             };
