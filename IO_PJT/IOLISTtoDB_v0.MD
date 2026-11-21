@@ -530,3 +530,13 @@ data-шаблонах («Адрес/бит») для бита, не найден
   (`OpenMasterTemplateFromFile_Click`): открывает XML в `TemplateCodeWindow` с именем по
   умолчанию (имя файла без расширения), сохранение в БД из окна кода (вместо прямой записи
   в БД). `using System.IO;` добавлен в code-behind.
+### F90 — обратная запись IP/Port в M_SlaveIdMain (п.8, 2026-11)
+
+- `MbBindingsWriteResult` — новое свойство `Warnings` (список предупреждений) + учёт в `Summary`.
+- `WriteBindings` (ModbusBlockPlannerService): кортеж `wanted` расширен полями
+  `Ip1..Ip4`, `Port`, `SlaveId` из `MbPacketPlan`; в цикле записи — обратная запись
+  IP/Port в `M_SlaveIdMain` (regex-замена IPv4 + `port N` с сохранением маски;
+  если port в строке отсутствует — дописывается). При изменении — предупреждение
+  в `result.Warnings` («IP/порт обновлён: …»).
+- `WriteBindingsToDb` (VM): предупреждения логируются (`Log.Warn`) и выводятся
+  в MessageBox (до 10 шт., иконка Warning при наличии и ошибок, и предупреждений).
