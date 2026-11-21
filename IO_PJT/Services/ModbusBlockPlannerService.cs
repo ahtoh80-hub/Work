@@ -2050,8 +2050,8 @@ namespace IO_PJT.Services
                 if (!string.IsNullOrWhiteSpace(p.Tag))
                     byTag.TryAdd(p.Tag!.Trim(), p);
 
-            // ожидаемые привязки: Tag → (main-блок, main-путь, reserve-блок, reserve-путь)
-            var wanted = new Dictionary<string, (string Block, string DataOut, string ResBlock, string ResDataOut, int FuncCode, bool BitOffset)>(
+            // ожидаемые привязки: Tag → (main-блок, main-путь, reserve-блок, reserve-путь, IP/Port/SlaveId)
+            var wanted = new Dictionary<string, (string Block, string DataOut, string ResBlock, string ResDataOut, int FuncCode, bool BitOffset, int Ip1, int Ip2, int Ip3, int Ip4, int Port, int SlaveId)>(
                 StringComparer.OrdinalIgnoreCase);
             foreach (var packet in plan.Packets)
             {
@@ -2065,12 +2065,14 @@ namespace IO_PJT.Services
                         ? $"{resBlock}.{(packet.IsWrite ? "DataIn" : "DataOut")}[{DataOutByteIndex(b.Offset, packet.IsBit)}]"
                         : "";
                     if (b.Tag.Length > 0)
-                        wanted[b.Tag] = (b.BlockName, b.DataOutExpr, resBlock, resDataOut, packet.FuncCode, packet.BitOffset);
+                        wanted[b.Tag] = (b.BlockName, b.DataOutExpr, resBlock, resDataOut, packet.FuncCode, packet.BitOffset,
+                            packet.Ip1, packet.Ip2, packet.Ip3, packet.Ip4, packet.Port, packet.SlaveId);
                     // F56: остальные сигналы того же адреса (одна точка адресного пространства) —
                     // тот же блок/путь (и reserve): их M_Bus* обновляются, а не очищаются
                     foreach (var sh in b.SharedTags)
                         if (sh.Length > 0)
-                            wanted[sh] = (b.BlockName, b.DataOutExpr, resBlock, resDataOut, packet.FuncCode, packet.BitOffset);
+                            wanted[sh] = (b.BlockName, b.DataOutExpr, resBlock, resDataOut, packet.FuncCode, packet.BitOffset,
+                                packet.Ip1, packet.Ip2, packet.Ip3, packet.Ip4, packet.Port, packet.SlaveId);
                 }
             }
 
@@ -2101,6 +2103,27 @@ namespace IO_PJT.Services
                     if (NormalizeFuncCode(p.Modbus.FuncCode) != kv.Value.FuncCode) p.Modbus.FuncCode = kv.Value.FuncCode.ToString("D2");
                     var bo85 = kv.Value.BitOffset ? "1" : "0";
                     if ((p.Modbus.BitOffset ?? "") != bo85) p.Modbus.BitOffset = bo85;
+                    // п.8: write back IP/Port to M_SlaveIdMain (preserve mask, update IP/port)
+                    string newIp8 = $"{kv.Value.Ip1}.{kv.Value.Ip2}.{kv.Value.Ip3}.{kv.Value.Ip4}";
+                    string curMain8 = p.Modbus.SlaveIdMain ?? "";
+                    string updMain8;
+                    if (curMain8.Length > 0)
+                    {
+                        updMain8 = Regex.Replace(curMain8, @"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}", newIp8);
+                        if (Regex.IsMatch(updMain8, @"port\s*\d", RegexOptions.IgnoreCase))
+                            updMain8 = Regex.Replace(updMain8, @"port\s*\d{1,5}", $"port {kv.Value.Port}", RegexOptions.IgnoreCase);
+                        else
+                            updMain8 = $"{updMain8} port {kv.Value.Port}";
+                    }
+                    else
+                    {
+                        updMain8 = $"{newIp8} port {kv.Value.Port}";
+                    }
+                    if (updMain8 != curMain8)
+                    {
+                        p.Modbus.SlaveIdMain = updMain8;
+                        result.Warnings.Add($"IP/порт обновлён: «{kv.Key}» {curMain8} → {updMain8}");
+                    }
                     if (repo.Update(p) > 0) result.Updated++; // аудит Update по изменённым полям (F7)
                 }
 

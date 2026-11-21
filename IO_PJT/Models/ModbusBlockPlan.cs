@@ -728,10 +728,14 @@ namespace IO_PJT.Models
         /// <summary>Ошибки (не Modbus-сигнал по IO Type и т.п. — привязка не записана).</summary>
         public List<string> Errors { get; } = new();
 
+        /// <summary>п.8: предупреждения (расхождение IP/Port при обратной записи в M_SlaveIdMain).</summary>
+        public List<string> Warnings { get; } = new();
+
         /// <summary>Итоговый текст для MessageBox.</summary>
         public string Summary =>
             $"Привязки записаны в IO_LIST: обновлено точек: {Updated}; очищено (не в пакетах): {Cleared}; " +
-            $"тегов не найдено: {NotFound}; ошибок: {Errors.Count}";
+            $"тегов не найдено: {NotFound}; ошибок: {Errors.Count}" +
+            (Warnings.Count > 0 ? $"; предупреждений: {Warnings.Count}" : "");
     }
 
     /// <summary>F13: настройки генерации блоков Modbus (XML) — персистятся в SCADA_MB_SETTINGS

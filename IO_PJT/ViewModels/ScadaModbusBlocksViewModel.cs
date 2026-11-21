@@ -1043,11 +1043,15 @@ namespace IO_PJT.ViewModels
                 var r = _s.ModbusBlocks.WriteBindings(plan, _s.Repo);
                 _s.Log.Info($"F13: {r.Summary}");
                 foreach (var e in r.Errors) _s.Log.Warn(e);
+                foreach (var w in r.Warnings) _s.Log.Warn(w); // п.8
+                string msg8 = r.Summary;
+                if (r.Warnings.Count > 0) msg8 += "\n\n" + string.Join("\n", r.Warnings.Take(10));
+                if (r.Errors.Count > 0) msg8 += "\n\n" + string.Join("\n", r.Errors.Take(10));
                 System.Windows.MessageBox.Show(
-                    r.Summary + (r.Errors.Count > 0 ? "\n\n" + string.Join("\n", r.Errors.Take(10)) : ""),
+                    msg8,
                     "Привязки Modbus (IO_LIST)",
                     System.Windows.MessageBoxButton.OK,
-                    r.Errors.Count > 0 ? System.Windows.MessageBoxImage.Warning : System.Windows.MessageBoxImage.Information);
+                    (r.Errors.Count > 0 || r.Warnings.Count > 0) ? System.Windows.MessageBoxImage.Warning : System.Windows.MessageBoxImage.Information);
                 StatusText = r.Summary;
             }
             catch (Exception ex)
