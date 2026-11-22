@@ -25,17 +25,16 @@
         /// окном «Правила связывания Modbus...».</summary>
         public const string ModbusLinkRulesTable = "MODBUS_LINK_RULES";
 
-        /// <summary>DDL таблицы ручных правил связывания (F9.11). Шаблоны (TagPattern/ValuePattern):
-        /// содержит «*»/«?» → wildcard (анкорный), иначе — регулярное выражение без якорей;
-        /// FuncCode пуст — фильтр не применяется; Priority меньше — правило раньше.</summary>
+        /// <summary>DDL таблицы ручных правил связывания (F9.11; F99 — без шаблонов
+        /// TagPattern/ValuePattern, только маска Mask). Маска (см. MaskPattern): {ИмяКолонки} +
+        /// разделитель «-» + wildcard «*» + обрезка (−N)/(+N); FuncCode пуст — фильтр не
+        /// применяется; Priority меньше — правило раньше.</summary>
         public static string CreateModbusLinkRulesTable => $@"
 CREATE TABLE [{ModbusLinkRulesTable}] (
   ID COUNTER PRIMARY KEY,
   [Name] TEXT(255),
   [IOField] TEXT(50),
-  [TagPattern] TEXT(255),
   [MapField] TEXT(50),
-  [ValuePattern] TEXT(255),
   [Mask] TEXT(255),
   [FuncCode] TEXT(50),
   [Priority] LONG,
@@ -50,8 +49,8 @@ CREATE TABLE [{ModbusLinkRulesTable}] (
         /// поля-источники и константы (Name/Value), переживают перезапуск.</summary>
         public const string ScadaSettingsTable = "SCADA_TEHOBJ_SETTINGS";
 
-        /// <summary>F69: настройки связывания Modbus (Name/Value) — поле-источник Service
-        /// для ExtractCandidates/DetectRole (ключ ServiceField).</summary>
+        /// <summary>F69: настройки связывания Modbus (Name/Value); поле-источник Service
+        /// (ServiceField) и его чтение удалены в F99 — таблица сохранена без изменений.</summary>
         public const string ScadaLinkSettingsTable = "SCADA_LINK_SETTINGS";
 
         /// <summary>DDL F12: таблица маппинга типов IO List → SCADA (семантика Source → Target).</summary>

@@ -4,9 +4,10 @@
     /// in the Help - About dialog.</summary>
     public static class AppInfo
     {
-        /// <summary>Current program version. Bump after every code change (F79-F98).
-        /// F98 = preview shows which data template applies (Typno → SCADA_DATAOUT_TEMPLATES)
-        /// with version/date plus the gate template status.</summary>
-        public const string Version = "F98";
+        /// <summary>Current program version. Bump after every code change (F79-F99).
+        /// F99 = rules linking deduplication: TagPattern/ValuePattern dropped (mask only,
+        /// physical DROP COLUMN migration), single ModbusAddressing window replaces
+        /// 4 menu items + 2 toolbar buttons, best-match (Score) + partial link state.</summary>
+        public const string Version = "F99";
     }
 }

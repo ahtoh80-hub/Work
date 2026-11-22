@@ -1,24 +1,20 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Data.OleDb;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Text.RegularExpressions;
 using IO_PJT.Data;
 using IO_PJT.Models;
 
 namespace IO_PJT.Services
 {
-    /// <summary>
-    /// F9.11: ручные правила связывания IO_LIST ↔ MODBUS_MAP (таблица MODBUS_LINK_RULES).
-    /// Правило сопоставляет поле записи IO_LIST (IOField: Tag/Service/…) по шаблону TagPattern
-    /// с полем строки карты (MapField: Description/Scale/…) по шаблону ValuePattern (+ фильтр
-    /// FuncCode); применяются в ModbusLinkService.Link() ПЕРЕД встроенными ролями DetectRole.
-    /// Шаблоны (TagPattern/ValuePattern): начинается с «*»/«?» либо содержит только wildcard-метки
-    /// → wildcard (анкорный: «*» = любые символы, «?» = один, IgnoreCase); содержит метасимволы
-    /// regex (. + ^ $ ( ) [ ] { } | \) → регулярное выражение. Примеры: «*Fault*» (wildcard),
-    /// «MXA.*A»/«MXA+A» (regex).</summary>
+    /// <summary>F9.11/F99: ручные правила связывания IO_LIST ↔ MODBUS_MAP (таблица
+    /// MODBUS_LINK_RULES). Правило сопоставляет поле записи IO_LIST (IOField: любая колонка
+    /// FieldRegistry) с полем строки карты (MapField) по маске Mask (см. MaskPattern)
+    /// либо, при пустой маске, точным равенством значений (+ фильтр FuncCode);
+    /// применяются в ModbusLinkService.Link(). F99: шаблоны TagPattern/ValuePattern
+    /// и ServiceField (F69) удалены — только маска.</summary>
     public sealed class ModbusLinkRuleService
     {
         private readonly string _dbPath;
@@ -27,83 +23,24 @@ namespace IO_PJT.Services
 
         private string ConnStr => DbProbe.ConnStrWithTimeout(_dbPath);
 
-        /// <summary>Гарантия таблицы MODBUS_LINK_RULES (идемпотентно).</summary>
+        /// <summary>Гарантия таблицы MODBUS_LINK_RULES (идемпотентно; F99 — также мигрирует
+        /// старые базы: ADD COLUMN Mask, DROP COLUMN TagPattern/ValuePattern).</summary>
         public void EnsureTable()
         {
             if (string.IsNullOrEmpty(_dbPath) || !File.Exists(_dbPath)) return;
             new TableCreator(_dbPath).EnsureServiceTables();
         }
 
-        // ================== Шаблоны ==================
-
-        /// <summary>Скомпилировать шаблон. Семантика (F9.11): (1) начинается с «*» или «?» →
-        /// wildcard (анкорный: «*» = любые символы, «?» = один); (2) содержит метасимволы
-        /// регулярного выражения (. + ^ $ ( ) [ ] { } | \) → regex как есть; (3) содержит
-        /// «*»/«?» в теле → wildcard; иначе → regex. IgnoreCase. Невалидный regex → ArgumentException.
-        /// Примеры: «*Fault*»/«*MXA*A»/«1115-MXA-*» — wildcard; «MXA.*A»/«MXA+A»/«MXA-\d+A» — regex.</summary>
-        public static Regex Compile(string pattern)
-        {
-            if (string.IsNullOrWhiteSpace(pattern))
-                throw new ArgumentException("шаблон пуст");
-
-            // метасимволы regex, кроме «*»/«?» — их наличие означает regex-нотацию
-            static bool HasRegexMeta(string p) =>
-                p.IndexOfAny(new[] { '.', '+', '^', '$', '(', ')', '[', ']', '{', '}', '|', '\\' }) >= 0;
-
-            bool wildcard;
-            if (pattern[0] is '*' or '?')
-                wildcard = true;                       // glob-нотация: начинается с метки wildcard
-            else if (HasRegexMeta(pattern))
-                wildcard = false;                      // regex-нотация («MXA.*A», «MXA+A», «\d+»)
-            else
-                wildcard = pattern.IndexOfAny(new[] { '*', '?' }) >= 0;
-
-            string rx = wildcard
-                ? "^" + Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".") + "$"
-                : pattern;
-            return new Regex(rx, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-        }
-
-        /// <summary>Проверить шаблон (для UI); null — ок, иначе текст ошибки.</summary>
-        public static string? ValidatePattern(string pattern)
-        {
-            if (string.IsNullOrWhiteSpace(pattern)) return "шаблон пуст";
-            try { Compile(pattern); return null; }
-            catch (ArgumentException ex) { return $"неверный шаблон «{pattern}»: {ex.Message}"; }
-        }
-
-        /// <summary>Совпадение значения с шаблоном (wildcard/regex, IgnoreCase); пустой шаблон — false.</summary>
-        public static bool PatternMatch(string? value, string pattern)
-        {
-            if (string.IsNullOrWhiteSpace(pattern)) return false;
-            try { return Compile(pattern).IsMatch(value ?? ""); }
-            catch (ArgumentException) { return false; } // невалидный шаблон не ломает связывание
-        }
-
         // ================== Значения полей ==================
-
-        /// <summary>Поля IO_LIST, доступные правилу (IOField).</summary>
-        public static readonly string[] IoFields = { "Tag", "Service", "ServiceEnglish", "IoType", "Loop", "SignalType" };
-
-        /// <summary>Значение поля IO-стороны (IOField) записи; неизвестное поле → null.</summary>
-        public static string? GetIoValue(IoPoint p, string ioField)
-        {
-            switch ((ioField ?? "").Trim().ToUpperInvariant())
-            {
-                case "TAG": return p.Tag;
-                case "SERVICE": return p.Signal?.Service;
-                case "SERVICEENGLISH": return p.Signal?.ServiceEnglish;
-                case "IOTYPE": return p.Identification.IoType;
-                case "LOOP": return p.Identification.Loop;
-                case "SIGNALTYPE": return p.Signal?.SignalType;
-                default: return null;
-            }
-        }
 
         private static readonly Dictionary<string, PropertyInfo> MapProps =
             typeof(ModbusMapEntry).GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Where(pr => pr.PropertyType == typeof(string))
                 .ToDictionary(pr => pr.Name, StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>F99: имена строковых полей карты (для ComboBox в окне правил).</summary>
+        public static string[] MapFields =>
+            MapProps.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase).ToArray();
 
         /// <summary>Значение поля карты (MapField) строки; неизвестное поле → null.
         /// Доступны все строковые свойства ModbusMapEntry (Description, Scale, PlcTag, …).</summary>
@@ -118,19 +55,26 @@ namespace IO_PJT.Services
                 ? null
                 : $"неизвестное поле карты «{mapField}»";
 
-        /// <summary>Проверка одного правила (для UI/сохранения); null — ок.</summary>
+        /// <summary>Значение поля IO-стороны (IOField) записи — любая колонка FieldRegistry;
+        /// неизвестное/пустое поле → null.</summary>
+        public static string? GetIoValue(IoPoint p, string ioField)
+        {
+            string col = (ioField ?? "").Trim();
+            if (col.Length == 0) return null;
+            return FieldRegistry.GetValue(p, col) is { } v ? Convert.ToString(v) : null;
+        }
+
+        /// <summary>Проверка одного правила (для UI/сохранения); null — ок. F99: IOField —
+        /// колонка FieldRegistry, маска — MaskPattern.Validate.</summary>
         public static string? Validate(ModbusLinkRule r)
         {
             if (string.IsNullOrWhiteSpace(r.Name)) return "название правила обязательно";
-            if (!IoFields.Contains((r.IOField ?? "").Trim(), StringComparer.OrdinalIgnoreCase))
-                return $"неизвестное поле IO «{r.IOField}» (допустимы: {string.Join(", ", IoFields)})";
-            string? e1 = ValidatePattern(r.TagPattern);
-            if (e1 != null) return $"TagPattern: {e1}";
-            string? e2 = ValidatePattern(r.ValuePattern);
-            if (e2 != null) return $"ValuePattern: {e2}";
-            return ValidateMapField(r.MapField);
+            if (!FieldRegistry.HasColumn((r.IOField ?? "").Trim()))
+                return $"неизвестное поле IO «{r.IOField}» (колонки IO_LIST: см. справку)";
+            string? e1 = ValidateMapField(r.MapField);
+            if (e1 != null) return e1;
+            return MaskPattern.Validate(r.Mask);
         }
-
 
         // ================== CRUD ==================
 
@@ -143,8 +87,8 @@ namespace IO_PJT.Services
             using var cn = new OleDbConnection(ConnStr);
             cn.Open();
             using var cmd = new OleDbCommand(
-                $"SELECT [ID], [Name], [IOField], [TagPattern], [MapField], [ValuePattern], [Mask], " +
-                $"[FuncCode], [Priority], [Enabled] FROM [{Schema.ModbusLinkRulesTable}] " +
+                $"SELECT [ID], [Name], [IOField], [MapField], [Mask], [FuncCode], " +
+                $"[Priority], [Enabled] FROM [{Schema.ModbusLinkRulesTable}] " +
                 "ORDER BY [Priority], [ID]", cn);
             cmd.CommandTimeout = DbProbe.TimeoutSeconds;
             using var rd = cmd.ExecuteReader();
@@ -163,8 +107,8 @@ namespace IO_PJT.Services
             using var cn = new OleDbConnection(ConnStr);
             cn.Open();
             using var cmd = new OleDbCommand(
-                $"SELECT [ID], [Name], [IOField], [TagPattern], [MapField], [ValuePattern], [Mask], " +
-                $"[FuncCode], [Priority], [Enabled] FROM [{Schema.ModbusLinkRulesTable}] " +
+                $"SELECT [ID], [Name], [IOField], [MapField], [Mask], [FuncCode], " +
+                $"[Priority], [Enabled] FROM [{Schema.ModbusLinkRulesTable}] " +
                 "WHERE [Enabled] <> 0 ORDER BY [Priority], [ID]", cn);
             cmd.CommandTimeout = DbProbe.TimeoutSeconds;
             using var rd = cmd.ExecuteReader();
@@ -173,17 +117,19 @@ namespace IO_PJT.Services
             return result;
         }
 
+        // F99: SELECT 8 колонок — ID, Name, IOField, MapField, Mask, FuncCode, Priority,
+        // Enabled (индексы 0..7; Enabled читается из СВОЕГО индекса 7 — раньше была ошибка
+        // с чтением из индекса 8 = Priority)
         private static ModbusLinkRule ReadRule(OleDbDataReader rd) => new()
         {
             Id = Convert.ToInt64(rd.GetValue(0)),
             Name = rd.IsDBNull(1) ? "" : rd.GetString(1),
             IOField = rd.IsDBNull(2) ? "Tag" : rd.GetString(2),
-            TagPattern = rd.IsDBNull(3) ? "" : rd.GetString(3),
-            MapField = rd.IsDBNull(4) ? "Description" : rd.GetString(4),
-            ValuePattern = rd.IsDBNull(5) ? "" : rd.GetString(5), Mask = rd.IsDBNull(6) ? "" : rd.GetString(6),
-            FuncCode = rd.IsDBNull(7) ? null : rd.GetString(7),
-            Priority = rd.IsDBNull(8) ? 100 : rd.GetInt32(8),
-            Enabled = !rd.IsDBNull(8) && Convert.ToBoolean(rd.GetValue(8))
+            MapField = rd.IsDBNull(3) ? "Description" : rd.GetString(3),
+            Mask = rd.IsDBNull(4) ? "" : rd.GetString(4),
+            FuncCode = rd.IsDBNull(5) ? null : rd.GetString(5),
+            Priority = rd.IsDBNull(6) ? 100 : rd.GetInt32(6),
+            Enabled = !rd.IsDBNull(7) && Convert.ToBoolean(rd.GetValue(7))
         };
 
         /// <summary>Сохранить набор правил целиком (DELETE + INSERT одной транзакцией —
@@ -209,79 +155,6 @@ namespace IO_PJT.Services
             }
         }
 
-        // ================== F69: поле-источник Service для связывания ==================
-
-        public const string ServiceFieldKey = "ServiceField";
-        public const string ServiceFieldDefault = "Service+ServiceEnglish";
-
-        /// <summary>F69: варианты поля, из которого ExtractCandidates/DetectRole берут Service.</summary>
-        public static readonly string[] ServiceFieldOptions =
-        {
-            ServiceFieldDefault, "Service", "ServiceEnglish"
-        };
-
-        /// <summary>F69: прочитать настроенное поле (нет ключа/ошибка чтения — default).</summary>
-        public string LoadServiceField()
-        {
-            try
-            {
-                EnsureTable();
-                using var cn = new OleDbConnection(ConnStr);
-                cn.Open();
-                using var cmd = new OleDbCommand(
-                    $"SELECT [Value] FROM [{Schema.ScadaLinkSettingsTable}] WHERE [Name] = ?", cn);
-                cmd.CommandTimeout = DbProbe.TimeoutSeconds;
-                OleDbArgs.Add(cmd, ServiceFieldKey);
-                object? v = cmd.ExecuteScalar();
-                string s = (v == null || v is DBNull ? "" : v.ToString() ?? "").Trim();
-                foreach (var o in ServiceFieldOptions)
-                    if (string.Equals(o, s, StringComparison.OrdinalIgnoreCase)) return o;
-                return ServiceFieldDefault;
-            }
-            catch { return ServiceFieldDefault; }
-        }
-
-        /// <summary>F69: сохранить поле (upsert одной транзакцией; значение из ServiceFieldOptions,
-        /// иначе default; повтор при блокировке).</summary>
-        public void SaveServiceField(string? field)
-        {
-            string f = (field ?? "").Trim();
-            string value = ServiceFieldDefault;
-            foreach (var o in ServiceFieldOptions)
-                if (string.Equals(o, f, StringComparison.OrdinalIgnoreCase)) { value = o; break; }
-            EnsureTable();
-            for (int attempt = 1; ; attempt++)
-            {
-                try
-                {
-                    using var cn = new OleDbConnection(ConnStr);
-                    cn.Open();
-                    using var tr = cn.BeginTransaction();
-                    using (var del = new OleDbCommand(
-                        $"DELETE FROM [{Schema.ScadaLinkSettingsTable}] WHERE [Name] = ?", cn, tr))
-                    {
-                        del.CommandTimeout = DbProbe.TimeoutSeconds;
-                        OleDbArgs.Add(del, ServiceFieldKey);
-                        del.ExecuteNonQuery();
-                    }
-                    using (var ins = new OleDbCommand(
-                        $"INSERT INTO [{Schema.ScadaLinkSettingsTable}] ([Name], [Value]) VALUES (?, ?)", cn, tr))
-                    {
-                        ins.CommandTimeout = DbProbe.TimeoutSeconds;
-                        OleDbArgs.Add(ins, ServiceFieldKey);
-                        OleDbArgs.Add(ins, value);
-                        ins.ExecuteNonQuery();
-                    }
-                    tr.Commit();
-                    return;
-                }
-                catch (OleDbException ex) when (attempt < 3 && DbProbe.IsLockError(ex.Message))
-                {
-                    System.Threading.Thread.Sleep(300 * attempt);
-                }
-            }
-        }
-
         private int SaveAllOnce(List<ModbusLinkRule> list)
         {
             using var cn = new OleDbConnection(ConnStr);
@@ -295,19 +168,20 @@ namespace IO_PJT.Services
                     del.CommandTimeout = DbProbe.TimeoutSeconds;
                     del.ExecuteNonQuery();
                 }
+                // F99: 7 столбцов и 7 «?» (раньше в INSERT было 9 колонок и 8 параметров —
+                // запись правил падала с ошибкой OleDb)
                 using var ins = new OleDbCommand(
                     $"INSERT INTO [{Schema.ModbusLinkRulesTable}] " +
-                    "([Name], [IOField], [TagPattern], [MapField], [ValuePattern], [Mask], [FuncCode], [Priority], [Enabled]) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", cn, tr);
+                    "([Name], [IOField], [MapField], [Mask], [FuncCode], [Priority], [Enabled]) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)", cn, tr);
                 ins.CommandTimeout = DbProbe.TimeoutSeconds;
                 foreach (var r in list)
                 {
                     ins.Parameters.Clear();
                     OleDbArgs.Add(ins, r.Name);
                     OleDbArgs.Add(ins, r.IOField);
-                    OleDbArgs.Add(ins, r.TagPattern);
                     OleDbArgs.Add(ins, r.MapField);
-                    OleDbArgs.Add(ins, r.ValuePattern); OleDbArgs.Add(ins, r.Mask);
+                    OleDbArgs.Add(ins, r.Mask);
                     OleDbArgs.Add(ins, r.FuncCode);
                     OleDbArgs.Add(ins, r.Priority);
                     OleDbArgs.Add(ins, r.Enabled);

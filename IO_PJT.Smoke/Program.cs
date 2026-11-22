@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -602,6 +602,152 @@ namespace IO_PJT.Smoke
                 Check(f98Text.Contains("Шаблон привязок (файл): 6 эталонов") &&
                       !f98Text.Contains("NORULE_R"),
                     "F98: статус ворот в строке; Typno вне плана не показывается");
+                // ===== F99: маски связывания — unit-проверки + CRUD + миграция DROP COLUMN =====
+                Console.WriteLine("== F99 Маски связывания (MODBUS_LINK_RULES) ==");
+
+                // (1) схема: DDL без шаблонов TagPattern/ValuePattern (F99)
+                Check(Schema.CreateModbusLinkRulesTable.Contains("[MODBUS_LINK_RULES]"),
+                    "DDL MODBUS_LINK_RULES содержит имя таблицы");
+                Check(!Schema.CreateModbusLinkRulesTable.Contains("TagPattern") &&
+                      !Schema.CreateModbusLinkRulesTable.Contains("ValuePattern"),
+                    "F99: DDL без шаблонов TagPattern/ValuePattern");
+                Check(creator.TableExists(Schema.ModbusLinkRulesTable),
+                    "таблица правил создана EnsureServiceTables");
+
+                // (2) F99: MaskPattern — Validate/Fields/Score/FindBest/обрезка/(+N)
+                Check(MaskPattern.Validate(null) == null && MaskPattern.Validate("  ") == null,
+                    "F99: пустая маска валидна (полное совпадение)");
+                Check(MaskPattern.Validate("{NoSuchCol}&*") != null,
+                    "F99: неизвестная колонка в маске → ошибка");
+                Check(MaskPattern.Validate(MaskPattern.DefaultTagMask) == null,
+                    "F99: маска по умолчанию валидна");
+                var mpF99 = MaskPattern.Parse("{Tag}(-1)&*");
+                var f99fields = mpF99?.Fields() ?? Array.Empty<string>();
+                Check(f99fields.Length == 1 && f99fields[0] == "Tag",
+                    $"F99: Fields() возвращает колонки маски (факт {string.Join(",", f99fields)})");
+                Check(MaskPattern.Score("ABC*", "ABCDEF") == 3,
+                    $"F99: Score wildcard = 3 (факт {MaskPattern.Score("ABC*", "ABCDEF")})");
+                Check(MaskPattern.Score("ABC*", "ABC") == 0,
+                    "F99: wildcard без поглощения → Score=0 (полное совпадение)");
+                Check(MaskPattern.Score("ABC", "ABC") == 0 && MaskPattern.Score("ABC", "ABD") == null,
+                    "F99: точное совпадение → 0, несовпадение → null");
+                var mpCut = MaskPattern.Parse("{Tag}(-1)&*");
+                string cutPat = mpCut!.Evaluate(
+                    new System.Collections.Generic.Dictionary<string, string> { ["Tag"] = "1115-MXA-00101A" });
+                Check(cutPat == "1115-MXA-00101*",
+                    $"F99: маска «(-1)&*» → «{cutPat}»");
+                var mpPlus = MaskPattern.Parse("{Tag}(+5)");
+                string plusPat = mpPlus!.Evaluate(
+                    new System.Collections.Generic.Dictionary<string, string> { ["Tag"] = "1115-MXA-00101A" });
+                Check(plusPat == "1115-",
+                    $"F99: маска «(+5)» → «{plusPat}»");
+                string? bestF99 = MaskPattern.FindBest("1115-*", new (string Row, string? Value)[]
+                {
+                    ("rowA", "1115-PM-101A_X"),
+                    ("rowB", "1115-PM-101A"),
+                });
+                Check(bestF99 == "rowB",
+                    $"F99: FindBest выбирает минимальное отклонение (факт {bestF99})");
+
+                // (3) валидация правил (F99: IOField — колонка FieldRegistry, маска — MaskPattern)
+                var vRule = new ModbusLinkRule { Name = "", MapField = "PlcTag", Mask = "*TX*" };
+                Check(ModbusLinkRuleService.Validate(vRule) != null, "правило без имени → ошибка");
+                vRule.Name = "x"; vRule.IOField = "NoSuchField";
+                Check(ModbusLinkRuleService.Validate(vRule) != null, "неизвестное поле IO → ошибка");
+                vRule.IOField = "Tag"; vRule.MapField = "NoSuchField";
+                Check(ModbusLinkRuleService.Validate(vRule) != null, "неизвестное поле карты → ошибка");
+                vRule.MapField = "PlcTag"; vRule.Mask = "{NoSuchCol}&*";
+                Check(ModbusLinkRuleService.Validate(vRule) != null,
+                    "F99: неизвестная колонка в маске → ошибка");
+                vRule.Mask = "*_TX.MCU*";
+                Check(ModbusLinkRuleService.Validate(vRule) == null, "валидное правило → без ошибок");
+
+                // (4) F99: CRUD round-trip — 7 колонок INSERT/SELECT, Enabled из своего
+                // индекса (раньше читался из Priority); правило из одной маски
+                var ruleSvc = new ModbusLinkRuleService(tmpDb);
+                ruleSvc.SaveAll(new[]
+                {
+                    new ModbusLinkRule { Name = "MXA→TX", IOField = "Tag",
+                        MapField = "PlcTag", Mask = "*_TX.MCU*", Priority = 5, Enabled = true }
+                });
+                var loadedRules = ruleSvc.Load();
+                Check(loadedRules.Count == 1 &&
+                      loadedRules[0].Name == "MXA→TX" && loadedRules[0].IOField == "Tag" &&
+                      loadedRules[0].MapField == "PlcTag" &&
+                      loadedRules[0].Mask == "*_TX.MCU*" && loadedRules[0].Priority == 5 &&
+                      loadedRules[0].Enabled,
+                    "SaveAll → Load: все поля правила сохранились (F99: 7 колонок)");
+                Check(ruleSvc.LoadEnabled().Count == 1, "LoadEnabled: включённое правило возвращается");
+                // правило из одной маски (без IOField-шаблонов) + Enabled=false round-trip
+                ruleSvc.SaveAll(new[]
+                {
+                    new ModbusLinkRule { Name = "маска", IOField = "Tag", MapField = "PlcTag",
+                        Mask = "{Tag}", Priority = 1, Enabled = false }
+                });
+                var oneMask = ruleSvc.Load();
+                Check(oneMask.Count == 1 && oneMask[0].Mask == "{Tag}" &&
+                      !oneMask[0].Enabled && oneMask[0].Priority == 1,
+                    "F99: правило из одной маски с Enabled=false читается корректно");
+                Check(ruleSvc.LoadEnabled().Count == 0,
+                    "F99: LoadEnabled не возвращает выключенное правило");
+
+                // (5) F99: миграция существующих баз — старая структура таблицы правил
+                // (с TagPattern/ValuePattern) → EnsureServiceTables физически удаляет
+                // колонки, данные правила (имя/маска) читаются
+                using (var cnM = new System.Data.OleDb.OleDbConnection(
+                           $"Provider=Microsoft.ACE.OLEDB.12.0;Data Source={tmpDb};"))
+                {
+                    cnM.Open();
+                    using (var cmdDropM = cnM.CreateCommand())
+                    {
+                        cmdDropM.CommandText = $"DROP TABLE [{Schema.ModbusLinkRulesTable}]";
+                        cmdDropM.ExecuteNonQuery();
+                    }
+                    using (var cmdOld = cnM.CreateCommand())
+                    {
+                        cmdOld.CommandText =
+                            "CREATE TABLE [MODBUS_LINK_RULES] (" +
+                            "ID COUNTER PRIMARY KEY, [Name] TEXT(255), [IOField] TEXT(50), " +
+                            "[TagPattern] TEXT(255), [MapField] TEXT(50), " +
+                            "[ValuePattern] TEXT(255), [Mask] TEXT(255), " +
+                            "[FuncCode] TEXT(50), [Priority] LONG, [Enabled] YESNO)";
+                        cmdOld.ExecuteNonQuery();
+                    }
+                    using (var cmdIns = cnM.CreateCommand())
+                    {
+                        cmdIns.CommandText =
+                            "INSERT INTO [MODBUS_LINK_RULES] " +
+                            "([Name], [IOField], [TagPattern], [MapField], [ValuePattern], " +
+                            "[Mask], [Priority], [Enabled]) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+                        cmdIns.Parameters.AddWithValue("@n", "старое правило");
+                        cmdIns.Parameters.AddWithValue("@io", "Tag");
+                        cmdIns.Parameters.AddWithValue("@tp", "1115-MXA-00101A");
+                        cmdIns.Parameters.AddWithValue("@mf", "PlcTag");
+                        cmdIns.Parameters.AddWithValue("@vp", "*_TX.MCU*");
+                        cmdIns.Parameters.AddWithValue("@m", "{Tag}");
+                        cmdIns.Parameters.AddWithValue("@pr", 7);
+                        cmdIns.Parameters.AddWithValue("@en", false);
+                        cmdIns.ExecuteNonQuery();
+                    }
+                }
+                creator.EnsureServiceTables();
+                var migratedCols = creator.GetColumns(Schema.ModbusLinkRulesTable);
+                Check(!migratedCols.Contains("TagPattern") && !migratedCols.Contains("ValuePattern"),
+                    $"F99: EnsureServiceTables удалил колонки шаблонов (факт: {string.Join(",", migratedCols)})");
+                Check(migratedCols.Contains("Mask") && migratedCols.Contains("Enabled"),
+                    "F99: рабочие колонки Mask/Enabled на месте");
+                var migrated = ruleSvc.Load();
+                Check(migrated.Count == 1 && migrated[0].Name == "старое правило" &&
+                      migrated[0].Mask == "{Tag}" && migrated[0].Priority == 7 &&
+                      !migrated[0].Enabled,
+                    "F99: правило из старой структуры читается после миграции");
+                Check(ruleSvc.LoadEnabled().Count == 0,
+                    "F99: выключенное правило не попадает в LoadEnabled");
+
+                // очистка: правила не должны влиять на последующие проверки F9.4–F9.10
+                ruleSvc.SaveAll(Array.Empty<ModbusLinkRule>());
+                Check(ruleSvc.Load().Count == 0, "F99: очистка правил — таблица пуста");
+
                 // ===== F9.4: не-Modbus-сигнал не может быть связан с картой =====
                 Console.WriteLine("== F9.4 Не-Modbus сигнал (IO Type без M*/COM) ==");
                 var pNonModbus = MakePoint("1115-AIN-00101", "1115-M-00101A", "AI",
@@ -761,8 +907,8 @@ namespace IO_PJT.Smoke
                 Check(log.Entries.Count > logBefore,
                     "журнал событий пополнялся при выключенном аудите (минимизация)");
 
-                // ===== F9.11: ручные правила связывания MODBUS_LINK_RULES =====
-                Console.WriteLine("== F9.11 Ручные правила связывания (MODBUS_LINK_RULES) ==");
+                // ===== F9.11/F99: ручные правила связывания по маскам (MODBUS_LINK_RULES) =====
+                Console.WriteLine("== F9.11/F99 Ручные правила связывания (маски) ==");
 
                 // (1) схема: DDL + идемпотентная миграция таблицы правил
                 Check(Schema.CreateModbusLinkRulesTable.Contains("[MODBUS_LINK_RULES]"),
@@ -770,111 +916,114 @@ namespace IO_PJT.Smoke
                 Check(creator.TableExists(Schema.ModbusLinkRulesTable),
                     "таблица правил создана EnsureServiceTables");
 
-                // (2) матчинг шаблонов: wildcard / regex / защита от невалидного regex
-                Check(ModbusLinkRuleService.PatternMatch("Motor status:Fault", "*fault*"),
-                    "wildcard *fault* совпадает (IgnoreCase)");
-                Check(!ModbusLinkRuleService.PatternMatch("running", "*fault*"),
-                    "wildcard *fault* не совпадает с «running»");
-                Check(ModbusLinkRuleService.PatternMatch("2711-MXA-27116A", "MXA.*A") &&
-                      ModbusLinkRuleService.PatternMatch("2711-MXA-27116A", "*MXA*A"),
-                    "regex «MXA.*A» и wildcard «*MXA*A» ловят MXA-тег");
-                Check(ModbusLinkRuleService.ValidatePattern("MXA+A") == null,
-                    "regex «MXA+A» валиден");
-                Check(ModbusLinkRuleService.ValidatePattern("[Fault") != null,
-                    "незакрытая скобка → ошибка валидации");
-                Check(!ModbusLinkRuleService.PatternMatch("x", "[Fault"),
-                    "невалидный шаблон → false (связывание не падает)");
+                // ruleSvc объявлен в секции F99 выше (общая область видимости RunDbPart)
 
-                // (3) валидация правил
-                var vRule = new ModbusLinkRule { Name = "", TagPattern = "*MXA*", MapField = "PlcTag", ValuePattern = "*TX*" };
-                Check(ModbusLinkRuleService.Validate(vRule) != null, "правило без имени → ошибка");
-                vRule.Name = "x"; vRule.MapField = "NoSuchField";
-                Check(ModbusLinkRuleService.Validate(vRule) != null, "неизвестное поле карты → ошибка");
-                vRule.MapField = "PlcTag"; vRule.TagPattern = "*MXA*"; vRule.ValuePattern = "*_TX.MCU*";
-                Check(ModbusLinkRuleService.Validate(vRule) == null, "валидное правило → без ошибок");
-
-                // (4) CRUD round-trip + фильтр LoadEnabled
-                var ruleSvc = new ModbusLinkRuleService(tmpDb);
+                // (2) F99: полное совпадение без маски + точка без MCC-кандидата:
+                //     из Link ушли ExtractCandidates/ServiceField — участвует ВСЯ точка
+                //     с Tag; строка карты с PlcTag = тегу ловится правилом, LinkState=«привязано»
+                var pNoCand = MakePoint("NOCAND-TEST", "NOCAND-LOOP", "DI-COM", "no plc object here");
+                repo.BeginSession();
+                repo.Upsert(pNoCand);
+                repo.EndSession();
+                maps.SaveToDb(new List<ModbusMapEntry>
+                {
+                    new() { MapFile = file103, MapSheet = "Synthetic", MapRow = 99990,
+                        PlcTag = "NOCAND-TEST", FuncCode = "02" }
+                }, file103);
                 ruleSvc.SaveAll(new[]
                 {
-                    new ModbusLinkRule { Name = "MXA→TX", IOField = "Tag", TagPattern = "1115-MXA-00101A",
-                        MapField = "PlcTag", ValuePattern = "*_TX.MCU*", Priority = 5, Enabled = true }
+                    new ModbusLinkRule { Name = "точное", IOField = "Tag",
+                        MapField = "PlcTag", Mask = "", Priority = 5, Enabled = true }
                 });
-                var loadedRules = ruleSvc.Load();
-                Check(loadedRules.Count == 1 &&
-                      loadedRules[0].Name == "MXA→TX" && loadedRules[0].IOField == "Tag" &&
-                      loadedRules[0].TagPattern == "1115-MXA-00101A" && loadedRules[0].MapField == "PlcTag" &&
-                      loadedRules[0].ValuePattern == "*_TX.MCU*" && loadedRules[0].Priority == 5 &&
-                      loadedRules[0].Enabled,
-                    "SaveAll → Load: все поля правила сохранились");
-                Check(ruleSvc.LoadEnabled().Count == 1, "LoadEnabled: включённое правило возвращается");
+                var linkExact = linker.Link();
+                var stExact = maps.LoadFromDb();
+                var exactRow = stExact.FirstOrDefault(s => s.PlcTag == "NOCAND-TEST");
+                Check(exactRow?.LinkTag == "NOCAND-TEST" &&
+                      exactRow.LinkState == ModbusMapService.LinkStateLinked,
+                    $"F99: точка без кандидата + полное совпадение → «привязано» (факт {exactRow?.LinkTag}/{exactRow?.LinkState})");
+                Check(linkExact.LinkedByRule == 1,
+                    $"F99: правило без маски сработало один раз (факт {linkExact.LinkedByRule})");
+                Check(linkExact.Examined == repo.GetAll().Count,
+                    $"F99: Examined = все точки с Tag без отбора кандидатов (факт {linkExact.Examined}/{repo.GetAll().Count})");
 
-                // (5) правило применяется РАНЬШЕ DetectRole: fault-точка 1115-MXA-00101A
-                //     уходит со строки _FAULT.MCU (встроенная роль) на строку _TX.MCU
-                var linkR1 = linker.Link();
-                var stR1 = maps.LoadFromDb();
-                var txRow = stR1.FirstOrDefault(s => s.PlcTag == "1115-PM-101A_TX.MCU");
-                Check(txRow?.LinkTag == "1115-MXA-00101A" &&
-                      txRow.LinkState == ModbusMapService.LinkStateLinked,
-                    $"F9.11: правило MXA→TX перехватило точку (факт {txRow?.LinkTag} / {txRow?.LinkState})");
-                var faultRow = stR1.FirstOrDefault(s => s.PlcTag == "1115-PM-101A_FAULT.MCU");
+                // (3) F99: маска с wildcard → «привязано частично» + предупреждение;
+                //     все Modbus-точки идут в work, лучшая строка — с минимальным отклонением
+                ruleSvc.SaveAll(new[]
+                {
+                    new ModbusLinkRule { Name = "маска TX", IOField = "Tag",
+                        MapField = "PlcTag", Mask = "*TX*", Priority = 5, Enabled = true }
+                });
+                var linkMask = linker.Link();
+                var stMask = maps.LoadFromDb();
+                var txRow = stMask.FirstOrDefault(s => s.PlcTag == "1115-PM-101A_TX.MCU");
+                Check(txRow?.LinkTag != null && txRow.LinkTag.Contains("1115-MXA-00101A"),
+                    $"F99: маска *TX* привязала точку к _TX.MCU (факт «{txRow?.LinkTag}»)");
+                Check(txRow?.LinkState == ModbusMapService.LinkStateLinkedPartial,
+                    $"F99: wildcard поглотил символы → «привязано частично» (факт {txRow?.LinkState})");
+                var faultRow = stMask.FirstOrDefault(s => s.PlcTag == "1115-PM-101A_FAULT.MCU");
                 Check(string.IsNullOrEmpty(faultRow?.LinkTag),
-                    $"F9.11: _FAULT.MCU потеряла точку (правило приоритетнее роли) (факт «{faultRow?.LinkTag}»)");
-                bool hit1 = linkR1.RuleHits.TryGetValue("MXA→TX", out int h1);
-                Check(linkR1.LinkedByRule == 1 && hit1 && h1 == 1,
-                    $"F9.11: LinkedByRule=1, RuleHits[MXA→TX]=1 (факт {linkR1.LinkedByRule} / {(hit1 ? h1 : 0)})");
-                Check(log.Entries.Any(e => e.Message.Contains("F9.11") && e.Message.Contains("MXA→TX")),
+                    $"F99: _FAULT.MCU маске не соответствует (факт «{faultRow?.LinkTag}»)");
+                Check(linkMask.LinkedByRule >= 20,
+                    $"F99: без отбора MCC-кандидатов правила связали ≥20 точек (факт {linkMask.LinkedByRule})");
+                bool hitMask = linkMask.RuleHits.TryGetValue("маска TX", out int hMask);
+                Check(hitMask && hMask == linkMask.LinkedByRule,
+                    $"F99: RuleHits маски (факт {(hitMask ? hMask : 0)}/{linkMask.LinkedByRule})");
+                Check(log.Entries.Any(e => e.Message.Contains("F9.11") &&
+                                           e.Message.Contains("маска TX")),
                     "F9.11: журнал сообщает о применении правил");
 
-                // (6) приоритет двух правил: меньший Priority побеждает
+                // (4) приоритет двух правил: меньший Priority побеждает
                 ruleSvc.SaveAll(new[]
                 {
-                    new ModbusLinkRule { Name = "MXA→TX", IOField = "Tag", TagPattern = "1115-MXA-00101A",
-                        MapField = "PlcTag", ValuePattern = "*_TX.MCU*", Priority = 5, Enabled = true },
-                    new ModbusLinkRule { Name = "MXA→STA", IOField = "Tag", TagPattern = "1115-MXA-00101A",
-                        MapField = "PlcTag", ValuePattern = "*_STA.MCU*", Priority = 10, Enabled = true }
+                    new ModbusLinkRule { Name = "A tx", IOField = "Tag", MapField = "PlcTag",
+                        Mask = "*TX*", Priority = 5, Enabled = true },
+                    new ModbusLinkRule { Name = "B fault", IOField = "Tag", MapField = "PlcTag",
+                        Mask = "*FAULT*", Priority = 10, Enabled = true }
                 });
-                linker.Link();
+                var linkR2 = linker.Link();
                 var stR2 = maps.LoadFromDb();
+                var faultRow2 = stR2.FirstOrDefault(s => s.PlcTag == "1115-PM-101A_FAULT.MCU");
                 var txRow2 = stR2.FirstOrDefault(s => s.PlcTag == "1115-PM-101A_TX.MCU");
-                Check(txRow2?.LinkTag == "1115-MXA-00101A",
-                    $"F9.11: Priority 5 < 10 → побеждает MXA→TX (факт «{txRow2?.LinkTag}»)");
+                Check(string.IsNullOrEmpty(faultRow2?.LinkTag) &&
+                      txRow2?.LinkTag?.Contains("1115-MXA-00101A") == true,
+                    $"F99: правило A (Priority 5) побеждает B (факт: fault «{faultRow2?.LinkTag}», tx «{txRow2?.LinkTag}»)");
+                Check(!linkR2.RuleHits.ContainsKey("B fault"),
+                    "F99: правило B не сработало (приоритет A)");
 
-                // (7) фильтр FuncCode правила: строка _TX.MCU имеет FuncCode 02 —
-                //     правило с FuncCode=06 не срабатывает, точка уходит по встроенной роли
+                // (5) FuncCode-фильтр: маска совпала, но 06 ≠ 03 строки → правило не применяется
                 ruleSvc.SaveAll(new[]
                 {
-                    new ModbusLinkRule { Name = "MXA→TX только 06", IOField = "Tag", TagPattern = "1115-MXA-00101A",
-                        MapField = "PlcTag", ValuePattern = "*_TX.MCU*", FuncCode = "06", Priority = 5, Enabled = true }
+                    new ModbusLinkRule { Name = "tx только 06", IOField = "Tag",
+                        MapField = "PlcTag", Mask = "*TX*", FuncCode = "06",
+                        Priority = 5, Enabled = true }
                 });
                 var linkR3 = linker.Link();
                 var stR3 = maps.LoadFromDb();
-                var faultRow3 = stR3.FirstOrDefault(s => s.PlcTag == "1115-PM-101A_FAULT.MCU");
+                var txRow3 = stR3.FirstOrDefault(s => s.PlcTag == "1115-PM-101A_TX.MCU");
                 Check(linkR3.LinkedByRule == 0,
-                    $"F9.11: FuncCode-фильтр 06 не совпал со строкой 02 → правила не сработали (факт {linkR3.LinkedByRule})");
-                Check(faultRow3?.LinkTag == "1115-MXA-00101A",
-                    $"F9.11: без срабатывания правила точка вернулась в _FAULT.MCU (факт «{faultRow3?.LinkTag}»)");
+                    $"F99: FuncCode-фильтр 06 ≠ строки 03 → правила не сработали (факт {linkR3.LinkedByRule})");
+                Check(string.IsNullOrEmpty(txRow3?.LinkTag),
+                    $"F99: без срабатывания _TX.MCU пуста (факт «{txRow3?.LinkTag}»)");
 
-                // (8) выключенное правило (Enabled=0) не применяется
+                // (6) выключенное правило (Enabled=false) не применяется
                 ruleSvc.SaveAll(new[]
                 {
-                    new ModbusLinkRule { Name = "MXA→TX выкл", IOField = "Tag", TagPattern = "1115-MXA-00101A",
-                        MapField = "PlcTag", ValuePattern = "*_TX.MCU*", Priority = 5, Enabled = false }
+                    new ModbusLinkRule { Name = "выкл", IOField = "Tag",
+                        MapField = "PlcTag", Mask = "*TX*", Priority = 5, Enabled = false }
                 });
-                Check(ruleSvc.LoadEnabled().Count == 0, "F9.11: LoadEnabled не возвращает выключенное правило");
+                Check(ruleSvc.LoadEnabled().Count == 0,
+                    "F99: LoadEnabled не возвращает выключенное правило");
                 var linkR4 = linker.Link();
                 Check(linkR4.LinkedByRule == 0,
-                    $"F9.11: выключенное правило игнорируется (LinkedByRule={linkR4.LinkedByRule})");
+                    $"F99: выключенное правило игнорируется (LinkedByRule={linkR4.LinkedByRule})");
 
-                // (9) очистка: без правил — прежнее поведение (fault → _FAULT.MCU)
+                // (7) очистка: без правил — ни одной привязки (масочный матчинг единственный)
                 ruleSvc.SaveAll(Array.Empty<ModbusLinkRule>());
-                linker.Link();
-                var stClean = maps.LoadFromDb();
-                var faultClean = stClean.FirstOrDefault(s => s.PlcTag == "1115-PM-101A_FAULT.MCU");
-                Check(faultClean?.LinkTag == "1115-MXA-00101A",
-                    $"F9.11: после удаления правил встроенная роль снова привязала fault (факт «{faultClean?.LinkTag}»)");
+                var linkClean = linker.Link();
+                Check(linkClean.LinkedByRule == 0 && linkClean.Linked == 0,
+                    $"F99: без правил ничего не связывается (факт Linked={linkClean.Linked})");
 
-                // (10) миграция: удаление таблицы правил и воссоздание EnsureServiceTables
+                // (8) миграция: удаление таблицы правил и воссоздание EnsureServiceTables
                 using (var cnR = new System.Data.OleDb.OleDbConnection(
                            $"Provider=Microsoft.ACE.OLEDB.12.0;Data Source={tmpDb};"))
                 {
@@ -2148,7 +2297,8 @@ namespace IO_PJT.Smoke
                 Ins("BIND-A", "MAI", "T-BIND-A", "0");
                 Ins("BIND-B", "MAI", "T-BIND-B", "1");
                 Ins("BIND-GONE", "MAI", "T-BIND-GONE", "2");
-                Ins("BIND-NOTMOD", "DI", "T-BIND-NOTMOD", "3"); // IO Type не Modbus — привязка отклоняется
+                Ins("BIND-NOTMOD", "DI", "T-BIND-NOTMOD", "3"); // IO Type не Modbus — привязка отклоняется
+
                 void InsShared(string tag, string addr)
                 {
                     using var cmd = cnB.CreateCommand();

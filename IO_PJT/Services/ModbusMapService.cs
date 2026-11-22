@@ -27,11 +27,17 @@ namespace IO_PJT.Services
         /// (фаза 2 — усечённое имя/базовое устройство; фаза 1 даёт «привязано»).</summary>
         public const string LinkStateLinkedApprox = "привязано не по полным совпадением!";
 
-        /// <summary>F66: строка считается привязанной при любом из связывающих состояний
-        /// (полное либо с отклонением) — для статистики MapRowsLinked/превью.</summary>
+        /// <summary>F99: строка карты привязана по маске с отклонением — wildcard маски
+        /// поглотил символы (MaskPattern.Score &gt; 0); полное совпадение даёт
+        /// LinkStateLinked. Считается привязанной (IsLinkedState).</summary>
+        public const string LinkStateLinkedPartial = "привязано частично";
+
+        /// <summary>F66/F99: строка считается привязанной при любом из связывающих состояний
+        /// (полное, с отклонением F66, частичное F99) — для статистики MapRowsLinked/превью.</summary>
         public static bool IsLinkedState(string? state) =>
             string.Equals(state, LinkStateLinked, StringComparison.Ordinal) ||
-            string.Equals(state, LinkStateLinkedApprox, StringComparison.Ordinal);
+            string.Equals(state, LinkStateLinkedApprox, StringComparison.Ordinal) ||
+            string.Equals(state, LinkStateLinkedPartial, StringComparison.Ordinal);
 
         /// <summary>Прочитать файл карты. При отсутствии листов Register Table — InvalidOperationException.</summary>
         public ModbusMapImportResult Read(string path, List<ModbusMapEntry> into)

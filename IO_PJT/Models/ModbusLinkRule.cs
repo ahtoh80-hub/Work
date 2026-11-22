@@ -1,12 +1,10 @@
 namespace IO_PJT.Models
 {
-    /// <summary>F9.11: ручное правило связывания IO_LIST ↔ MODBUS_MAP (таблица MODBUS_LINK_RULES).
-    /// Сопоставляет поле записи IO_LIST (по умолчанию Tag) по шаблону TagPattern с полем строки
-    /// карты MapField по шаблону ValuePattern — применяется в Link() ПЕРЕД встроенными ролями
-    /// DetectRole (ручные правила приоритетнее эвристик). Шаблоны: начинается с «*»/«?» либо
-    /// содержит только wildcard-метки → wildcard (анкорный, «*»=любые символы, «?»=один, IgnoreCase);
-    /// содержит метасимволы regex (. + ^ $ ( ) [ ] { } | \) → регулярное выражение
-    /// (примеры: TagPattern «MXA+A» (regex) → MapField Description «*Fault*» (wildcard)).</summary>
+    /// <summary>F9.11/F99: ручное правило связывания IO_LIST ↔ MODBUS_MAP (таблица
+    /// MODBUS_LINK_RULES). Правило сопоставляет поле записи IO_LIST (IOField) со строкой
+    /// карты: маска (Mask, см. MaskPattern) оценивается по колонкам точки → паттерн
+    /// ищется в значении MapField; без маски — точное совпадение IOField ↔ MapField.
+    /// F99: поля-шаблоны TagPattern/ValuePattern удалены (дублировали маску).</summary>
     public class ModbusLinkRule
     {
         /// <summary>ID правила в MODBUS_LINK_RULES (COUNTER); 0 — ещё не сохранено.</summary>
@@ -15,18 +13,13 @@ namespace IO_PJT.Models
         /// <summary>Название правила (для журнала/окна; обязательно при сохранении).</summary>
         public string Name { get; set; } = string.Empty;
 
-        /// <summary>Поле IO_LIST-стороны: Tag / Service / ServiceEnglish / IoType / Loop / SignalType.</summary>
+        /// <summary>Поле IO_LIST-стороны без маски: любая колонка FieldRegistry
+        /// (Tag, Service, IoType, Loop, …).</summary>
         public string IOField { get; set; } = "Tag";
-
-        /// <summary>Шаблон по значению IOField (например «*MXA*A» либо regex «MXA+A»).</summary>
-        public string TagPattern { get; set; } = string.Empty;
 
         /// <summary>Поле строки карты MODBUS_MAP: любое строковое свойство ModbusMapEntry
         /// (Description, Scale, PlcTag, FuncCode, DcsFunctions, …).</summary>
         public string MapField { get; set; } = "Description";
-
-        /// <summary>Шаблон по значению MapField (например «*Fault*»).</summary>
-        public string ValuePattern { get; set; } = string.Empty;
 
         /// <summary>п.10: маска сопоставления (см. MaskPattern). Пусто — полное совпадение
         /// IOField ↔ MapField. Непустая — маска оценивается по строке IO_LIST → паттерн

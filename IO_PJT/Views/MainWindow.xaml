@@ -18,14 +18,8 @@
                 <MenuItem Header="Импорт из Excel..." Command="{Binding ImportCommand}" />
                 <MenuItem Header="Карта Modbus..." Command="{Binding ImportModbusCommand}"
                           ToolTip="Импорт карты адресации Modbus (Register Table Function 02/03/06) и связывание строк карты с IO_LIST (LinkTag/DcsTag) — F9" />
-                <MenuItem Header="Обновить связи Modbus (DcsTag) — полное..." Command="{Binding UpdateModbusLinksCommand}"
-                          ToolTip="F59: полное обновление связей — LinkTag/DcsTag/LinkState ВСЕХ строк MODBUS_MAP перезаписываются расчётом; перед запуском — предупреждение и подтверждение (ручные привязки теряются). Повторное связывание без импорта файлов — F9.9/F59" />
-                <MenuItem Header="Заполнить пустые связи Modbus..." Command="{Binding FillEmptyModbusLinksCommand}"
-                          ToolTip="F59: заполняются только строки карты без привязки (пустой LinkTag и DcsTag) — вручную привязанные сигналы не сбрасываются и не перенаправляются на другие строки" />
-                <MenuItem Header="Обновить адресацию Modbus" Command="{Binding UpdateModbusAddressCommand}"
-                          ToolTip="Записать M_-поля IO_LIST по парам MODBUS_MAP.DcsTag ↔ IO_LIST.Tag (только Modbus-сигналы) — F9.4" />
-                <MenuItem Header="Правила связывания Modbus..." Command="{Binding ModbusLinkRulesCommand}"
-                          ToolTip="Ручные правила «поле IO по шаблону → поле карты по шаблону» (MODBUS_LINK_RULES) — применяются в связывании ПЕРЕД встроенными ролями — F9.11" />
+                <MenuItem Header="Обновление адресации Modbus..." Command="{Binding ModbusAddressingCommand}"
+                          ToolTip="F99: единое окно — обновление связей (полное/только пустые), запись M_-полей IO_LIST (F9.4), правила связывания MODBUS_LINK_RULES (F9.11) и проверка маски на теге" />
                 <Separator />
                 <MenuItem Header="История изменений..." Command="{Binding HistoryCommand}" />
             </MenuItem>
@@ -59,10 +53,8 @@
                 <Button Content="🗑 Удалить" Command="{Binding DeletePointCommand}" ToolTip="Удалить выбранный сигнал" />
                 <Separator />
                 <Button Content="📥 Импорт Excel" Command="{Binding ImportCommand}" />
-                <Button Content="🔗 Modbus связи" Command="{Binding UpdateModbusLinksCommand}"
-                        ToolTip="F9.9/F59: обновить связи Modbus (DcsTag) — полный пересчёт с подтверждением о перезаписи ручных привязок; режим «заполнить только пустые» — в меню «Импорт → Заполнить пустые связи Modbus...»" />
-                <Button Content="📡 Modbus адресация" Command="{Binding UpdateModbusAddressCommand}"
-                        ToolTip="Обновить M_-поля IO_LIST по DcsTag ↔ Tag (F9.4)" />
+                <Button Content="🔗 Modbus адресация" Command="{Binding ModbusAddressingCommand}"
+                        ToolTip="F99: единое окно — обновление связей (полное/только пустые), M_-адресация (F9.4), правила связывания MODBUS_LINK_RULES и проверка маски на теге" />
                 <Button Content="🕘 История" Command="{Binding HistoryCommand}" />
                 <Separator />
                 <Button Content="🔄 Обновить" Command="{Binding RefreshCommand}" />

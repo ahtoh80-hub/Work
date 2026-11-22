@@ -75,21 +75,11 @@ namespace IO_PJT.ViewModels
         /// <summary>F9: импорт карты адресации Modbus + связывание M_-полей.</summary>
         public RelayCommand ImportModbusCommand { get; }
 
-        /// <summary>F9.4: «Обновить адресацию Modbus» — запись M_-полей IO_LIST по парам
-        /// MODBUS_MAP.DcsTag ↔ IO_LIST.Tag (отдельно от импорта карты).</summary>
-        public RelayCommand UpdateModbusAddressCommand { get; }
-
-        /// <summary>F9.9: «Обновить связи Modbus (DcsTag)» — повторное связывание текущей таблицы
-        /// с уже сохранённой картой MODBUS_MAP (без импорта файлов); для ручных правок/добавления
-        /// сигналов в Access. F59: полное обновление (подтверждение с предупреждением о перезаписи).</summary>
-        public RelayCommand UpdateModbusLinksCommand { get; }
-
-        /// <summary>F59: «Заполнить пустые связи Modbus» — связывание только незаполненных строк
-        /// карты MODBUS_MAP: строки с уже заданным LinkTag/DcsTag (ручные привязки) не сбрасываются.</summary>
-        public RelayCommand FillEmptyModbusLinksCommand { get; }
-
-        /// <summary>F9.11: редактор ручных правил связывания MODBUS_LINK_RULES.</summary>
-        public RelayCommand ModbusLinkRulesCommand { get; }
+        /// <summary>F99: единое окно «Обновление адресации Modbus согласно MODBUS_MAP» —
+        /// три действия (связи полностью / только пустые / M_-адресация), правила
+        /// связывания MODBUS_LINK_RULES и проверка маски на теге. Заменяет прежние четыре
+        /// пункта меню и две кнопки тулбара (F99: устранение дублирования).</summary>
+        public RelayCommand ModbusAddressingCommand { get; }
 
         /// <summary>F12: генерация перечня Modbus (Тех.объекты) для SCADA.</summary>
         public RelayCommand ScadaTechObjectsCommand { get; }
@@ -103,7 +93,8 @@ namespace IO_PJT.ViewModels
         /// <summary>Хуки открытия дочерних окон (назначаются code-behind главного окна).</summary>
         public Action? OpenImportWindow { get; set; }
         public Action? OpenModbusImportWindow { get; set; }
-        public Action? OpenModbusLinkRulesWindow { get; set; }
+        /// <summary>F99: окно «Обновление адресации Modbus согласно MODBUS_MAP».</summary>
+        public Action? OpenModbusAddressingWindow { get; set; }
         /// <summary>F12: окно генерации перечня «Тех.объекты» (меню SCADA).</summary>
         public Action? OpenScadaTechObjectsWindow { get; set; }
         /// <summary>F13: окно генерации блоков Modbus (XML) (меню SCADA).</summary>
@@ -128,15 +119,8 @@ namespace IO_PJT.ViewModels
             SearchCommand = new RelayCommand(Refresh);
             ImportCommand = new RelayCommand(() => OpenImportWindow?.Invoke());
             ImportModbusCommand = new RelayCommand(() => OpenModbusImportWindow?.Invoke());
-            UpdateModbusAddressCommand = new RelayCommand(UpdateModbusAddress,
-                () => _services.Creator.TableExists(_services.CurrentTable));
-            UpdateModbusLinksCommand = new RelayCommand(() => UpdateModbusLinks(ModbusLinkMode.Full),
-                () => _services.Creator.TableExists(_services.CurrentTable));
-            // F59: заполнение только пустых связей — безопасный режим (ручные привязки не трогаются)
-            FillEmptyModbusLinksCommand = new RelayCommand(() => UpdateModbusLinks(ModbusLinkMode.FillEmpty),
-                () => _services.Creator.TableExists(_services.CurrentTable));
-            // F9.11: редактор правил доступен всегда (таблица правил — служебная, создаётся сама)
-            ModbusLinkRulesCommand = new RelayCommand(() => OpenModbusLinkRulesWindow?.Invoke());
+            // F99: одно окно вместо четырёх пунктов меню и двух кнопок тулбара
+            ModbusAddressingCommand = new RelayCommand(() => OpenModbusAddressingWindow?.Invoke());
             // F12: генерация перечня всегда доступна (диалог предупредит, если нет строк)
             ScadaTechObjectsCommand = new RelayCommand(() => OpenScadaTechObjectsWindow?.Invoke());
             // F13: генерация блоков Modbus (XML) всегда доступна (предупредит, если нет пакетов)
@@ -192,128 +176,6 @@ namespace IO_PJT.ViewModels
             catch (Exception ex)
             {
                 _services.Log.Error($"Ошибка копирования журнала: {ex.Message}");
-            }
-        }
-
-        /// <summary>F9.4: «Обновить адресацию Modbus» — записать M_-поля IO_LIST по парам
-        /// MODBUS_MAP.DcsTag ↔ IO_LIST.Tag (только Modbus-сигналы; ошибки — в MessageBox).</summary>
-        private void UpdateModbusAddress()
-        {
-            try
-            {
-                var r = _services.ModbusLink.UpdateAddressing();
-                string? lockWarn = ModbusMapService.TakeLockWarning();
-                if (lockWarn != null)
-                    _services.Log.Warn($"F9.4: {lockWarn}");
-                _services.Log.Info($"F9.4: {r.Summary}");
-                InfoText = r.Summary;
-
-                var sb = new System.Text.StringBuilder(r.Summary);
-                if (r.Errors.Count > 0)
-                {
-                    sb.AppendLine().AppendLine().AppendLine("Ошибки:");
-                    foreach (var e in r.Errors.Take(10))
-                        sb.AppendLine("  " + e);
-                    if (r.Errors.Count > 10)
-                        sb.AppendLine($"  … и ещё {r.Errors.Count - 10}");
-                }
-                if (r.NotFoundSamples.Count > 0)
-                {
-                    sb.AppendLine().AppendLine("Теги DcsTag, отсутствующие в IO_LIST:");
-                    foreach (var s in r.NotFoundSamples)
-                        sb.AppendLine("  " + s);
-                }
-                MessageBox.Show(sb.ToString(), "Обновить адресацию Modbus",
-                    MessageBoxButton.OK,
-                    r.Errors.Count > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
-                Refresh(); // сетка показывает записанные M_-поля
-            }
-            catch (Exception ex)
-            {
-                string msg = DbProbe.ClassifyMessage(ex.Message);
-                _services.Log.Error($"F9.4: ошибка обновления адресации Modbus: {msg}");
-                MessageBox.Show(msg, "Обновить адресацию Modbus",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        /// <summary>F9.9/F59: «Обновить связи Modbus (DcsTag)» — повторное связывание текущей таблицы
-        /// с уже сохранённой картой MODBUS_MAP (без импорта файлов): пересчёт LinkTag/DcsTag/LinkState
-        /// строк карты по кандидатам Service/Loop точек. F59: два режима — Full (полное обновление;
-        /// перед запуском предупреждение о перезаписи всех полей и запрос подтверждения) и
-        /// FillEmpty (заполняются только пустые связи — ручные привязки не сбрасываются).
-        /// M_-поля не записываются ни одним режимом — их пишет «Обновить адресацию Modbus» (F9.4).</summary>
-        private void UpdateModbusLinks(ModbusLinkMode mode)
-        {
-            string title = mode == ModbusLinkMode.Full
-                ? "Обновить связи Modbus (DcsTag) — полное обновление"
-                : "Заполнить пустые связи Modbus";
-            try
-            {
-                if (_services.ModbusMaps.LoadFromDb().Count == 0)
-                {
-                    MessageBox.Show(
-                        "MODBUS_MAP пуст — сначала импортируйте карту адресации «Импорт → Карта Modbus...».",
-                        "Обновить связи Modbus (DcsTag)",
-                        MessageBoxButton.OK, MessageBoxImage.Information);
-                    return;
-                }
-
-                // F59: полное обновление затирает LinkTag/DcsTag/LinkState всех строк карты —
-                // предупреждаем и запрашиваем подтверждение (в т.ч. ручные правки в Access)
-                if (mode == ModbusLinkMode.Full)
-                {
-                    var yes = MessageBox.Show(
-                        "ПОЛНОЕ обновление связей Modbus.\n\n" +
-                        "Все поля LinkTag / DcsTag / LinkState строк карты MODBUS_MAP будут " +
-                        "перезаписаны результатом расчёта — ручные привязки будут потеряны.\n\n" +
-                        "Продолжить?\n\n" +
-                        "(Чтобы сохранить ручные привязки, используйте режим «Заполнить пустые связи».)",
-                        title,
-                        MessageBoxButton.YesNo, MessageBoxImage.Warning,
-                        MessageBoxResult.No);
-                    if (yes != MessageBoxResult.Yes) return;
-                }
-
-                var r = _services.ModbusLink.Link(mode);
-                string? lockWarn = ModbusMapService.TakeLockWarning();
-                if (lockWarn != null)
-                    _services.Log.Warn($"F9.9: {lockWarn}");
-                _services.Log.Info($"F9.9: {r.Summary}");
-                InfoText = r.Summary;
-
-                var sb = new System.Text.StringBuilder(r.Summary);
-                if (r.UnlinkedSamples.Count > 0)
-                {
-                    sb.AppendLine().AppendLine().AppendLine("Не связано (примеры до 10):");
-                    foreach (var s in r.UnlinkedSamples.Take(10))
-                        sb.AppendLine("  " + s);
-                }
-                if (r.Errors.Count > 0)
-                {
-                    sb.AppendLine().AppendLine().AppendLine("Ошибки (до 10):");
-                    foreach (var e in r.Errors.Take(10))
-                        sb.AppendLine("  " + e);
-                    if (r.Errors.Count > 10)
-                        sb.AppendLine($"  … и ещё {r.Errors.Count - 10}");
-                }
-                if (r.MapUnlinkedSamples.Count > 0)
-                {
-                    sb.AppendLine().AppendLine().AppendLine("Карта без привязки (примеры до 10):");
-                    foreach (var s in r.MapUnlinkedSamples.Take(10))
-                        sb.AppendLine("  " + s);
-                }
-                MessageBox.Show(sb.ToString(), title,
-                    MessageBoxButton.OK,
-                    r.Errors.Count > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
-                Refresh(); // сетка обновляется (связь пишется в MODBUS_MAP, M_-поля — нет)
-            }
-            catch (Exception ex)
-            {
-                string msg = DbProbe.ClassifyMessage(ex.Message);
-                _services.Log.Error($"F9.9: ошибка обновления связей Modbus: {msg}");
-                MessageBox.Show(msg, title,
-                    MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 

@@ -22,7 +22,7 @@ namespace IO_PJT.Views
             // Хуки дочерних окон (MVVM без ссылок на Views внутри VM)
             _vm.OpenImportWindow = ShowImport;
             _vm.OpenModbusImportWindow = ShowModbusImport;
-            _vm.OpenModbusLinkRulesWindow = ShowModbusLinkRules;
+            _vm.OpenModbusAddressingWindow = ShowModbusAddressing;
             _vm.OpenScadaTechObjectsWindow = ShowScadaTechObjects;
             _vm.OpenScadaModbusBlocksWindow = ShowScadaModbusBlocks;
             _vm.OpenScadaAlgoInstancesWindow = ShowScadaAlgoInstances;
@@ -52,13 +52,14 @@ namespace IO_PJT.Views
             _vm.Refresh(); // M_-поля могли обновиться
         }
 
-        /// <summary>F9.11: окно редактора ручных правил связывания MODBUS_LINK_RULES.</summary>
-        private void ShowModbusLinkRules()
+        /// <summary>F99: окно «Обновление адресации Modbus согласно MODBUS_MAP» — три действия,
+        /// правила связывания MODBUS_LINK_RULES и проверка маски на теге.</summary>
+        private void ShowModbusAddressing()
         {
-            var vm = new ModbusLinkRulesViewModel(_vm.Services);
-            var window = new ModbusLinkRulesWindow { DataContext = vm, Owner = this };
+            var vm = new ModbusAddressingViewModel(_vm.Services) { RefreshMain = _vm.Refresh };
+            var window = new ModbusAddressingWindow { DataContext = vm, Owner = this };
             window.ShowDialog();
-            _vm.Refresh(); // связи не меняются, но правила влияют на следующий Link()
+            _vm.Refresh(); // связи/M_-поля могли измениться
         }
 
         /// <summary>F12: окно «Генерация перечня Modbus (Тех.объекты)» (меню SCADA).</summary>

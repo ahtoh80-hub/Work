@@ -158,6 +158,14 @@ namespace IO_PJT.Services
                     StringComparer.OrdinalIgnoreCase);
                 if (!lrCols.Contains("Mask"))
                     Execute($"ALTER TABLE [{Schema.ModbusLinkRulesTable}] ADD COLUMN [Mask] TEXT(255)");
+                // F99: шаблоны TagPattern/ValuePattern заменены маской — физически удаляются
+                // из существующих баз (данные шаблонов не переносятся: связывание их не
+                // использовало). Повтор безопасен: проверяем наличие колонки; сбой (база
+                // занята и т.п.) не мешает открытию — удаление повторится при следующем запуске.
+                foreach (var old in new[] { "TagPattern", "ValuePattern" })
+                    if (lrCols.Contains(old))
+                        try { Execute($"ALTER TABLE [{Schema.ModbusLinkRulesTable}] DROP COLUMN [{old}]"); }
+                        catch (Exception) { /* повтор при следующем открытии */ }
             }
             // F69: настройки связывания — поле-источник Service (SCADA_LINK_SETTINGS)
             if (!tables.Contains(Schema.ScadaLinkSettingsTable))

@@ -1,0 +1,99 @@
+<Window x:Class="IO_PJT.Views.ModbusAddressingWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Обновление адресации Modbus согласно MODBUS_MAP (F99)" Width="1100" Height="720"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+
+    <!-- F99: единое окно — три действия (связи полностью / только пустые / M_-адресация),
+         редактор правил связывания MODBUS_LINK_RULES с ComboBox полей, проверка маски
+         на конкретном теге и журнал результатов. Заменяет четыре пункта меню и две кнопки
+         главного окна. -->
+    <DockPanel Margin="8">
+
+        <!-- Низ: статус + журнал результатов -->
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
+            <TextBlock DockPanel.Dock="Top" Text="{Binding StatusText}"
+                       FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,4" />
+            <GroupBox Header="Журнал результатов" Height="150">
+                <TextBox Text="{Binding LogText, Mode=OneWay}" IsReadOnly="True"
+                         TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                         FontFamily="Consolas" FontSize="11" />
+            </GroupBox>
+        </DockPanel>
+
+        <!-- Верх: подсказка + действия + правила + проверка маски -->
+        <StackPanel DockPanel.Dock="Top">
+            <TextBlock Text="{Binding FieldsHint}" TextWrapping="Wrap"
+                       Foreground="#444444" Margin="0,0,0,6" />
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                <Button Content="Обновить связи (полное)" Command="{Binding LinkFullCommand}"
+                        Width="170" Padding="6,3" Margin="0,0,6,0" FontWeight="SemiBold"
+                        ToolTip="F59 Full: LinkTag/DcsTag/LinkState ВСЕХ строк MODBUS_MAP перезаписываются расчётом по правилам; ручные привязки теряются (с подтверждением)" />
+                <Button Content="Заполнить пустые связи" Command="{Binding LinkFillEmptyCommand}"
+                        Width="155" Padding="6,3" Margin="0,0,6,0"
+                        ToolTip="F59 FillEmpty: заполняются только строки карты без привязки — ручные привязки не сбрасываются" />
+                <Button Content="Обновить адресацию M_..." Command="{Binding UpdateAddressingCommand}"
+                        Width="155" Padding="6,3" Margin="0,0,14,0"
+                        ToolTip="F9.4: записать M_-поля IO_LIST по парам MODBUS_MAP.DcsTag ↔ IO_LIST.Tag (только Modbus-сигналы)" />
+                <Button Content="Добавить" Command="{Binding AddCommand}" Width="80" Padding="6,3" Margin="0,0,6,0"
+                        ToolTip="Новое правило (маска по умолчанию — полное совпадение имени тега)" />
+                <Button Content="Удалить" Command="{Binding DeleteCommand}" Width="75" Padding="6,3" Margin="0,0,6,0"
+                        ToolTip="Удалить выбранное правило" />
+                <Button Content="Проверить маску" Command="{Binding CheckMaskCommand}" Width="110" Padding="6,3" Margin="0,0,6,0"
+                        ToolTip="Прогнать маску выбранного правила по тегу из поля слева: паттерн + лучшая строка карты" />
+                <Button Content="Сохранить правила" Command="{Binding SaveRulesCommand}" Width="130" Padding="6,3"
+                        FontWeight="SemiBold"
+                        ToolTip="Записать все правила в MODBUS_LINK_RULES (полная замена); применяются при следующем «Обновить связи»" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                <TextBlock Text="Проверка маски — тег IO_LIST:" VerticalAlignment="Center" Margin="0,0,6,0" />
+                <TextBox Text="{Binding CheckTag, UpdateSourceTrigger=PropertyChanged}" Width="190"
+                         VerticalAlignment="Center" />
+                <TextBlock Text="{Binding CheckResult}" VerticalAlignment="Center" Margin="10,0,0,0"
+                           Foreground="#1F5C99" />
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Центр: грид правил связывания -->
+        <DataGrid ItemsSource="{Binding Rules}" SelectedItem="{Binding SelectedRule}"
+                  AutoGenerateColumns="False" CanUserAddRows="True" EnableRowVirtualization="True"
+                  HeadersVisibility="Column">
+            <DataGrid.Columns>
+                <DataGridCheckBoxColumn Header="Вкл" Binding="{Binding Enabled, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="45"
+                                        ToolTipService.ToolTip="Выключенное правило хранится в БД, но при связывании не применяется" />
+                <DataGridTextColumn Header="Название" Binding="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
+                                    Width="160" />
+                <DataGridTemplateColumn Header="Поле IO" Width="130">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <ComboBox IsEditable="True"
+                                      ItemsSource="{Binding DataContext.IoColumns, RelativeSource={RelativeSource AncestorType=Window}}"
+                                      SelectedItem="{Binding IOField, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"
+                                      ToolTip="Колонка IO_LIST: Tag / Service / IoType / Loop / … (130 колонок FieldRegistry)" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTemplateColumn Header="Поле карты" Width="130">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <ComboBox IsEditable="True"
+                                      ItemsSource="{Binding DataContext.MapColumns, RelativeSource={RelativeSource AncestorType=Window}}"
+                                      SelectedItem="{Binding MapField, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"
+                                      ToolTip="Строковое поле строки MODBUS_MAP: Description / PlcTag / FuncCode / …" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="Маска (п.10)" Binding="{Binding Mask, UpdateSourceTrigger=PropertyChanged}"
+                                    Width="220"
+                                    ToolTipService.ToolTip="Маска: {Колонка}&amp;*(-N)(+N); пусто — точное совпадение IOField↔MapField" />
+                <DataGridTextColumn Header="FuncCode" Binding="{Binding FuncCode, UpdateSourceTrigger=PropertyChanged}"
+                                    Width="70"
+                                    ToolTipService.ToolTip="Фильтр Function Code строки карты (02/03/06); пусто — без фильтра" />
+                <DataGridTextColumn Header="Приоритет" Binding="{Binding Priority, UpdateSourceTrigger=PropertyChanged}"
+                                    Width="70"
+                                    ToolTipService.ToolTip="Меньше значение — правило применяется раньше" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</Window>

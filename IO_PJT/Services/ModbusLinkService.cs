@@ -107,18 +107,15 @@ namespace IO_PJT.Services
                 }
             }
 
-            // F9.11: ручные правила связывания (MODBUS_LINK_RULES) — невалидный шаблон
-            // правила пропускается с предупреждением
+            // F9.11/F99: ручные правила связывания (MODBUS_LINK_RULES) — невалидное правило
+            // (неизвестная колонка в маске) пропускается с предупреждением
             var rules = new List<ModbusLinkRule>();
-            // F69: поле-источник Service для ExtractCandidates (SCADA_LINK_SETTINGS)
-            string serviceField = _rules?.LoadServiceField() ?? ModbusLinkRuleService.ServiceFieldDefault;
             if (_rules != null)
             {
                 rules = _rules.LoadEnabled();
                 foreach (var r in rules)
                 {
-                    string? err = ModbusLinkRuleService.ValidatePattern(r.TagPattern)
-                                  ?? ModbusLinkRuleService.ValidatePattern(r.ValuePattern);
+                    string? err = ModbusLinkRuleService.Validate(r);
                     if (err != null)
                     {
                         _log.Warn($"F9.11: правило «{r.Name}» пропущено: {err}");
@@ -148,8 +145,10 @@ namespace IO_PJT.Services
             // второй адрес на один сигнал запрещён
             var boundTags = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
 
-            // F55: точки с кандидатами готовятся один раз (Examined не зависит от проходов)
-            var work = new List<(IoPoint P, List<Candidate> Cands)>();
+            // F9-F55/F99: точки с кандидатами готовятся один раз; F99 — из связывания
+            // ушли ExtractCandidates/ServiceField: участвуют ВСЕ точки с заполненным Tag
+            // (отбор MCC-сигналов больше не выполняется — только маски правил)
+            var work = new List<IoPoint>();
             foreach (var wp in points)
             {
                 if (string.IsNullOrWhiteSpace(wp.Tag)) continue;
@@ -160,9 +159,7 @@ namespace IO_PJT.Services
                     result.SkippedAlreadyLinked++;
                     continue;
                 }
-                var wc = ExtractCandidates(wp, serviceField); // F69
-                if (wc.Count == 0) continue; // не MCC-сигнал — не применимо
-                work.Add((wp, wc));
+                work.Add(wp);
             }
             result.Examined = work.Count;
 
@@ -171,20 +168,22 @@ namespace IO_PJT.Services
             // п.10: связывание ТОЛЬКО по правилам (маски) — эвристики F9/F55/F66 отключены
             for (int wi = 0; wi < work.Count; wi++)
             {
-                var (p, candidates) = work[wi];
+                var p = work[wi];
                 if (wi % 25 == 0)
                     progress?.Report((wi, work.Count, p.Tag));
 
                 ModbusMapEntry? entry = null;
                 ModbusLinkRule? matchedRule = null;
+                int matchScore = 0;
                 {
-                    // п.10: масочный матчинг по правилам (MODBUS_LINK_RULES) —
-                    // маска оценивается по колонкам точки, паттерн ищется в MapField
+                    // п.10/F99: масочный матчинг по правилам (MODBUS_LINK_RULES) —
+                    // маска оценивается по колонкам точки, паттерн ищется в MapField;
+                    // из совпавших строк выбирается лучшая (минимальное отклонение Score)
                     var cols = ModbusBlockPlannerService.ColumnValuesOf(p);
                     foreach (var rule in rules)
                     {
-                        entry = FindMapRowByMask(map, rule, p, locked, cols);
-                        if (entry != null) { matchedRule = rule; break; }
+                        var (row, score) = FindMapRowByMask(map, rule, p, locked, cols);
+                        if (row != null) { entry = row; matchedRule = rule; matchScore = score; break; }
                     }
                 }
                 if (entry == null)
@@ -193,7 +192,7 @@ namespace IO_PJT.Services
                     result.Unlinked++;
                     if (result.UnlinkedSamples.Count < 20)
                     {
-                        string msg = $"{p.Tag} (кандидат: {candidates[0].Tag})";
+                        string msg = p.Tag!;
                         result.UnlinkedSamples.Add(msg);
                         // F9.8: то же сообщение, что в журнале («Не связано: …»), — в аудит
                         auditMsgs.Add((p.Tag, AuditAction.ModbusWarning,
@@ -256,9 +255,22 @@ namespace IO_PJT.Services
                 {
                     entry.LinkTag = nextLink;
                     entry.DcsTag = nextDcs;
-                    entry.LinkState = ModbusMapService.LinkStateLinked;
+                    // F99: полное совпадение (Score=0) → «привязано»; маска с wildcard,
+                    // поглотившим символы (Score>0) → «привязано частично» + предупреждение
+                    bool partial = matchScore > 0;
+                    entry.LinkState = partial
+                        ? ModbusMapService.LinkStateLinkedPartial
+                        : ModbusMapService.LinkStateLinked;
                     boundTags[p.Tag!] = entry.Id;
                     pending.Add((entry.Id, entry.LinkTag, entry.DcsTag, entry.LinkState));
+                    if (partial)
+                    {
+                        string pwarn = $"{p.Tag} — привязано частично (маска): отклонение " +
+                                       $"{matchScore} симв., строка «{entry.PlcTag}»";
+                        _log.Warn(pwarn);
+                        auditMsgs.Add((p.Tag, AuditAction.ModbusWarning,
+                            p.Revision?.FileName, p.Revision?.Sheet, $"Связывание Modbus: {pwarn}"));
+                    }
                 }
             }
 
@@ -580,11 +592,14 @@ namespace IO_PJT.Services
         private static IEnumerable<string> SplitTags(string? s) =>
             (s ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-        /// <summary>п.10: строка карты по МАСКЕ правила — маска оценивается по колонкам IO_LIST
-        /// точки (ColumnValuesOf) → паттерн ищется в значении MapField каждой строки карты
-        /// (wildcard «*» = любые символы). Без маски — полное совпадение IOField ↔ MapField.
-        /// FuncCode — опциональный фильтр строки карты. locked — закреплённые строки (FillEmpty).</summary>
-        private static ModbusMapEntry? FindMapRowByMask(
+        /// <summary>п.10/F99: строка карты по МАСКЕ правила — маска оценивается по колонкам
+        /// IO_LIST точки (ColumnValuesOf) → паттерн ищется в значении MapField каждой строки
+        /// карты (wildcard «*» = любые символы); из совпавших строк выбирается лучшая —
+        /// с минимальным отклонением Score (см. MaskPattern.Score). Без маски — точное
+        /// совпадение IOField ↔ MapField (Score=0). FuncCode — опциональный фильтр строки
+        /// карты. locked — закреплённые строки (FillEmpty).
+        /// Возвращает (строка, Score); строка=null — совпадений нет.</summary>
+        private static (ModbusMapEntry? Row, int Score) FindMapRowByMask(
             List<ModbusMapEntry> map, ModbusLinkRule rule, IoPoint p,
             HashSet<long> locked, IReadOnlyDictionary<string, string> cols)
         {
@@ -594,13 +609,15 @@ namespace IO_PJT.Services
             if (mp != null)
             {
                 pattern = mp.Evaluate(cols);
-                if (pattern.Length == 0) return null;
+                if (pattern.Length == 0) return (null, 0);
             }
             else
             {
                 pattern = ModbusLinkRuleService.GetIoValue(p, rule.IOField) ?? "";
-                if (pattern.Length == 0) return null;
+                if (pattern.Length == 0) return (null, 0);
             }
+            ModbusMapEntry? best = null;
+            int bestScore = int.MaxValue;
             foreach (var r in map)
             {
                 if (locked.Contains(r.Id)) continue;
@@ -609,16 +626,15 @@ namespace IO_PJT.Services
                         StringComparison.OrdinalIgnoreCase))
                     continue;
                 string mapVal = ModbusLinkRuleService.GetMapValue(r, rule.MapField) ?? "";
-                if (mp != null)
-                {
-                    if (MaskPattern.IsMatch(pattern, mapVal)) return r;
-                }
-                else
-                {
-                    if (string.Equals(pattern, mapVal, StringComparison.OrdinalIgnoreCase)) return r;
-                }
+                // F99: Score — отклонение совпадения (null — не совпадает; 0 — полное);
+                // меньше Score — точнее, побеждает минимальный (первый при равенстве)
+                int? s = mp != null
+                    ? MaskPattern.Score(pattern, mapVal)
+                    : (string.Equals(pattern, mapVal, StringComparison.OrdinalIgnoreCase)
+                        ? 0 : (int?)null);
+                if (s is int sc && sc < bestScore) { bestScore = sc; best = r; }
             }
-            return null;
+            return (best, best == null ? 0 : bestScore);
         }
 
         /// <summary>F9.3: добавить тег в LinkTag строки карты (несколько команд делят один Control word;
