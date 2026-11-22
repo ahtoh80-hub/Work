@@ -451,8 +451,9 @@ namespace IO_PJT.Smoke
                 Check(hist.Count > 0 && hist.All(h => h.Action == AuditAction.Update),
                     $"аудит M_FuncCode: {hist.Count} записей Update");
 
-                // ===== F96: битовый маппинг — все строки адреса в SharedColumns + default из Literal =====
-                Console.WriteLine("== F96 Битовый маппинг data-шаблонов ==");
+                // ===== F96/F97: битовый маппинг — все строки адреса в SharedColumns;
+                // F97 — ненайденные строки/колонки: Info = имя объекта, FALSE запрещён =====
+                Console.WriteLine("== F96/F97 Битовый маппинг data-шаблонов ==");
                 char q96 = (char)34;
                 var svc96 = new ModbusBlockPlannerService(tmpDb);
                 string ip96 = "192.168.4.10(Default)\n255.255.255.0\nport 502";
@@ -501,7 +502,7 @@ namespace IO_PJT.Smoke
                 var links96 = new List<string>();
                 var seq96 = new List<int>();
                 for (int b96 = 0; b96 <= 15; b96++) seq96.Add(9601 + b96);
-                seq96.Add(9618); // BIT98 (var, бит0 найден, M_Marka пуст → default FALSE)
+                seq96.Add(9618); // BIT98 (var, бит0 найден, M_Marka пуст → имя объекта, F97)
                 seq96.Add(9617); // BIT99 — последний узел цепочки
                 int prevT96 = 9600;
                 foreach (int curT96 in seq96)
@@ -538,18 +539,19 @@ namespace IO_PJT.Smoke
                     $"F96: биты 1..15 привязаны по M_Bit из ВСЕХ строк адреса (нет: " +
                     $"{(miss96.Count > 0 ? string.Join(",", miss96) : "-")}; " +
                     $"warnings: {string.Join("; ", warn96)})");
-                Check(gen96.Contains("Info=" + q96 + "FALSE" + q96),
-                    "F96: бит0 (пустые M_Marka/Literal) → Info=FALSE — default неразрешённой колонки");
-                Check(!gen96.Contains("Info=" + q96 + "BIT0" + q96) &&
-                      !gen96.Contains("Info=" + q96 + "BIT98" + q96) &&
-                      !gen96.Contains("Info=" + q96 + "BIT99" + q96),
-                    "F96: шаблонные Info (приёмник BIT0, var BIT98/BIT99) заменены — шаблонных имён не осталось");
+                Check(!gen96.Contains("Info=" + q96 + "FALSE" + q96),
+                    "F97: бит0 (пустые M_Marka/Literal) → Info=имя объекта, FALSE запрещён");
+                Check(gen96.Contains("Info=" + q96 + "BIT0" + q96) &&
+                      gen96.Contains("Info=" + q96 + "BIT98" + q96) &&
+                      gen96.Contains("Info=" + q96 + "BIT99" + q96),
+                    "F97: ненайденные объекты (приёмник BIT0, var BIT98/BIT99) сохраняют имя " +
+                    "объекта по умолчанию в Info");
 
-                // второй прогон: «Начальное значение» бит0 = DEF0 → Info=DEF0 (default из Literal)
+                // второй прогон: «Начальное значение» бит0 = DEF0 → <IV>=DEF0, Info=имя объекта (F97)
                 var rowsDef96 = new Dictionary<string,
                     (string IoColumn, string Literal, string BitMode, string BitNo)>(rows96);
                 rowsDef96["BIT0"] = ("{M_Marka}", "DEF0", "Адрес/бит", "0");
-                rowsDef96["BIT98"] = ("{M_Marka}", "DEF0", "Адрес/бит", "0"); // var-ветка F96 (default из Literal)
+                rowsDef96["BIT98"] = ("{M_Marka}", "DEF0", "Адрес/бит", "0"); // var-ветка: Literal → <IV>, Info = имя объекта (F97)
                 var dvDef96 = new Dictionary<string, IReadOnlyDictionary<string,
                     (string IoColumn, string Literal, string BitMode, string BitNo)>>
                 { ["BIT-TPL"] = rowsDef96 };
@@ -560,11 +562,14 @@ namespace IO_PJT.Smoke
                     { ["DI96"] = ("BIT-TPL", "BOOL", "bit") },
                     new Dictionary<string, string> { ["BIT-TPL"] = tpl96 },
                     null, dvDef96, "BIT-TPL");
-                Check(genDef96.Contains("Info=" + q96 + "DEF0" + q96),
-                    $"F96: неразрешённая колонка + «Начальное значение» → Info=DEF0 (default из " +
-                    $"Literal; warnings: {string.Join("; ", warnDef96)})");
-                Check(!genDef96.Contains("Info=" + q96 + "BIT98" + q96),
-                    "F96: var-объект BIT98 + «Начальное значение» → Info=DEF0 (default из Literal, var-ветка)");
+                Check(!genDef96.Contains("Info=" + q96 + "DEF0" + q96) &&
+                      genDef96.Contains("<IV>DEF0</IV>"),
+                    $"F97: неразрешённая колонка + «Начальное значение» → DEF0 только в <IV>, " +
+                    $"Info=DEF0 запрещён (warnings: {string.Join("; ", warnDef96)})");
+                Check(genDef96.Contains("Info=" + q96 + "BIT0" + q96) &&
+                      genDef96.Contains("Info=" + q96 + "BIT98" + q96),
+                    "F97: приёмник BIT0 и var BIT98 с «Начальным значением» → Info = имя объекта " +
+                    "по умолчанию (BIT0/BIT98), механизм <IV> не тронут");
                 // ===== F9.4: не-Modbus-сигнал не может быть связан с картой =====
                 Console.WriteLine("== F9.4 Не-Modbus сигнал (IO Type без M*/COM) ==");
                 var pNonModbus = MakePoint("1115-AIN-00101", "1115-M-00101A", "AI",

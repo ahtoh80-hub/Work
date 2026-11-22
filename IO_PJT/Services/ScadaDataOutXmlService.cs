@@ -934,14 +934,14 @@ namespace IO_PJT.Services
                 {
                     string objName = (blk.Attribute("Info")?.Value ?? "").Trim();
                     // F69: подмена токенов + валидация/автозамена шаблонного имени объекта
-                    // (маппинг ниже ищется по ШАБЛОННОМУ objName и имеет приоритет)
-                    if (objName.Length > 0)
-                    {
-                        string fixedObj = FixDataObjectName(objName, p, b, mainToken,
-                            reserveToken, warnings);
-                        if (!string.Equals(fixedObj, objName, StringComparison.Ordinal))
-                            clone.SetAttributeValue("Info", fixedObj);
-                    }
+                    // (маппинг ниже ищется по ШАБЛОННОМУ objName и имеет приоритет);
+                    // F97: fixedObj — имя объекта по умолчанию для Info/карточки, когда
+                    // строка/колонка в БД не найдена (FALSE в имя не подставляется)
+                    string fixedObj = objName.Length > 0
+                        ? FixDataObjectName(objName, p, b, mainToken, reserveToken, warnings)
+                        : objName;
+                    if (!string.Equals(fixedObj, objName, StringComparison.Ordinal))
+                        clone.SetAttributeValue("Info", fixedObj);
                     // F80: строка маппинга объекта — режим привязки «Адрес»/«Адрес/бит»
                     bool hasRowV = dataVars.TryGetValue(objName, out var drow);
                     string bitMode80 = hasRowV ? (drow.BitMode ?? "").Trim() : "";
@@ -950,7 +950,7 @@ namespace IO_PJT.Services
                     //   F80 «Адрес/бит» — явный бит из строки маппинга (BitNo, без «Смещения бит»);
                     //   F80 «Адрес» — привязка только по адресу (битовая ветка не выполняется);
                     //   режим не задан — прежнее F75-авто по имени Bit_i (+ «Смещение бит»);
-                    //   бит не найден в IO_LIST → имя объекта FALSE (F80).
+                    //   бит не найден в IO_LIST → имя объекта по умолчанию (F97, FALSE запрещён).
                     IReadOnlyDictionary<string, string>? bitCols75 = null;
                     string bitMarka75 = "";
                     string litRow75 = "";
@@ -976,13 +976,12 @@ namespace IO_PJT.Services
                         {
                             bitSkip75 = true;
                             bitFalse80 = true;
-                            // F86 (p.1): значение по умолчанию — из привязки Typno (Literal)
-                            string defWarn80 = hasRowV && !string.IsNullOrWhiteSpace(drow.Literal)
-                                ? drow.Literal.Trim() : "FALSE";
+                            // F97: бит не привязан — Info/карточка = имя объекта по
+                            // умолчанию (Literal в имя не подставляется, FALSE запрещён)
                             if (warnings != null &&
                                 (noMapWarned == null || noMapWarned.Add($"F80|{p.MasterName}|{w75}")))
                                 warnings.Add($"F80: {p.MasterName}: бит {w75} не привязан в IO_LIST -" +
-                                    $" объект «{objName}» → {defWarn80}");
+                                    $" объект «{objName}» → {fixedObj}");
                         }
                         else if (bitCols75.TryGetValue("M_Marka", out var bm75) &&
                                  !string.IsNullOrWhiteSpace(bm75))
@@ -1044,16 +1043,16 @@ namespace IO_PJT.Services
                             }
                             else if (dUnresolved != null)
                             {
-                                // F96: колонка/шаблон не разрешился (нет колонки/пусто у
-                                // точки) — default из привязки Typno (Literal): Info и
-                                // карточка = литерал, <IV> = литерал (канал значения
-                                // сохраняется) — шаблонное/пустое значение не остаётся
-                                clone.SetAttributeValue("Info", dval);
+                                // F97: колонка/шаблон не разрешился (нет колонки/пусто у
+                                // точки) — Info/карточка = имя объекта по умолчанию
+                                // (FALSE/Literal в имя не подставляются); Literal — канал
+                                // значения в <IV> (механизм F36/F49 не меняется)
+                                clone.SetAttributeValue("Info", fixedObj);
                                 int defCard96 = nextCard;
                                 nextCard += 10;
                                 clone.Element("Params")?.SetAttributeValue("cardId", defCard96);
                                 if (seenCards.Add(defCard96))
-                                    outCards.Add(NewCard(defCard96, dval));
+                                    outCards.Add(NewCard(defCard96, fixedObj));
                                 SetIvValue(clone, dval);
                             }
                             else
@@ -1064,17 +1063,17 @@ namespace IO_PJT.Services
                             }
                             bitApplied75 = true;
                         }
-                        // F96: неразрешённая колонка с пустым литералом у битового
-                        // объекта — прежний дефолт "FALSE" (Info/карточка), чтобы не
-                        // оставалось шаблонного/пустого значения объекта
+                        // F97: неразрешённая колонка с пустым литералом у битового
+                        // объекта — Info/карточка = имя объекта по умолчанию (FALSE
+                        // запрещён) — шаблонного/пустого значения не остаётся
                         else if (dUnresolved != null && want75 is int && gtVar != "34")
                         {
-                            clone.SetAttributeValue("Info", "FALSE");
+                            clone.SetAttributeValue("Info", fixedObj);
                             int defBit96 = nextCard;
                             nextCard += 10;
                             clone.Element("Params")?.SetAttributeValue("cardId", defBit96);
                             if (seenCards.Add(defBit96))
-                                outCards.Add(NewCard(defBit96, "FALSE"));
+                                outCards.Add(NewCard(defBit96, fixedObj));
                         }
                     }
                     else if (warnings != null && objName.Length > 0 && !bitFalse80 &&
@@ -1105,18 +1104,18 @@ namespace IO_PJT.Services
                             outCards.Add(NewCard(bitCard75, bitName75));
                         SetIvValue(clone, litRow75);
                     }
-                    // F80/F86 (p.1): бит не привязан (нет точки с M_Bit) — значение по
-                    // умолчанию из привязки Typno (Literal «Начальное значение»); если не
-                    // задано — прежний "FALSE" (обратная совместимость)
+                    // F97: бит не привязан (нет точки с M_Bit) — Info/карточка = имя
+                    // объекта по умолчанию (FALSE/Literal в имя не подставляются);
+                    // Literal «Начальное значение» — только в <IV> (канал значения
+                    // F36/F49 без изменений)
                     if (bitFalse80 && !bitApplied75)
                     {
-                        string defVal80 = litRow75.Length > 0 ? litRow75 : "FALSE";
-                        clone.SetAttributeValue("Info", defVal80);
+                        clone.SetAttributeValue("Info", fixedObj);
                         int bitCard80 = nextCard;
                         nextCard += 10;
                         clone.Element("Params")?.SetAttributeValue("cardId", bitCard80);
                         if (seenCards.Add(bitCard80))
-                            outCards.Add(NewCard(bitCard80, defVal80));
+                            outCards.Add(NewCard(bitCard80, fixedObj));
                         SetIvValue(clone, litRow75);
                     }
                 }
@@ -1246,14 +1245,13 @@ namespace IO_PJT.Services
                         bitSkipT75 = true;
                         bitFalseT80 = true;
                         noMapWarned?.Add($"{p.MasterName}|{objName}");
-                        // F86 (p.1): значение по умолчанию — из привязки Typno (Literal)
-                        string defWarnT80 = hasRowT && !string.IsNullOrWhiteSpace(drowT.Literal)
-                            ? drowT.Literal.Trim() : "FALSE";
+                        // F97: бит приёмника не привязан — Info/карточка = имя объекта
+                        // по умолчанию (Literal в имя не подставляется, FALSE запрещён)
                         if (warnings != null &&
                             (noMapWarned == null ||
                              noMapWarned.Add($"F80T|{p.MasterName}|{objName}|{wT75}")))
                             warnings.Add($"F80: {p.MasterName}: бит {wT75} приёмника «{objName}» " +
-                                $"не привязан в IO_LIST - объект → {defWarnT80}");
+                                $"не привязан в IO_LIST - объект → {fixedTarget}");
                     }
                     else if (bitColsT75.TryGetValue("M_Marka", out var bmT75) && !string.IsNullOrWhiteSpace(bmT75))
                         bitMarkaT75 = bmT75.Trim();
@@ -1261,7 +1259,6 @@ namespace IO_PJT.Services
                 string? mappedName = null;
                 bool mappedFromName = false;
                 string litRow49 = ""; // F49: литерал («Начальное значение») строки маппинга
-                bool unresT96 = false; // F96: колонка/шаблон приёмника не разрешился
                 if (hasRowT)
                 {
                     litRow49 = (drowT.Literal ?? "").Trim();
@@ -1270,7 +1267,6 @@ namespace IO_PJT.Services
                     if (dUnT != null && !bitSkipT75)
                         warnings?.Add($"F35: {b.Tag}: приёмник «{objName}» — колонка/шаблон " +
                             $"«{dUnT}» не разрешился — значение не подставлено");
-                    unresT96 = dUnT != null && !mappedFromName && !bitSkipT75;
                     if (string.IsNullOrEmpty(mappedName)) mappedName = null;
                     if (bitSkipT75) { mappedName = null; mappedFromName = false; }
                     // F69: подмена токенов и в значении маппинга приёмника
@@ -1303,14 +1299,9 @@ namespace IO_PJT.Services
                 else if (mappedName != null)
                 {
                     // F36: литерал («Начальное значение») — канал ЗНАЧЕНИЯ: подстановка
-                    // в <IV> приёмника; F96: неразрешённая колонка — default из привязки
-                    // Typno также в Info/карточку (шаблонное значение не остаётся;
-                    // член эталона suffix сохраняется, как в F80/F86)
-                    if (unresT96)
-                    {
-                        cardTarget = mappedName;
-                        clone.SetAttributeValue("Info", mappedName + suffix);
-                    }
+                    // в <IV> приёмника; F97: неразрешённая колонка — Info/карточка
+                    // остаются именем объекта по умолчанию (Literal в имя не
+                    // подставляется), член эталона suffix сохраняется
                     SetIvValue(clone, mappedName);
                 }
                 else
@@ -1324,22 +1315,11 @@ namespace IO_PJT.Services
                         warnings?.Add($"F35: {p.MasterName}: блок-приёмник «{objName}» — в маппинге " +
                             "«Объекты data-шаблонов» нет строки объекта — Info шаблона оставлен без изменений");
                 }
-                // F80/F86 (p.1): бит приёмника не привязан — значение по умолчанию из
-                // привязки Typno (Literal); если не задано — прежний "FALSE"
-                if (bitFalseT80)
-                {
-                    string defValT80 = litRow49.Length > 0 ? litRow49 : "FALSE";
-                    clone.SetAttributeValue("Info", defValT80 + suffix);
-                    cardTarget = defValT80;
-                    if (litRow49.Length > 0) SetIvValue(clone, litRow49);
-                }
-                // F96: неразрешённая колонка приёмника с пустым литералом у битового
-                // объекта — прежний дефолт "FALSE" (Info/карточка)
-                if (unresT96 && mappedName == null && wantT75 is int)
-                {
-                    clone.SetAttributeValue("Info", "FALSE" + suffix);
-                    cardTarget = "FALSE";
-                }
+                // F97: бит приёмника не привязан — Info/карточка = имя объекта по
+                // умолчанию (FALSE/Literal в имя не подставляются); Literal «Начальное
+                // значение» — только в <IV> (канал значения F36/F49 без изменений)
+                if (bitFalseT80 && litRow49.Length > 0)
+                    SetIvValue(clone, litRow49);
                 int newCard = nextCard;
                 nextCard += 10;
                 clone.Element("Params")?.SetAttributeValue("cardId", newCard);
