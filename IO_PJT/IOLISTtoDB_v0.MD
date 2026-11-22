@@ -617,3 +617,20 @@ data-шаблонах («Адрес/бит») для бита, не найден
   Info = имя объекта, `Info="FALSE"` отсутствует; прогон с Literal DEF0 → DEF0 только в `<IV>`,
   Info = BIT0/BIT98. Смоук: 49 OK / 21 FAIL (база та же; 21 FAIL и краш `RunDbPart` OleDb —
   предсуществующие, сайт краша `Program.cs` не менялся).
+
+### F98 — превью: какой data-шаблон подходит и его версия (2026-11)
+
+- `ScadaModbusBlocksViewModel`: свойство `DataTemplatesText` — зелёная строка под статистикой
+  в нижней панели F13 (между `StatsText` и `StatusText`); заполняется в `Build()`:
+  `CheckDataOutTemplate()` (свежий статус ворот основного шаблона — включая «файл по пути не
+  найден», раньше этот статус в UI не отображался вообще) + `BuildDataTemplatesText(...)`.
+- `BuildDataTemplatesText` (public static, чистый): «Data-шаблоны: {статус ворот}; Typno →
+  имя шаблона v{Version} ({SavedAt})…» — по Typno ПРЕВЬЮ (без reserve-дублей F68, из
+  `SCADA_TYPNO_MAP` × `SCADA_DATAOUT_TEMPLATES`, IgnoreCase); пустое имя шаблона в правиле →
+  «основной шаблон»; имя не найдено в БД → «⚠ … не найден в SCADA_DATAOUT_TEMPLATES»;
+  Typno плана без правила → «⚠ без правила Typno: …»; Version=0 → «без версии».
+- `ScadaModbusBlocksWindow.xaml`: `TextBlock DataTemplatesText` (#375623) между Stats/Status.
+- `AppInfo.Version` → F98.
+- `IO_PJT.Smoke`: секция F98 — 6 проверок хелпера (версия+дата, «без версии», ⚠ не найден,
+  ⚠ без правила, основной шаблон, статус ворот + Typno вне плана не показывается).
+  Смоук: 55 OK / 21 FAIL (база 49/21 + 6 F98; 21 FAIL и краш `RunDbPart` — предсуществующие).
