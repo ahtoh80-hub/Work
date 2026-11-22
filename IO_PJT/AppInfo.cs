@@ -4,9 +4,9 @@
     /// in the Help - About dialog.</summary>
     public static class AppInfo
     {
-        /// <summary>Current program version. Bump after every code change (F79-F97).
-        /// F97 = data-template generation: hardcoded "FALSE" default is forbidden —
-        /// unresolved rows/columns keep the object name; Literal goes to &lt;IV&gt; only.</summary>
-        public const string Version = "F97";
+        /// <summary>Current program version. Bump after every code change (F79-F98).
+        /// F98 = preview shows which data template applies (Typno → SCADA_DATAOUT_TEMPLATES)
+        /// with version/date plus the gate template status.</summary>
+        public const string Version = "F98";
     }
 }

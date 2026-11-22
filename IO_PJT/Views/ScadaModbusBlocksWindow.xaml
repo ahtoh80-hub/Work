@@ -37,6 +37,8 @@
         <Border DockPanel.Dock="Bottom" Padding="4,6">
             <StackPanel>
                 <TextBlock Text="{Binding StatsText}" FontWeight="SemiBold" TextWrapping="Wrap" Foreground="#1F4E79" />
+                <!-- F98: какой data-шаблон подходит и его версия для генерации data-шаблонов -->
+                <TextBlock Text="{Binding DataTemplatesText}" TextWrapping="Wrap" Margin="0,1,0,0" Foreground="#375623" />
                 <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Margin="0,2,0,0" />
                 <!-- F69/F72: красный список сообщений «ИМЯ:» (автозамена спецсимволов).
                      F77: ограничен по высоте со внутренней прокруткой и автоскроллом до

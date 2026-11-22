@@ -152,6 +152,12 @@ namespace IO_PJT.ViewModels
         private string _statsText = "";
         public string StatsText { get => _statsText; set => Set(ref _statsText, value, nameof(StatsText)); }
 
+        private string _dataTemplatesText = "";
+        /// <summary>F98: строка превью «какой data-шаблон подходит и его версия» — статус
+        /// ворот основного шаблона привязок (файл/код, валидность) + соответствие
+        /// «Typno плана → именованный шаблон SCADA_DATAOUT_TEMPLATES (версия, дата)».</summary>
+        public string DataTemplatesText { get => _dataTemplatesText; set => Set(ref _dataTemplatesText, value, nameof(DataTemplatesText)); }
+
         private string _nameWarningsText = "";
         /// <summary>F69: красный список сообщений «ИМЯ:» (автозамена спецсимволов в именах
         /// блоков/объектов/марках) — собирается после построения превью и экспорта.</summary>
@@ -890,6 +896,12 @@ namespace IO_PJT.ViewModels
                             $"IP {result.SkippedBadEndpoint}, функция {result.SkippedBadFunc}; " +
                             $"Typno без маппинга: {CountUnmappedTypno(result)} (F33: привязки пропускаются); " +
                             $"предупреждений: {result.Warnings.Count}";
+                // F98: какой data-шаблон подходит и его версия — статус ворот (файл/код,
+                // включая «файл по пути не найден») + Typno → именованный шаблон
+                // SCADA_DATAOUT_TEMPLATES (Version/SavedAt)
+                CheckDataOutTemplate();
+                DataTemplatesText = BuildDataTemplatesText(CollectPlanTypnos(result),
+                    TypnoRules, DataOutTemplates, DataOutTemplateStatus);
                 StatusText = result.Packets.Count > 0
                     ? "Превью построено. Кнопки: «Записать привязки в IO_LIST», «Сформировать XML...»."
                     : "Пакеты не сформированы — проверьте адресацию Modbus (M_PlcTag) в таблице.";
@@ -1526,6 +1538,82 @@ namespace IO_PJT.ViewModels
                     if (b.Typno.Length > 0 && !mapped.Contains(b.Typno)) n++;
             }
             return n;
+        }
+
+        /// <summary>F98: Typno привязок превью (без reserve-дублей F68), по алфавиту;
+        /// пустые Typno исключаются — именно они участвуют в генерации data-шаблонов.</summary>
+        private static List<string> CollectPlanTypnos(MbPlanResult result)
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var list = new List<string>();
+            foreach (var p in result.Packets)
+            {
+                if (p.IsReserve) continue;
+                foreach (var b in p.Bindings)
+                    if (b.Typno.Length > 0 && seen.Add(b.Typno)) list.Add(b.Typno);
+            }
+            list.Sort(StringComparer.OrdinalIgnoreCase);
+            return list;
+        }
+
+        /// <summary>F98: строка превью «data-шаблоны для генерации»: статус ворот основного
+        /// шаблона (gateStatus) + по каждому Typno плана — правило SCADA_TYPNO_MAP →
+        /// именованный шаблон SCADA_DATAOUT_TEMPLATES с версией и датой сохранения;
+        /// проблемы помечаются ⚠ (шаблон не найден в БД, Typno без правила).
+        /// Публичный чистый хелпер — покрывается смоук-проверками F98.</summary>
+        public static string BuildDataTemplatesText(
+            IReadOnlyCollection<string> planTypnos,
+            IEnumerable<MbTypnoMapRule> rules,
+            IEnumerable<MbDataOutTemplate> templates,
+            string gateStatus)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append("Data-шаблоны: ")
+              .Append(string.IsNullOrWhiteSpace(gateStatus) ? "статус шаблона неизвестен" : gateStatus);
+            var byTypno = new Dictionary<string, List<MbTypnoMapRule>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in rules)
+            {
+                string tn = (r.Typno ?? "").Trim();
+                if (tn.Length == 0 || string.IsNullOrWhiteSpace(r.Exemplar)) continue;
+                if (!byTypno.TryGetValue(tn, out var list)) byTypno[tn] = list = new List<MbTypnoMapRule>();
+                list.Add(r);
+            }
+            var tplByName = new Dictionary<string, MbDataOutTemplate>(StringComparer.OrdinalIgnoreCase);
+            foreach (var t in templates)
+                if (!string.IsNullOrWhiteSpace(t.Name)) tplByName[t.Name] = t;
+            var noRule = new List<string>();
+            foreach (var tn in planTypnos)
+            {
+                if (!byTypno.TryGetValue(tn, out var rs))
+                {
+                    noRule.Add(tn);
+                    continue;
+                }
+                foreach (var r in rs)
+                {
+                    string tplName = (r.Template ?? "").Trim();
+                    if (tplName.Length == 0)
+                    {
+                        sb.Append("; ").Append(tn).Append(" → основной шаблон");
+                        continue;
+                    }
+                    if (tplByName.TryGetValue(tplName, out var t))
+                    {
+                        string ver = t.Version > 0 ? "v" + t.Version : "без версии";
+                        string when = string.IsNullOrWhiteSpace(t.SavedAt) ? "" : " (" + t.SavedAt + ")";
+                        sb.Append("; ").Append(tn).Append(" → ").Append(t.Name)
+                          .Append(' ').Append(ver).Append(when);
+                    }
+                    else
+                        sb.Append("; ⚠ ").Append(tn).Append(" → «").Append(tplName)
+                          .Append("» не найден в SCADA_DATAOUT_TEMPLATES");
+                }
+            }
+            if (noRule.Count > 0)
+                sb.Append("; ⚠ без правила Typno: ").Append(string.Join(", ", noRule));
+            if (planTypnos.Count == 0)
+                sb.Append("; привязок нет — нажмите «Построить превью»");
+            return sb.ToString();
         }
 
         /// <summary>F33 (этап 6): размер переменной по телу data-шаблона — число источников

@@ -570,6 +570,38 @@ namespace IO_PJT.Smoke
                       genDef96.Contains("Info=" + q96 + "BIT98" + q96),
                     "F97: приёмник BIT0 и var BIT98 с «Начальным значением» → Info = имя объекта " +
                     "по умолчанию (BIT0/BIT98), механизм <IV> не тронут");
+
+                // ===== F98: превью — какой data-шаблон подходит и версия =====
+                Console.WriteLine("== F98 Data-шаблоны в превью ==");
+                var f98Rules = new List<MbTypnoMapRule>
+                {
+                    new() { Typno = "AI32", Exemplar = "AI32", Template = "MB_AI_REAL32" },
+                    new() { Typno = "AO16", Exemplar = "AO16", Template = "MB_AO_WORD16" },
+                    new() { Typno = "BOOL_DO", Exemplar = "BOOL_DO", Template = "MISSING_TPL" },
+                    new() { Typno = "MAIN1", Exemplar = "INT", Template = "" },
+                    new() { Typno = "NORULE_R", Exemplar = "INT", Template = "X" } // вне плана — не показывать
+                };
+                var f98Tpl = new List<MbDataOutTemplate>
+                {
+                    new() { Name = "MB_AI_REAL32", Version = 12, SavedAt = "2026.11.13 20:18" },
+                    new() { Name = "MB_AO_WORD16", Version = 0, SavedAt = "" }
+                };
+                string f98Text = IO_PJT.ViewModels.ScadaModbusBlocksViewModel.BuildDataTemplatesText(
+                    new List<string> { "AI32", "AO16", "BOOL_DO", "MAIN1", "NORULE" },
+                    f98Rules, f98Tpl, "Шаблон привязок (файл): 6 эталонов");
+                Check(f98Text.Contains("AI32 → MB_AI_REAL32 v12 (2026.11.13 20:18)"),
+                    $"F98: Typno → data-шаблон с версией и датой (факт: {f98Text})");
+                Check(f98Text.Contains("AO16 → MB_AO_WORD16 без версии"),
+                    "F98: Version=0 → «без версии»");
+                Check(f98Text.Contains("⚠ BOOL_DO → «MISSING_TPL» не найден"),
+                    "F98: правило с отсутствующим в БД шаблоном → ⚠");
+                Check(f98Text.Contains("⚠ без правила Typno: NORULE"),
+                    "F98: Typno плана без правила показан явно");
+                Check(f98Text.Contains("MAIN1 → основной шаблон"),
+                    "F98: пустое имя шаблона в правиле → основной шаблон");
+                Check(f98Text.Contains("Шаблон привязок (файл): 6 эталонов") &&
+                      !f98Text.Contains("NORULE_R"),
+                    "F98: статус ворот в строке; Typno вне плана не показывается");
                 // ===== F9.4: не-Modbus-сигнал не может быть связан с картой =====
                 Console.WriteLine("== F9.4 Не-Modbus сигнал (IO Type без M*/COM) ==");
                 var pNonModbus = MakePoint("1115-AIN-00101", "1115-M-00101A", "AI",
