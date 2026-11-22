@@ -451,6 +451,120 @@ namespace IO_PJT.Smoke
                 Check(hist.Count > 0 && hist.All(h => h.Action == AuditAction.Update),
                     $"аудит M_FuncCode: {hist.Count} записей Update");
 
+                // ===== F96: битовый маппинг — все строки адреса в SharedColumns + default из Literal =====
+                Console.WriteLine("== F96 Битовый маппинг data-шаблонов ==");
+                char q96 = (char)34;
+                var svc96 = new ModbusBlockPlannerService(tmpDb);
+                string ip96 = "192.168.4.10(Default)\n255.255.255.0\nport 502";
+                var pts96 = new List<IoPoint>();
+                for (int b96 = 0; b96 <= 15; b96++)
+                {
+                    var pt96 = MakeMbPoint($"F96-B{b96}", $"2712-XZSC-02101.B{b96}", ip96, "03",
+                        "768", "16-Bit Unsigned", typno: "DI96");
+                    FieldRegistry.SetValue(pt96, "M_Bit", b96.ToString());
+                    FieldRegistry.SetValue(pt96, "M_Marka", b96 == 0 ? "" : $"2712-XZSC-02101-{b96}");
+                    pts96.Add(pt96);
+                }
+                var st96 = svc96.BuildPlan(pts96,
+                    new ScadaMbGenSettings { MaxCountRegisters = 100, MaxCountBits = 100, DefaultPort = 502 },
+                    new List<MbSlaveIdRule>(), "MB_TCP_MASTER_4_1");
+                var p96 = st96.Packets.FirstOrDefault(p => p.FuncCode == 3 && p.Address == 768);
+                Check(st96.Packets.Count == 1 && p96 != null && p96.Bindings.Count == 1,
+                    $"F96: 16 точек одного адреса → 1 пакет/1 привязка после дедупликации F56 " +
+                    $"(факт пакетов {st96.Packets.Count}, привязок {p96?.Bindings.Count})");
+                int sharedBits96 = p96?.Bindings[0].SharedColumns.Count(
+                    c => c.TryGetValue("M_Bit", out var mv96) && mv96.Length > 0) ?? -1;
+                Check(sharedBits96 == 16,
+                    $"F96: SharedColumns привязки — ВСЕ 16 строк адреса с M_Bit (до F96 — только " +
+                    $"первая; факт {sharedBits96})");
+
+                // data-шаблон: источник → BIT0..BIT15 → BIT98 → BIT99; приёмник (TargetTpl) —
+                // первый не-источник (T11Of не парсит «N|1» → это BIT0), остальные — var-объекты
+                var blocks96 = new List<string>
+                {
+                    "<Block GROBJTYPE=" + q96 + "31" + q96 + " T11ID=" + q96 + "9600" + q96 +
+                    " Info=" + q96 + "MB_TCP_MASTER_1.DataOut[0]" + q96 + "><Graphics X=" + q96 + "10" + q96 +
+                    " Y=" + q96 + "10" + q96 + "/><Params T11Text=" + q96 + ".DataOut[0]" + q96 +
+                    " CI=" + q96 + "1" + q96 + " CO=" + q96 + "1" + q96 + "/></Block>"
+                };
+                for (int b96 = 0; b96 <= 15; b96++)
+                    blocks96.Add("<Block GROBJTYPE=" + q96 + "31" + q96 + " T11ID=" + q96 + (9601 + b96) + q96 +
+                        " Info=" + q96 + "BIT" + b96 + q96 + "><Graphics X=" + q96 + "40" + q96 +
+                        " Y=" + q96 + (40 + b96 * 30) + q96 + "/><Params T11Text=" + q96 + q96 +
+                        " CI=" + q96 + "1" + q96 + " CO=" + q96 + "1" + q96 + "/></Block>");
+                blocks96.Add("<Block GROBJTYPE=" + q96 + "31" + q96 + " T11ID=" + q96 + "9617" + q96 +
+                    " Info=" + q96 + "BIT99" + q96 + "><Graphics X=" + q96 + "70" + q96 + " Y=" + q96 + "550" + q96 +
+                    "/><Params T11Text=" + q96 + q96 + " CI=" + q96 + "1" + q96 + " CO=" + q96 + "1" + q96 + "/></Block>");
+                blocks96.Add("<Block GROBJTYPE=" + q96 + "31" + q96 + " T11ID=" + q96 + "9618" + q96 +
+                    " Info=" + q96 + "BIT98" + q96 + "><Graphics X=" + q96 + "70" + q96 + " Y=" + q96 + "580" + q96 +
+                    "/><Params T11Text=" + q96 + q96 + " CI=" + q96 + "1" + q96 + " CO=" + q96 + "1" + q96 + "/></Block>");
+                var links96 = new List<string>();
+                var seq96 = new List<int>();
+                for (int b96 = 0; b96 <= 15; b96++) seq96.Add(9601 + b96);
+                seq96.Add(9618); // BIT98 (var, бит0 найден, M_Marka пуст → default FALSE)
+                seq96.Add(9617); // BIT99 — последний узел цепочки
+                int prevT96 = 9600;
+                foreach (int curT96 in seq96)
+                {
+                    links96.Add("<Link><FirstPoint FP=" + q96 + prevT96 + "|1" + q96 + "/><LastPoint LP=" +
+                        q96 + curT96 + "|1" + q96 + "/><PointList PL=" + q96 + "(1,1)(2,2)" + q96 + "/></Link>");
+                    prevT96 = curT96;
+                }
+                string tpl96 = "<?xml version=" + q96 + "1.0" + q96 + " encoding=" + q96 + "UTF-8" + q96 +
+                    "?><BufScadaPOUS><Common/><POUS><OnePOU ID=" + q96 + "9601" + q96 + " NAME=" + q96 + "BOOL" +
+                    q96 + " Disc=" + q96 + "BOOL" + q96 + "><ISAGraf><Blocks>" + string.Concat(blocks96) +
+                    "</Blocks><Links>" + string.Concat(links96) +
+                    "</Links></ISAGraf></OnePOU></POUS><ISAOBJSINFO/><ISACARDSINFO/></BufScadaPOUS>";
+                var rows96 = new Dictionary<string, (string IoColumn, string Literal, string BitMode, string BitNo)>();
+                for (int b96 = 0; b96 <= 15; b96++)
+                    rows96["BIT" + b96] = ("{M_Marka}", "", "Адрес/бит", b96.ToString());
+                rows96["BIT98"] = ("{M_Marka}", "", "Адрес/бит", "0"); // var: бит0 найден, M_Marka пуст
+                rows96["BIT99"] = ("{M_Marka}", "", "Адрес/бит", "99");
+                var dv96 = new Dictionary<string, IReadOnlyDictionary<string,
+                    (string IoColumn, string Literal, string BitMode, string BitNo)>>
+                { ["BIT-TPL"] = rows96 };
+                var warn96 = new List<string>();
+                string gen96 = new ScadaDataOutXmlService().Write(st96.Packets, tpl96,
+                    new Dictionary<string, (int, string)>(), new ScadaMbGenSettings(), warn96,
+                    new Dictionary<string, (string Template, string Exemplar, string Size)>
+                    { ["DI96"] = ("BIT-TPL", "BOOL", "bit") },
+                    new Dictionary<string, string> { ["BIT-TPL"] = tpl96 },
+                    null, dv96, "BIT-TPL");
+                var miss96 = new List<string>();
+                for (int b96 = 1; b96 <= 15; b96++)
+                    if (!gen96.Contains("Info=" + q96 + "_2712_XZSC_02101_" + b96 + q96))
+                        miss96.Add("BIT" + b96);
+                Check(miss96.Count == 0,
+                    $"F96: биты 1..15 привязаны по M_Bit из ВСЕХ строк адреса (нет: " +
+                    $"{(miss96.Count > 0 ? string.Join(",", miss96) : "-")}; " +
+                    $"warnings: {string.Join("; ", warn96)})");
+                Check(gen96.Contains("Info=" + q96 + "FALSE" + q96),
+                    "F96: бит0 (пустые M_Marka/Literal) → Info=FALSE — default неразрешённой колонки");
+                Check(!gen96.Contains("Info=" + q96 + "BIT0" + q96) &&
+                      !gen96.Contains("Info=" + q96 + "BIT98" + q96) &&
+                      !gen96.Contains("Info=" + q96 + "BIT99" + q96),
+                    "F96: шаблонные Info (приёмник BIT0, var BIT98/BIT99) заменены — шаблонных имён не осталось");
+
+                // второй прогон: «Начальное значение» бит0 = DEF0 → Info=DEF0 (default из Literal)
+                var rowsDef96 = new Dictionary<string,
+                    (string IoColumn, string Literal, string BitMode, string BitNo)>(rows96);
+                rowsDef96["BIT0"] = ("{M_Marka}", "DEF0", "Адрес/бит", "0");
+                rowsDef96["BIT98"] = ("{M_Marka}", "DEF0", "Адрес/бит", "0"); // var-ветка F96 (default из Literal)
+                var dvDef96 = new Dictionary<string, IReadOnlyDictionary<string,
+                    (string IoColumn, string Literal, string BitMode, string BitNo)>>
+                { ["BIT-TPL"] = rowsDef96 };
+                var warnDef96 = new List<string>();
+                string genDef96 = new ScadaDataOutXmlService().Write(st96.Packets, tpl96,
+                    new Dictionary<string, (int, string)>(), new ScadaMbGenSettings(), warnDef96,
+                    new Dictionary<string, (string Template, string Exemplar, string Size)>
+                    { ["DI96"] = ("BIT-TPL", "BOOL", "bit") },
+                    new Dictionary<string, string> { ["BIT-TPL"] = tpl96 },
+                    null, dvDef96, "BIT-TPL");
+                Check(genDef96.Contains("Info=" + q96 + "DEF0" + q96),
+                    $"F96: неразрешённая колонка + «Начальное значение» → Info=DEF0 (default из " +
+                    $"Literal; warnings: {string.Join("; ", warnDef96)})");
+                Check(!genDef96.Contains("Info=" + q96 + "BIT98" + q96),
+                    "F96: var-объект BIT98 + «Начальное значение» → Info=DEF0 (default из Literal, var-ветка)");
                 // ===== F9.4: не-Modbus-сигнал не может быть связан с картой =====
                 Console.WriteLine("== F9.4 Не-Modbus сигнал (IO Type без M*/COM) ==");
                 var pNonModbus = MakePoint("1115-AIN-00101", "1115-M-00101A", "AI",

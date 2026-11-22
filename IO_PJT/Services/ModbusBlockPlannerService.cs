@@ -291,6 +291,11 @@ namespace IO_PJT.Services
                 // в sharedByAddr (M_BusBlock/M_BusDataOut пишется каждому сигналу адреса)
                 var sharedByAddr = new Dictionary<int, List<string>>();
                 var dedupedItems = new List<RawPoint>();
+                // F96: все точки адреса (ДО дедупликации F56) — колонки битовых объектов
+                // data-шаблона (Bit_i ← M_Bit) ищутся по ВСЕМ строкам адреса: после F56
+                // в pointByTag остаётся только первая точка адреса, из-за чего биты 0..15
+                // кроме первого не находились и получали default FALSE
+                var pointsByAddr = new Dictionary<int, List<IoPoint>>();
                 foreach (var addrGroup in items.GroupBy(r => r.Address))
                 {
                     var first = addrGroup.First();
@@ -300,6 +305,7 @@ namespace IO_PJT.Services
                         .Where(t => !string.IsNullOrWhiteSpace(t))
                         .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                     if (addrTags.Count > 0) sharedByAddr[addrGroup.Key] = addrTags;
+                    pointsByAddr[addrGroup.Key] = addrGroup.Select(r => r.Point).ToList();
                     if (addrGroup.Count() > 1)
                         result.DedupedSignals += addrGroup.Count() - 1;
                     dedupedItems.Add(first);
@@ -417,23 +423,17 @@ namespace IO_PJT.Services
                             foreach (var shTag in shTags)
                                 if (!string.Equals(shTag, bnd.Tag, StringComparison.OrdinalIgnoreCase))
                                     bnd.SharedTags.Add(shTag);
-                    // F75: колонки всех точек адреса (включая строку привязки) -
-                    // источник значений битовых объектов data-шаблона (Bit_i)
+                    // F75/F96: колонки ВСЕХ точек адреса (включая строку привязки) -
+                    // источник значений битовых объектов data-шаблона (Bit_i по M_Bit);
+                    // F96: берём из pointsByAddr (все строки адреса до дедупликации F56),
+                    // а не из pointByTag — там после F56 только первая точка адреса
                     foreach (var bnd in packet.Bindings)
-                    {
-                        var tags75 = new List<string>();
-                        if (sharedByAddr.TryGetValue(bnd.Address, out var shAll))
-                            tags75.AddRange(shAll);
-                        if (!string.IsNullOrWhiteSpace(bnd.Tag) &&
-                            !tags75.Contains(bnd.Tag, StringComparer.OrdinalIgnoreCase))
-                            tags75.Add(bnd.Tag);
-                        foreach (var t75 in tags75)
-                            if (pointByTag.TryGetValue(t75, out var pt75))
+                        if (pointsByAddr.TryGetValue(bnd.Address, out var pts75))
+                            foreach (var pt75 in pts75)
                             {
                                 var c75 = ColumnValuesOf(pt75);
                                 if (c75.Count > 0) bnd.SharedColumns.Add(c75);
                             }
-                    }
                     result.Packets.Add(packet);
                     AddReserveTwin(packet, items); // F68: twin с резервным IP сразу за main
                     // F71: резервная привязка main-пакета для превью F13 — имя и путь
