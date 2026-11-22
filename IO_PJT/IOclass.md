@@ -2650,3 +2650,49 @@ data-шаблонах («Адрес/бит») для бита, не найден
 - `IO_PJT.Smoke`: секция F98 — 6 проверок хелпера (версия+дата, «без версии», ⚠ не найден,
   ⚠ без правила, основной шаблон, статус ворот + Typno вне плана не показывается).
   Смоук: 55 OK / 21 FAIL (база 49/21 + 6 F98; 21 FAIL и краш `RunDbPart` — предсуществующие).
+
+**F99 — удаление дублирования в правилах связывания (TagPattern/ValuePattern → маска) (2026-11):**
+(1) **Схема/миграция.** DDL `MODBUS_LINK_RULES` без `[TagPattern]`/`[ValuePattern]`
+(остались `ID, Name, IOField, MapField, Mask, FuncCode, Priority, Enabled`). Существующие
+базы мигрируют идемпотентно: `TableCreator.EnsureServiceTables` → `ALTER TABLE … DROP
+COLUMN` на каждую колонку (проверка через `GetColumns`; сбой — база открыта в Access —
+не мешает открытию приложения, повтор при следующем запуске). Данные шаблонов не
+переносятся: связывание их не использовало, правило сохраняет маску (пустая → точное
+совпадение IOField↔MapField). (2) **Модель/сервис.** `ModbusLinkRule` без
+`TagPattern`/`ValuePattern`; из `ModbusLinkRuleService` удалены `Compile`/`PatternMatch`/
+`ValidatePattern` (дубли `MaskPattern`) и `ServiceField*` (F69). **Фиксы:** `SaveAllOnce` —
+INSERT 7 колонок/7 `?` (было 9/8 — OleDb падал при сохранении правил); `ReadRule` — SELECT
+8 колонок, `Enabled` из своего индекса 7 (был 8 = Priority — выключенное читалось
+включённым). `IOField` валидируется как колонка `FieldRegistry`, `GetIoValue` читает через
+`FieldRegistry.GetValue` (любая из 130 колонок); `GetMapValue`/`ValidateMapField` —
+рефлексия строковых свойств `ModbusMapEntry`; публичный `MapFields` — для ComboBox. (3)
+**`MaskPattern`:** `Validate` (синтаксис + известные колонки; пустая маска валидна),
+`Fields()`, `Score` (null — не совпадает; 0 — полное; N — сколько символов поглотил
+wildcard), `FindBest` (минимальное отклонение), кэш wildcard-regex
+(`ConcurrentDictionary`+`Compiled`), `DefaultTagMask`
+(`{PTAG_TagArea}&{PTag_DeviceClass}&{Ptag_LoopNumber}&{Ptag_TagNumber}&{PTag_Suffix}`).
+(4) **`Link()`:** из связывания ушли `ExtractCandidates`/`ServiceField` — участвуют **все
+точки с Tag** (`Examined` = все точки; «Не связано» без «(кандидат: …)»; сам метод
+`ExtractCandidates` сохранён для unit-проверок смоука). `FindMapRowByMask` → кортеж
+`(строка, Score)`, выбор строки с **минимальным отклонением** (раньше — первое
+совпадение). Score=0 → `LinkStateLinked`; Score>0 (wildcard поглотил) → новое состояние
+**`LinkStateLinkedPartial` = «привязано частично»** + предупреждение в журнал и аудит
+`IO_LIST_Audit`; `IsLinkedState` учитывает его (при нескольких точках на строку полное
+совпадение побеждает). Full/FillEmpty, boundTags, `locked`, `IsModbusSignal`,
+FuncCode-фильтр — сохранены. (5) **UI: одно окно** `ModbusAddressingWindow` +
+`ModbusAddressingViewModel`: три действия (полное с подтверждением / только пустые /
+M_-адресация; итоги — в журнал окна `LogText` вместо MessageBox), сетка правил с
+**ComboBox** полей (`IoColumns`/`MapColumns`, `IsEditable`, паттерн F25) и команды
+Добавить/Удалить/Проверить/Сохранить, **проверка маски на теге** (тег → `ColumnValuesOf`
+→ `Evaluate` → лучшая строка по Score). Удалены `ModbusLinkRulesWindow.xaml(.cs)` +
+`ModbusLinkRulesViewModel`; `MainViewModel.UpdateModbusAddress`/`UpdateModbusLinks`
+удалены (перенесены). Главное окно: 4 пункта меню → 1 «Обновление адресацию Modbus…»
+(`ModbusAddressingCommand`), 2 кнопки тулбара → 1 «🔗 Modbus адресация»
+(`OpenModbusAddressingWindow`). (6) `AppInfo.Version` → **F99**. (7) **Смоук:** секция
+F99 (до крача `RunDbPart`) — 27 проверок (DDL без шаблонов; `MaskPattern` Validate/Fields/
+Score/Evaluate (−1)&* и (+5)/FindBest; валидация правил; CRUD 7 колонок + `Enabled=false`;
+**миграция старого DDL → DROP COLUMN → правило читается**; очистка); секция F9.11/F99
+(Link, после крача): точное совпадение + точка без MCC-кандидата, маска `*TX*` → «привязано
+частично», приоритет, FuncCode, Enabled=false, «без правил — 0», воссоздание таблицы.
+Смоук: **82 OK / 21 FAIL** (база 55/21 + 27 F99; FAIL-список байт-в-байт идентичен
+базовому; краш `RunDbPart` OleDb — предсуществующий, вне скоупа).

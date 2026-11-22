@@ -634,3 +634,71 @@ data-шаблонах («Адрес/бит») для бита, не найден
 - `IO_PJT.Smoke`: секция F98 — 6 проверок хелпера (версия+дата, «без версии», ⚠ не найден,
   ⚠ без правила, основной шаблон, статус ворот + Typno вне плана не показывается).
   Смоук: 55 OK / 21 FAIL (база 49/21 + 6 F98; 21 FAIL и краш `RunDbPart` — предсуществующие).
+
+### F99 — удаление дублирования в правилах связывания (TagPattern/ValuePattern → маска) (2026-11)
+
+- **Схема/миграция.** DDL `MODBUS_LINK_RULES` без `[TagPattern]`/`[ValuePattern]` (остались
+  `ID, Name, IOField, MapField, Mask, FuncCode, Priority, Enabled`). Существующие базы
+  мигрируют идемпотентно: `TableCreator.EnsureServiceTables` → `ALTER TABLE … DROP COLUMN`
+  для каждой из двух колонок (проверка наличия через `GetColumns`; сбой — например, база
+  открыта в Access — не мешает открытию приложения, удаление повторится при следующем
+  запуске). Данные шаблонов **не переносятся** — связывание их и так не использовало;
+  правило сохраняет свою маску (пустая маска → точное совпадение IOField↔MapField).
+- **Модель/сервис.** `ModbusLinkRule` без `TagPattern`/`ValuePattern`; из
+  `ModbusLinkRuleService` удалены `Compile`/`PatternMatch`/`ValidatePattern` (дублировали
+  `MaskPattern`) и `ServiceField*` (F69: `LoadServiceField`/`SaveServiceField`/`Key/Default/Options`).
+  **Фиксы записи/чтения правил:** `SaveAllOnce` — INSERT 7 колонок и 7 `?` (раньше было
+  9 колонок и 8 параметров — OleDb падал при сохранении); `ReadRule` — SELECT 8 колонок,
+  `Enabled` читается из своего индекса 7 (раньше — из 8 = Priority, выключенное правило
+  читалось включённым). `IOField` валидируется как колонка `FieldRegistry` (`HasColumn`);
+  `GetIoValue` читает через `FieldRegistry.GetValue` (любая из 130 колонок);
+  `GetMapValue`/`ValidateMapField` — через рефлексию строковых свойств `ModbusMapEntry`;
+  публичный список полей карты `MapFields` — источник для ComboBox окна.
+- **`MaskPattern` (F99-расширение).** `Validate(mask)` — синтаксис + известные колонки
+  FieldRegistry (null — ок, пустая маска валидна); `Fields()` — колонки маски; `Score(pattern, value)`
+  — null не совпадает / 0 полное / N — сколько символов поглотил wildcard; `FindBest` —
+  лучшее (минимальное отклонение) среди совпавших; кэш скомпилированных wildcard-regex
+  (`ConcurrentDictionary`, `RegexOptions.Compiled`); константа `DefaultTagMask`
+  (`{PTAG_TagArea}&{PTag_DeviceClass}&{Ptag_LoopNumber}&{Ptag_TagNumber}&{PTag_Suffix}`).
+- **`ModbusLinkService.Link`.** Из связывания ушли `ExtractCandidates`/`ServiceField`:
+  участвуют **все точки с заполненным Tag** (отбор MCC-кандидатов не выполняется —
+  `Examined` = все точки; сообщение «Не связано» без части «(кандидат: …)»; метод
+  `ExtractCandidates` сохранён — используется unit-проверками смоука). `FindMapRowByMask`
+  возвращает кортеж `(строка, Score)` и выбирает строку с **минимальным отклонением**
+  (раньше — первое совпадение). Полное совпадение (Score=0) → `LinkStateLinked`;
+  wildcard поглотил символы (Score>0) → новое состояние **`LinkStateLinkedPartial`
+  («привязано частично»)** + предупреждение в журнал и аудит `IO_LIST_Audit`
+  (`IsLinkedState` учитывает его в статистике `MapRowsLinked`; при нескольких точках на
+  одну строку полное совпадение побеждает частичное — как и раньше). Full/FillEmpty,
+  boundTags («один сигнал — одна строка»), `locked`, `IsModbusSignal`, FuncCode-фильтр —
+  сохранены. `ValidatePattern`-цикл при загрузке правил заменён на `Validate(rule)`.
+- **UI — одно окно вместо четырёх пунктов меню и двух кнопок.** Новое окно
+  **`ModbusAddressingWindow` + `ModbusAddressingViewModel`**: (1) три действия —
+  «Обновить связи (полное)» (с подтверждением о перезаписи ручных привязок),
+  «Заполнить пустые связи», «Обновить адресацию M_…» (логика перенесена из
+  `MainViewModel.UpdateModbusLinks`/`UpdateModbusAddress`, итоги — в **журнал окна**
+  `LogText`, а не MessageBox); (2) сетка правил `MODBUS_LINK_RULES` с **ComboBox** полей
+  (`IoColumns` = FieldRegistry.Columns, `MapColumns` = `MapFields`, `IsEditable=True`,
+  паттерн `DataGridTemplateColumn` F25) + Добавить/Удалить/Проверить/Сохранить;
+  (3) **проверка маски на конкретном теге**: тег IO_LIST → `ColumnValuesOf` → `Evaluate`
+  → лучшая строка карты по `Score` либо «совпадений нет». Удалены
+  `ModbusLinkRulesWindow.xaml(.cs)` и `ModbusLinkRulesViewModel`. В главном окне:
+  4 пункта меню («Обновить связи полное»/«Заполнить пустые»/«Обновить адресацию»/
+  «Правила связывания») → **1** «Обновление адресацию Modbus…» (`ModbusAddressingCommand`);
+  2 кнопки тулбара («🔗 Modbus связи»/«📡 Modbus адресация») → **1** «🔗 Modbus адресация»
+  (`OpenModbusAddressingWindow`); методы `MainViewModel.UpdateModbusAddress`/
+  `UpdateModbusLinks` удалены (перенесены в новый VM).
+- `AppInfo.Version` → **F99**.
+- **`IO_PJT.Smoke`:** секция F99 (до крача `RunDbPart`) — 27 проверок: DDL без шаблонов;
+  `MaskPattern.Validate` (пустая/неизвестная колонка/`DefaultTagMask`), `Fields`,
+  `Score` (wildcard=3, без поглощения=0, точное/несовпадение), `Evaluate (−1)&*` и `(+5)`,
+  `FindBest`; валидация правил (имя/IOField/поле карты/колонка маски/валидное);
+  CRUD round-trip 7 колонок + `Enabled=false` + `LoadEnabled`; **миграция**: старый DDL
+  (с `TagPattern`/`ValuePattern`) → `EnsureServiceTables` → колонок нет, правило читается;
+  очистка правил. Секция F9.11/F99 (Link; после крача, компилируется): точное совпадение +
+  точка без MCC-кандидата («привязано», `Examined`=все точки), маска `*TX*` →
+  «привязано частично» + `RuleHits`, приоритет Priority, FuncCode-фильтр, `Enabled=false`,
+  «без правил — 0 связей», воссоздание таблицы. Смоук: **82 OK / 21 FAIL** (база 55/21 +
+  27 F99; FAIL-список байт-в-байт идентичен базовому; краш `RunDbPart` OleDb —
+  предсуществующий, вне скоупа).
+
