@@ -2696,3 +2696,59 @@ Score/Evaluate (−1)&* и (+5)/FindBest; валидация правил; CRUD 
 частично», приоритет, FuncCode, Enabled=false, «без правил — 0», воссоздание таблицы.
 Смоук: **82 OK / 21 FAIL** (база 55/21 + 27 F99; FAIL-список байт-в-байт идентичен
 базовому; краш `RunDbPart` OleDb — предсуществующий, вне скоупа).
+
+**F100 — единое окно импорта с выбором целевой таблицы (2026-11):** (1) **Профили
+импорта** — новый `Services/ImportTargets.cs`: `ImportTargetProfile` (DisplayName,
+TableName, RequiredField, DefaultHeaderRow, DefaultSheetMask, Modes, Columns, Aliases,
+MatchHeaderLines, SupportsCreateTable/LinkAfterImport, BuiltInTemplate) + реестр
+`ImportTargets.All/Find/MaskMatches`. **IO_LIST**: обязательное поле `Tag`, шапка строка 1,
+колонки `DataColumns` без автозаполняемых, режимы прежние. **MODBUS_MAP**: `PlcTag`, шапка
+строка 2, маска листов «Register Table» (включена по умолчанию), 25 привязываемых колонок
+(служебные `ID/MapFile/MapSheet/MapRow/ObjectTag/LinkTag/LinkState` исключены), режимы
+«Сравнение (добавить/обновить/удалить)» и «Заменить строки файла». Новая целевая таблица
+добавляется как новый профиль без изменения окна. `MaskMatches`: пустая маска — все листы,
+`*`/`?` — полный wildcard, иначе — подстрока (наследие F9). (2) **Окно** (`ImportWindow` +
+`ImportViewModel`): ComboBox «Тип импорта» (`Targets/SelectedTarget` → `OnTargetChanged`:
+перестройка колонок/режимов/таблиц/шапки/маски, сброс шаблона, перечитывание открытого
+файла); заголовок окна/статус обязательного поля динамические (`WindowTitle`,
+`RequiredFieldHint/Ok/Bad`, `HasRequiredMapping` — бывш. `HasTagMapping`, `MapRow.IsRequired`
+— бывш. `IsTag`); строка маски листов + «Все листы по маски» + «Связать после импорта» —
+только профиль карты (DataTrigger по `IsModbusTarget`), «Имя новой/Создать таблицу» — только
+IO_LIST; предпросмотр/валидация (E002/W005) обобщены на обязательное поле профиля.
+`MappingService.AutoDetect(headers, profile)`: колонки и алиасы берутся из профиля; профиль
+с `MatchHeaderLines` дополнительно резолвит по строкам двуязычной ячейки шапки (кириллица
+отбрасывается, английская строка «PLC Tag/Variable Name» → алиас) — реальная шапка EBSM102
+распознаётся целиком (20 колонок). Шаблоны фильтруются по целевой таблице
+(`GetTemplateNames(tableName)`: null → «кроме MODBUS_MAP»); встроенный шаблон
+«Register Table (стандарт)» — 20 связок B..U с `ExcelColumnIndex` (резолв по позиции в
+`ApplyPendingTemplate`, т.к. имя хранится как английская строка). (3) **Запись карты** —
+новый `ModbusImportService` (чтение по маске/маппингу: лист без колонки PlcTag пропускается
+с предупреждением; параметры станции — лист `Interface parameters` через те же алиасы,
+значение листа Register приоритетно; зачёркнутый PlcTag → пропуск строки F2.12) и
+`ModbusMapService.ImportMapped` — сравнение по ключу `(MapSheet, PlcTag)` с учётом повторов
+(теги повторяются — `#2`, `#3`…): INSERT отсутствующих / UPDATE изменившихся полей /
+DELETE отсутствующих одной транзакцией (повтор при блокировке). **ID строк и LinkTag/
+LinkState сохраняются**; `DcsTag` обновляется только непустым значением файла (файловые
+привязки F9.3 авторитетны — пустое поле не затирает связанный/ручной тег); служебные
+`MapRow/ObjectTag` обновляются без аудита. Режим «Заменить строки файла» — прежний
+`SaveToDb` (F9.2: DELETE+INSERT, ID/привязки теряются — окно предупреждает). Аудит
+`IO_LIST_Audit` одной пачкой после коммита данных (`TableName=MODBUS_MAP`, `System=Modbus`;
+INSERT — по всем заполненным полям F7.2, UPDATE — по изменённым «было → стало», DELETE —
+одна строка «Строка карты»); сбой аудита не прерывает импорт (log-warn). (4) **Меню**:
+«Импорт из Excel...» → **«Импорт IO LIST из Excel...»**, «Карта Modbus...» →
+**«Импорт Modbus_MAP из Excel...»** — оба открывают `ImportWindow` с пресетом профиля
+(`MainViewModel.OpenImportWindow: Action<string>?`, `ShowImport(string target)`);
+`ModbusImportWindow.xaml(.cs)` + `ModbusImportViewModel.cs` удалены. `ExcelRowData.ExcelRow`
+— реальный номер строки Excel (для `MODBUS_MAP.MapRow` при пропусках пустых строк).
+`AppInfo.Version` → **F100**. (5) **Смоук:** секция F100 (до крача `RunDbPart`, своя
+tmp-БД + синтетический файл ClosedXML) — 31 проверка: профили/реестр/`MaskMatches`;
+авто-маппинг РЕАЛЬНОЙ двуязычной шапки EBSM102 → 20 колонок, `Interface parameters` → 5
+полей станции, регресс IO_LIST `AutoDetect`; встроенный шаблон; чтение 4 строк/1 пропуск/2
+листа; первый импорт +4 + аудит Insert (36 записей); повтор без правок 0/0/0 (аудит не
+растёт); diff-правка +1~1−1 + аудит Update Description/Delete; ID/LinkTag/LinkState
+сохранены, DcsTag из файла; пустой DcsTag не затирает (0/0/0); замена файла — Replaced/+4/
+Delete-аудит по каждой старой строке; импорт одного листа; лист без PlcTag → предупреждение;
+импорт без привязки PlcTag → исключение с причиной; фильтр шаблонов по таблице; пункты
+меню/окно/XAML/удаление старого окна/версия. Смоук: **113 OK / 21 FAIL** (база 82/21 +
+31 F100; FAIL-список байт-в-байт идентичен базовому; краш `RunDbPart` OleDb —
+предсуществующий, вне скоупа).
