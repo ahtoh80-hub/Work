@@ -4,10 +4,10 @@
     /// in the Help - About dialog.</summary>
     public static class AppInfo
     {
-        /// <summary>Current program version. Bump after every code change (F79-F99).
-        /// F99 = rules linking deduplication: TagPattern/ValuePattern dropped (mask only,
-        /// physical DROP COLUMN migration), single ModbusAddressing window replaces
-        /// 4 menu items + 2 toolbar buttons, best-match (Score) + partial link state.</summary>
-        public const string Version = "F99";
+        /// <summary>Current program version. Bump after every code change (F79-F100).
+        /// F100 = unified Excel import window with target-table profiles (IO_LIST /
+        /// MODBUS_MAP): column mapping + templates + audit for Modbus map import,
+        /// menu items renamed to presets, ModbusImportWindow removed.</summary>
+        public const string Version = "F100";
     }
 }

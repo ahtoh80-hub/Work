@@ -72,7 +72,8 @@ namespace IO_PJT.ViewModels
         public RelayCommand OpenDatabaseCommand { get; }
         public RelayCommand CopyLogCommand { get; }
         public RelayCommand ClearLogCommand { get; }
-        /// <summary>F9: импорт карты адресации Modbus + связывание M_-полей.</summary>
+        /// <summary>F100: импорт карты адресации Modbus → MODBUS_MAP (пресет профиля
+        /// в едином окне импорта: сопоставление столбцов, шаблоны, аудит, связывание F9.3).</summary>
         public RelayCommand ImportModbusCommand { get; }
 
         /// <summary>F99: единое окно «Обновление адресации Modbus согласно MODBUS_MAP» —
@@ -90,9 +91,10 @@ namespace IO_PJT.ViewModels
         /// <summary>F65: генерация экземпляров типовых алгоритмов (логические схемы XML).</summary>
         public RelayCommand ScadaAlgoInstancesCommand { get; }
 
-        /// <summary>Хуки открытия дочерних окон (назначаются code-behind главного окна).</summary>
-        public Action? OpenImportWindow { get; set; }
-        public Action? OpenModbusImportWindow { get; set; }
+        /// <summary>Хуки открытия дочерних окон (назначаются code-behind главного окна).
+        /// F100: OpenImportWindow принимает DisplayName профиля-пресета (ImportTargets):
+        /// пункт «Импорт IO LIST из Excel...» → IO_LIST, «Импорт Modbus_MAP из Excel...» → MODBUS_MAP.</summary>
+        public Action<string>? OpenImportWindow { get; set; }
         /// <summary>F99: окно «Обновление адресации Modbus согласно MODBUS_MAP».</summary>
         public Action? OpenModbusAddressingWindow { get; set; }
         /// <summary>F12: окно генерации перечня «Тех.объекты» (меню SCADA).</summary>
@@ -117,8 +119,9 @@ namespace IO_PJT.ViewModels
 
             RefreshCommand = new RelayCommand(Refresh);
             SearchCommand = new RelayCommand(Refresh);
-            ImportCommand = new RelayCommand(() => OpenImportWindow?.Invoke());
-            ImportModbusCommand = new RelayCommand(() => OpenModbusImportWindow?.Invoke());
+            ImportCommand = new RelayCommand(() => OpenImportWindow?.Invoke(ImportTargets.IoList.DisplayName));
+            // F100: «Импорт Modbus_MAP из Excel...» — пресет профиля в том же окне импорта
+            ImportModbusCommand = new RelayCommand(() => OpenImportWindow?.Invoke(ImportTargets.ModbusMap.DisplayName));
             // F99: одно окно вместо четырёх пунктов меню и двух кнопок тулбара
             ModbusAddressingCommand = new RelayCommand(() => OpenModbusAddressingWindow?.Invoke());
             // F12: генерация перечня всегда доступна (диалог предупредит, если нет строк)

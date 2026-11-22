@@ -20,8 +20,7 @@ namespace IO_PJT.Views
             DataContext = _vm;
 
             // Хуки дочерних окон (MVVM без ссылок на Views внутри VM)
-            _vm.OpenImportWindow = ShowImport;
-            _vm.OpenModbusImportWindow = ShowModbusImport;
+            _vm.OpenImportWindow = ShowImport; // F100: с пресетом профиля (IO_LIST / MODBUS_MAP)
             _vm.OpenModbusAddressingWindow = ShowModbusAddressing;
             _vm.OpenScadaTechObjectsWindow = ShowScadaTechObjects;
             _vm.OpenScadaModbusBlocksWindow = ShowScadaModbusBlocks;
@@ -31,25 +30,16 @@ namespace IO_PJT.Views
             _vm.OpenCreateTableDialog = ShowCreateTable;
         }
 
-        /// <summary>Единое окно импорта (F6.3).</summary>
-        private void ShowImport()
+        /// <summary>Единое окно импорта (F6.3). F100: target — DisplayName профиля-пресета
+        /// («IO_LIST» / «MODBUS_MAP») — оба пункта меню открывают одно окно.</summary>
+        private void ShowImport(string target)
         {
-            var vm = new ImportViewModel(_vm.Services);
+            var vm = new ImportViewModel(_vm.Services, target);
             var window = new ImportWindow { DataContext = vm, Owner = this };
             vm.Imported += _vm.Refresh;
             window.ShowDialog();
             _vm.ReloadTables();
             _vm.Refresh();
-        }
-
-        /// <summary>F9: окно импорта карты адресации Modbus + связывание IO_LIST.</summary>
-        private void ShowModbusImport()
-        {
-            var vm = new ModbusImportViewModel(_vm.Services);
-            var window = new ModbusImportWindow { DataContext = vm, Owner = this };
-            vm.CloseRequested = window.Close;
-            window.ShowDialog();
-            _vm.Refresh(); // M_-поля могли обновиться
         }
 
         /// <summary>F99: окно «Обновление адресации Modbus согласно MODBUS_MAP» — три действия,

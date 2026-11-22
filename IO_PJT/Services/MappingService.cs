@@ -26,6 +26,9 @@ namespace IO_PJT.Services
         public static IReadOnlyList<string> AvailableColumns =>
             Schema.DataColumns.Where(c => !Schema.AutoColumns.Contains(c)).ToList();
 
+        /// <summary>F100: алиасы IO_LIST (эталонный файл F2.2) — профиль ImportTargets.IoList.</summary>
+        public static IReadOnlyDictionary<string, string> IoListAliases => Aliases;
+
         /// <summary>Словарь алиасов: заголовок Excel → колонка таблицы (эталонный файл).</summary>
         private static readonly Dictionary<string, string> Aliases = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -47,13 +50,12 @@ namespace IO_PJT.Services
         private static string Normalize(string s) =>
             new(s.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
 
-        /// <summary>Алиасы в нормализованном виде: «Tag No» → tagno → Tag.</summary>
-        private static readonly Dictionary<string, string> NormalizedAliases = BuildNormalizedAliases();
-
-        private static Dictionary<string, string> BuildNormalizedAliases()
+        /// <summary>Алиасы в нормализованном виде: «Tag No» → tagno → Tag (F100: словарь
+        /// передаётся профилем — IO_LIST или MODBUS_MAP).</summary>
+        private static Dictionary<string, string> BuildNormalizedAliases(IReadOnlyDictionary<string, string> source)
         {
             var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var kv in Aliases)
+            foreach (var kv in source)
             {
                 string key = Normalize(kv.Key);
                 if (key.Length > 0 && !dict.ContainsKey(key)) dict[key] = kv.Value;
@@ -64,11 +66,18 @@ namespace IO_PJT.Services
         /// <summary>Авто-определение маппинга: точное совпадение имени или алиас (F2.2).
         /// F2.14: каждая связка несёт индекс колонки Excel (0-based) — дубликаты заголовков
         /// (MIN/MIN) различаются по позиции; повторное имя не привязывается ко второй колонке
-        /// автоматически (подсказка о дубликате — в Note).</summary>
-        public List<ColumnMap> AutoDetect(IReadOnlyList<string> headers)
+        /// автоматически (подсказка о дубликате — в Note). IO_LIST-профиль (F100).</summary>
+        public List<ColumnMap> AutoDetect(IReadOnlyList<string> headers) =>
+            AutoDetect(headers, ImportTargets.IoList);
+
+        /// <summary>F100: авто-определение по профилю целевой таблицы: колонки и алиасы — из
+        /// профиля; профиль с MatchHeaderLines (двуязычные шапки карты Modbus) дополнительно
+        /// пробует каждую строку ячейки заголовка снизу вверх (английская строка — последняя).</summary>
+        public List<ColumnMap> AutoDetect(IReadOnlyList<string> headers, ImportTargetProfile profile)
         {
             var byNormalized = new Dictionary<string, string>();
-            foreach (var c in AvailableColumns) byNormalized[Normalize(c)] = c;
+            foreach (var c in profile.Columns) byNormalized[Normalize(c)] = c;
+            var aliases = BuildNormalizedAliases(profile.Aliases);
 
             var maps = new List<ColumnMap>();
             var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -89,8 +98,21 @@ namespace IO_PJT.Services
                 bool dupName = nameCounts.TryGetValue(header, out int cnt) && cnt > 1;
                 bool firstOcc = seen.Add(header); // true только у первого вхождения имени
                 string? target = byNormalized.TryGetValue(norm, out var exact) ? exact : null;
-                if (target == null && NormalizedAliases.TryGetValue(norm, out var aliased))
+                if (target == null && aliases.TryGetValue(norm, out var aliased))
                     target = aliased;
+                // F100: двуязычная шапка — сопоставление по строкам ячейки (снизу вверх),
+                // только профиль с MatchHeaderLines; IO_LIST — прежнее поведение F2.14
+                if (target == null && profile.MatchHeaderLines)
+                {
+                    var lines = header.Split('\n');
+                    for (int li = lines.Length - 1; li >= 0 && target == null; li--)
+                    {
+                        string ln = Normalize(lines[li]);
+                        if (ln.Length == 0) continue;
+                        if (byNormalized.TryGetValue(ln, out var byLine)) target = byLine;
+                        else if (aliases.TryGetValue(ln, out var aliLine)) target = aliLine;
+                    }
+                }
                 // F2.14: первое вхождение дубликата получает авто-привязку, повторные — нет
                 // (E008-страховка): вторая колонка с тем же именем привязывается вручную по позиции
                 bool autoOk = target != null && used.Add(target) && firstOcc;
@@ -185,14 +207,22 @@ namespace IO_PJT.Services
             return t;
         }
 
-        /// <summary>Имена всех сохранённых шаблонов.</summary>
-        public IReadOnlyList<string> GetTemplateNames()
+        /// <summary>Имена сохранённых шаблонов. F100: tableName — фильтр по целевой таблице
+        /// профиля: null — все шаблоны, кроме MODBUS_MAP (профиль IO_LIST); «MODBUS_MAP» —
+        /// только шаблоны карты Modbus.</summary>
+        public IReadOnlyList<string> GetTemplateNames(string? tableName = null)
         {
             ServiceSchema.EnsureServiceTables(_dbPath);
             var result = new List<string>();
             using var cn = new OleDbConnection(ConnStr);
             cn.Open();
-            using var cmd = new OleDbCommand("SELECT Name FROM MappingTemplates ORDER BY Name", cn);
+            // null → «кроме MODBUS_MAP»: NULL-TableName старых шаблонов не равен строке (SQL-NULL)
+            string sql = tableName == null
+                ? "SELECT Name FROM MappingTemplates " +
+                  "WHERE [TableName] IS NULL OR [TableName] <> ? ORDER BY Name"
+                : "SELECT Name FROM MappingTemplates WHERE [TableName] = ? ORDER BY Name";
+            using var cmd = new OleDbCommand(sql, cn);
+            OleDbArgs.Add(cmd, tableName ?? Schema.ModbusMapTable);
             using var rd = cmd.ExecuteReader();
             while (rd.Read()) result.Add(rd["Name"]?.ToString() ?? "");
             return result;

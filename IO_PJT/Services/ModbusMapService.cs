@@ -230,9 +230,203 @@ namespace IO_PJT.Services
             }
         }
 
+        // ================== F100: сравнительный импорт (режим «Сравнение») ==================
+
+        /// <summary>Колонки данных F100 для сравнительного импорта: имя колонки MODBUS_MAP →
+        /// значение из ModbusMapEntry (адрес бита хранится в свойстве Address, колонка [AddrBit]).</summary>
+        private static readonly (string Col, Func<ModbusMapEntry, string?> Get)[] MappedFields =
+        {
+            ("SlaveStation", e => e.SlaveStation), ("SlaveIdMain", e => e.SlaveIdMain),
+            ("SlaveIdBackup", e => e.SlaveIdBackup), ("Speed", e => e.Speed), ("Timeout", e => e.Timeout),
+            ("PrfDesignation", e => e.PrfDesignation), ("PlcTag", e => e.PlcTag),
+            ("Description", e => e.Description), ("Units", e => e.Units), ("Scale", e => e.Scale),
+            ("LL", e => e.LL), ("LA", e => e.LA), ("HA", e => e.HA), ("HH", e => e.HH),
+            ("Scaling", e => e.Scaling), ("SigType", e => e.SigType), ("RegType", e => e.RegType),
+            ("AddrBit", e => e.Address), ("AccessType", e => e.AccessType), ("DataType", e => e.DataType),
+            ("FuncCode", e => e.FuncCode), ("DcsChannel", e => e.DcsChannel), ("DcsTag", e => e.DcsTag),
+            ("DcsFunctions", e => e.DcsFunctions), ("Note", e => e.Note)
+        };
+
+        /// <summary>F100: аудит INSERT одной строки карты — по всем заполненным полям (F7.2)
+        /// + вычисленный ObjectTag. Используется ImportMapped и режимом «Заменить строки файла».</summary>
+        internal static void AddInsertAudit(ModbusMapEntry e, List<ModbusMapAuditEntry> into)
+        {
+            foreach (var f in MappedFields)
+            {
+                string? v = f.Get(e);
+                if (string.IsNullOrWhiteSpace(v)) continue;
+                into.Add(new ModbusMapAuditEntry
+                { Tag = e.PlcTag, Action = AuditAction.Insert, Field = f.Col, NewValue = v, Sheet = e.MapSheet });
+            }
+            if (!string.IsNullOrWhiteSpace(e.ObjectTag))
+                into.Add(new ModbusMapAuditEntry
+                { Tag = e.PlcTag, Action = AuditAction.Insert, Field = "ObjectTag",
+                  NewValue = e.ObjectTag, Sheet = e.MapSheet });
+        }
+
+        /// <summary>F100: сравнительный импорт строк файла в MODBUS_MAP (режим по умолчанию в окне
+        /// импорта). Ключ строки — (MapSheet, PlcTag) с учётом повторов (теги повторяются — #2, #3…).
+        /// INSERT отсутствующих, UPDATE изменившихся полей, DELETE отсутствующих в файле — одна
+        /// транзакция (повтор при блокировке БД, как SaveToDb). ID строк не меняются, LinkTag/
+        /// LinkState не трогаются; DcsTag обновляется только непустым значением файла (файловые
+        /// привязки F9.3 авторитетны — пустое поле файла не затирает связанный/ручной тег).
+        /// Служебные MapRow/ObjectTag обновляются без аудита. Возвращает счётчики и строки аудита —
+        /// их пишет вызывающая сторона ПОСЛЕ коммита данных.</summary>
+        public ModbusMapDiffResult ImportMapped(IReadOnlyList<ModbusMapEntry> entries, string fileName)
+        {
+            if (string.IsNullOrEmpty(_dbPath)) throw new InvalidOperationException("База данных не задана");
+            var list = entries.ToList();
+            return WithLockRetry(() => ImportMappedOnce(list, fileName), $"сравнение карты «{fileName}»");
+        }
+
+        /// <summary>Тело ImportMapped: diff в памяти + INSERT/UPDATE/DELETE одной транзакцией.</summary>
+        private ModbusMapDiffResult ImportMappedOnce(List<ModbusMapEntry> incoming, string fileName)
+        {
+            var result = new ModbusMapDiffResult();
+
+            // Ключ строки: лист + PlcTag; повторы одного тега на листе получают #2, #3…
+            // (нумерация по порядку строк — одинакова у файла и у чтения из БД)
+            static Dictionary<string, ModbusMapEntry> BuildKeys(IEnumerable<ModbusMapEntry> rows)
+            {
+                var map = new Dictionary<string, ModbusMapEntry>(StringComparer.OrdinalIgnoreCase);
+                foreach (var e in rows)
+                {
+                    string baseKey = e.MapSheet + "\u0001" + (e.PlcTag ?? "").Trim();
+                    string key = baseKey;
+                    int n = 2;
+                    while (map.ContainsKey(key)) key = baseKey + "#" + n++;
+                    map[key] = e;
+                }
+                return map;
+            }
+
+            var newByKey = BuildKeys(incoming);
+            var oldByKey = BuildKeys(LoadFromFile(fileName));
+
+            using var cn = new System.Data.OleDb.OleDbConnection(ConnStr);
+            cn.Open();
+            using var tr = cn.BeginTransaction();
+            try
+            {
+                const string serviceCols = "[MapFile], [MapSheet], [MapRow], [ObjectTag]";
+                string dataCols = string.Join(", ", MappedFields.Select(f => "[" + f.Col + "]"));
+                string placeholders = string.Join(", ", Enumerable.Repeat("?", 4 + MappedFields.Length));
+                using var ins = new System.Data.OleDb.OleDbCommand(
+                    $"INSERT INTO [{Schema.ModbusMapTable}] ({serviceCols}, {dataCols}) VALUES ({placeholders})",
+                    cn, tr);
+                ins.CommandTimeout = DbProbe.TimeoutSeconds;
+                using var upd = new System.Data.OleDb.OleDbCommand("", cn, tr);
+                upd.CommandTimeout = DbProbe.TimeoutSeconds;
+                using var del = new System.Data.OleDb.OleDbCommand(
+                    $"DELETE FROM [{Schema.ModbusMapTable}] WHERE [ID] = ?", cn, tr);
+                del.CommandTimeout = DbProbe.TimeoutSeconds;
+                foreach (var kv in newByKey)
+                {
+                    var e = kv.Value;
+                    e.MapFile = fileName;
+                    if (!string.IsNullOrWhiteSpace(e.PlcTag))
+                        e.ObjectTag = DeriveObjectTag(e.PlcTag); // F37: пересчёт при каждом импорте
+
+                    if (!oldByKey.TryGetValue(kv.Key, out var old))
+                    {
+                        // ===== INSERT: строки нет в базе =====
+                        ins.Parameters.Clear();
+                        OleDbArgs.Add(ins, e.MapFile);
+                        OleDbArgs.Add(ins, e.MapSheet);
+                        OleDbArgs.Add(ins, e.MapRow);
+                        OleDbArgs.Add(ins, e.ObjectTag);
+                        foreach (var f in MappedFields) OleDbArgs.Add(ins, f.Get(e));
+                        ins.ExecuteNonQuery();
+                        result.Inserted++;
+                        AddInsertAudit(e, result.AuditRows); // аудит INSERT — по заполненным полям (F7.2)
+                        continue;
+                    }
+
+                    // ===== UPDATE: только изменившиеся поля данных (+ служебные без аудита) =====
+                    var changed = new List<(string Col, string? Old, string? New)>();
+                    foreach (var f in MappedFields)
+                    {
+                        string? nv = f.Get(e);
+                        string? ov = f.Get(old);
+                        if (Norm(nv) == Norm(ov)) continue;
+                        if (f.Col == "DcsTag" && string.IsNullOrWhiteSpace(nv)) continue; // пустое не затирает
+                        changed.Add((f.Col, ov, nv));
+                    }
+                    bool mapRowChanged = old.MapRow != e.MapRow;
+                    bool objTagChanged = Norm(old.ObjectTag) != Norm(e.ObjectTag);
+                    if (changed.Count == 0 && !mapRowChanged && !objTagChanged) continue;
+
+                    var setParts = new List<string>();
+                    if (mapRowChanged) setParts.Add("[MapRow] = ?");
+                    if (objTagChanged) setParts.Add("[ObjectTag] = ?");
+                    foreach (var c in changed) setParts.Add($"[{c.Col}] = ?");
+                    upd.CommandText = $"UPDATE [{Schema.ModbusMapTable}] SET {string.Join(", ", setParts)} WHERE [ID] = ?";
+                    upd.Parameters.Clear();
+                    if (mapRowChanged) OleDbArgs.Add(upd, e.MapRow);
+                    if (objTagChanged) OleDbArgs.Add(upd, e.ObjectTag);
+                    foreach (var c in changed) OleDbArgs.Add(upd, c.New);
+                    OleDbArgs.Add(upd, old.Id);
+                    upd.ExecuteNonQuery();
+                    if (changed.Count > 0)
+                    {
+                        result.Updated++;
+                        foreach (var c in changed)
+                            result.AuditRows.Add(new ModbusMapAuditEntry
+                            { Tag = e.PlcTag, Action = AuditAction.Update, Field = c.Col,
+                              OldValue = c.Old, NewValue = c.New, Sheet = e.MapSheet });
+                    }
+                }
+
+                // ===== DELETE: строка файла исчезла =====
+                foreach (var kv in oldByKey)
+                {
+                    if (newByKey.ContainsKey(kv.Key)) continue;
+                    var old = kv.Value;
+                    del.Parameters.Clear();
+                    OleDbArgs.Add(del, old.Id);
+                    del.ExecuteNonQuery();
+                    result.Deleted++;
+                    result.AuditRows.Add(new ModbusMapAuditEntry
+                    {
+                        Tag = old.PlcTag, Action = AuditAction.Delete, Field = "Строка карты",
+                        OldValue = $"{old.MapSheet}, стр. {old.MapRow}", Sheet = old.MapSheet
+                    });
+                }
+
+                tr.Commit();
+                return result;
+            }
+            catch
+            {
+                try { tr.Rollback(); } catch { /* соединение могло уже упасть — не мешаем исходной ошибке */ }
+                throw;
+            }
+        }
+
+        /// <summary>Нормализация значения для сравнения (null ≡ "", пробелы по краям не значимы).</summary>
+        private static string Norm(string? s) => (s ?? "").Trim();
+
         /// <summary>F9-фикс: повтор операции при кратковременной блокировке БД («locked»/«in use»).
         /// Повторяется вся транзакция — неудачную попытку JET откатывает сам.</summary>
         private static int WithLockRetry(Func<int> op, string what, int attempts = 3)
+        {
+            for (int attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    return op();
+                }
+                catch (System.Data.OleDb.OleDbException ex) when (
+                    attempt < attempts && DbProbe.IsLockError(ex.Message))
+                {
+                    System.Threading.Thread.Sleep(300 * attempt); // 300/600 мс — ждём снятия блокировки
+                    LastLockWarning = $"блокировка БД пережита повтором {attempt} ({what}): {ex.Message}";
+                }
+            }
+        }
+
+        /// <summary>F100: то же для операций с результатом отличным от int (сравнительный импорт).</summary>
+        private static T WithLockRetry<T>(Func<T> op, string what, int attempts = 3)
         {
             for (int attempt = 1; ; attempt++)
             {
@@ -260,7 +454,14 @@ namespace IO_PJT.Services
         private static string? LastLockWarning;
 
         /// <summary>Прочитать все строки MODBUS_MAP (для связывания).</summary>
-        public List<ModbusMapEntry> LoadFromDb()
+        public List<ModbusMapEntry> LoadFromDb() => LoadCore(null, null);
+
+        /// <summary>F100: строки одного файла карты (сравнительный импорт F100).</summary>
+        public List<ModbusMapEntry> LoadFromFile(string fileName) =>
+            LoadCore(" WHERE [MapFile] = ?", cmd => OleDbArgs.Add(cmd, fileName));
+
+        /// <summary>Общее тело чтения: where — условие (null — все строки), bind — параметры условия.</summary>
+        private List<ModbusMapEntry> LoadCore(string? where, Action<System.Data.OleDb.OleDbCommand>? bind)
         {
             if (string.IsNullOrEmpty(_dbPath)) throw new InvalidOperationException("База данных не задана");
             EnsureTable();
@@ -272,8 +473,9 @@ namespace IO_PJT.Services
                 "[Speed], [Timeout], [PrfDesignation], [PlcTag], [ObjectTag], [Description], [Units], [Scale], " +
                 "[LL], [LA], [HA], [HH], [Scaling], [SigType], [RegType], [AddrBit], [AccessType], [DataType], " +
                 "[FuncCode], [DcsChannel], [DcsTag], [DcsFunctions], [Note], [LinkTag], [LinkState] " +
-                $"FROM [{Schema.ModbusMapTable}]", cn);
+                $"FROM [{Schema.ModbusMapTable}]{where}", cn);
             cmd.CommandTimeout = DbProbe.TimeoutSeconds;
+            bind?.Invoke(cmd);
             using var rd = cmd.ExecuteReader();
             while (rd.Read())
             {

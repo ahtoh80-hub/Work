@@ -21,5 +21,9 @@ namespace IO_PJT.Models
 
         /// <summary>Значение ячейки (безопасно по индексу).</summary>
         public string? Cell(int index) => index >= 0 && index < Cells.Count ? Cells[index] : null;
+
+        /// <summary>F100: реальный номер строки Excel (1-based); 0 — не заполнен
+        /// (нужен MODBUS_MAP.MapRow, когда пустые строки листа пропускаются).</summary>
+        public int ExcelRow { get; init; }
     }
 }

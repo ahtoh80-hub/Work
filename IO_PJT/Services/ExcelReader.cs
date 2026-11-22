@@ -76,7 +76,7 @@ namespace IO_PJT.Services
                     struck.Add(cell.Style.Font.Strikethrough);
                     if (!string.IsNullOrWhiteSpace(text)) anyValue = true;
                 }
-                if (anyValue) rows.Add(new ExcelRowData { Cells = cells, Struck = struck });
+                if (anyValue) rows.Add(new ExcelRowData { Cells = cells, Struck = struck, ExcelRow = r });
             }
             return rows;
         }

@@ -748,6 +748,9 @@ namespace IO_PJT.Smoke
                 ruleSvc.SaveAll(Array.Empty<ModbusLinkRule>());
                 Check(ruleSvc.Load().Count == 0, "F99: очистка правил — таблица пуста");
 
+                // ===== F100: единое окно импорта (своя tmp-БД и синтетический файл — изоляция) =====
+                RunF100Part();
+
                 // ===== F9.4: не-Modbus-сигнал не может быть связан с картой =====
                 Console.WriteLine("== F9.4 Не-Modbus сигнал (IO Type без M*/COM) ==");
                 var pNonModbus = MakePoint("1115-AIN-00101", "1115-M-00101A", "AI",
@@ -1053,6 +1056,340 @@ namespace IO_PJT.Smoke
                 GC.Collect(); GC.WaitForPendingFinalizers(); // освободить handle ACE
                 try { File.Delete(tmpDb); } catch { /* мог остаться lock */ }
             }
+        }
+
+        // ===== F100: единое окно импорта — профили целевых таблиц, алиасы карты, сравнительный импорт =====
+
+        /// <summary>F100: синтетический файл карты для смоука: Interface parameters (шапка 1,
+        /// станция ST100) + Register Table Function 02 (шапка 2, строки 3..7) +
+        /// Register Table Function 03 (1 строка); опционально — правки для diff-тестов.</summary>
+        private static void WriteF100File(string path, string desc, bool dropRow = false,
+            bool addRow = false, string? dcsTag = null, bool badSheet = false)
+        {
+            using var wb = new ClosedXML.Excel.XLWorkbook();
+
+            var iface = wb.Worksheets.Add("Interface parameters");
+            iface.Cell(1, 4).Value = "Slave Station (Data Source)";
+            iface.Cell(1, 5).Value = "Slave ID main";
+            iface.Cell(1, 6).Value = "Slave ID back-up";
+            iface.Cell(1, 7).Value = "speed";
+            iface.Cell(1, 12).Value = "timeout";
+            iface.Cell(2, 4).Value = "ST100";
+            iface.Cell(2, 5).Value = "10.0.0.1";
+            iface.Cell(2, 6).Value = "10.0.0.2";
+            iface.Cell(2, 7).Value = "115200";
+            iface.Cell(2, 12).Value = "1000";
+
+            string[] hdr =
+            {
+                "", "Project Functional Designation", "PLC Tag/Variable Name",
+                "Description of the variable", "Units of measurement", "scale", "LL", "LA", "HA", "HH",
+                "Scaling factors", "Signal type (Impulse/Permanent)", "Register type", "Address/Bit",
+                "Access type", "Data type", "Function code", "DCS channel", "DCS Tag/Name variable",
+                "DCS functions", "note"
+            };
+            static void WriteHdr(ClosedXML.Excel.IXLWorksheet ws, string[] hdr2)
+            {
+                for (int c = 1; c <= 21; c++)
+                    if (hdr2[c - 1].Length > 0) ws.Cell(2, c).Value = hdr2[c - 1];
+            }
+            static void WriteRow(ClosedXML.Excel.IXLWorksheet ws, int r, string tag,
+                string description, string func, string? dcs)
+            {
+                ws.Cell(r, 3).Value = tag;
+                ws.Cell(r, 4).Value = description;
+                ws.Cell(r, 17).Value = func;
+                if (dcs != null) ws.Cell(r, 19).Value = dcs;
+            }
+
+            var s02 = wb.Worksheets.Add("Register Table Function 02");
+            WriteHdr(s02, hdr);
+            WriteRow(s02, 3, "1001-PM-101A_STA.MCU", desc, "02", dcsTag);
+            if (!dropRow) WriteRow(s02, 4, "1001-PM-101A_FAULT.MCU", "fault", "02", null);
+            WriteRow(s02, 5, "1001-PM-101A_I_A", "current", "03", null);
+            s02.Cell(6, 4).Value = "нет тега — пропуск строки"; // без PlcTag → RowsSkipped
+            if (addRow) WriteRow(s02, 7, "1001-PM-101A_TX.MCU", "comm", "02", null);
+
+            var s03 = wb.Worksheets.Add("Register Table Function 03");
+            WriteHdr(s03, hdr);
+            WriteRow(s03, 3, "1001-PM-101A_OP_F", "freq", "03", null);
+
+            if (badSheet)
+            {
+                // лист под маской, но без колонки PlcTag — должен быть пропущен с предупреждением
+                var bad = wb.Worksheets.Add("Register Table Bad");
+                bad.Cell(2, 3).Value = "Description of the variable";
+                bad.Cell(3, 3).Value = "строка без тега";
+            }
+
+            wb.SaveAs(path);
+        }
+
+        /// <summary>F100: профили, маска, алиасы реальной шапки, встроенный шаблон; импорт — на tmp-БД
+        /// ниже (изоляция от RunDbPart).</summary>
+        private static void RunF100Part()
+        {
+            Console.WriteLine("== F100 Единое окно импорта: профили и карта Modbus ==");
+            string work100 = @"c:\Users\RAN-Notebook\Desktop\Work\Work";
+            string realMap100 = Path.Combine(work100, "IMCS TO DCS Register Table Modbus - EBSM102.xlsx");
+
+            // ---- (1) профили целевых таблиц ----
+            var ioProf = ImportTargets.IoList;
+            var mbProf = ImportTargets.ModbusMap;
+            Check(ioProf.RequiredField == "Tag" && ioProf.DefaultHeaderRow == 1 &&
+                  ioProf.SupportsCreateTable && ioProf.TableName == Schema.DefaultTable &&
+                  ioProf.Columns.Contains("Tag") && !ioProf.Columns.Contains("REV_FileName"),
+                "F100: профиль IO_LIST — Tag, шапка 1, создание таблиц, без автоколонок");
+            Check(mbProf.RequiredField == "PlcTag" && mbProf.DefaultHeaderRow == 2 &&
+                  mbProf.TableName == Schema.ModbusMapTable &&
+                  mbProf.DefaultSheetMask == "Register Table" && mbProf.AllSheetsByMaskDefault &&
+                  mbProf.SupportsLinkAfterImport,
+                "F100: профиль MODBUS_MAP — PlcTag, шапка 2, маска Register Table, связывание");
+            Check(mbProf.Columns.Contains("PlcTag") && mbProf.Columns.Contains("AddrBit") &&
+                  mbProf.Columns.Contains("SlaveStation") && mbProf.Columns.Contains("Timeout") &&
+                  !mbProf.Columns.Contains("ID") && !mbProf.Columns.Contains("LinkTag") &&
+                  !mbProf.Columns.Contains("LinkState") && !mbProf.Columns.Contains("MapFile") &&
+                  !mbProf.Columns.Contains("MapRow") && !mbProf.Columns.Contains("ObjectTag"),
+                $"F100: колонки карты — служебные исключены (факт {mbProf.Columns.Count} привязываемых)");
+            Check(ImportTargets.All.Count == 2 &&
+                  ReferenceEquals(ImportTargets.Find("modbus_map"), mbProf) &&
+                  ReferenceEquals(ImportTargets.Find("нет-такого"), ioProf),
+                "F100: реестр профилей Find — регистр не важен, фолбэк IO_LIST");
+
+            // ---- (2) маска листов ----
+            Check(ImportTargets.MaskMatches("Register Table", "Register Table Function 02/03/06") &&
+                  ImportTargets.MaskMatches("Register Table*", "Register Table Function 06") &&
+                  !ImportTargets.MaskMatches("Register Table", "Interface parameters") &&
+                  ImportTargets.MaskMatches("", "Interface parameters") &&
+                  !ImportTargets.MaskMatches("Register*06", "Register Table Function 03"),
+                "F100: MaskMatches — подстрока, wildcard, пустая маска, отсев несовпадения");
+
+            // ---- (3) авто-маппинг РЕАЛЬНОЙ двуязычной шапки (map102, алиасы F100) ----
+            string probeDb100 = Path.Combine(Path.GetTempPath(), "f100_probe.accdb");
+            if (File.Exists(realMap100))
+            {
+                using var rdr = new ExcelReader(realMap100);
+                var regHeaders = rdr.GetHeaders("Register Table Function 02", 2);
+                var maps100 = new MappingService(probeDb100).AutoDetect(regHeaders, mbProf);
+                var bound100 = maps100.Where(m => !string.IsNullOrEmpty(m.AccessColumn))
+                    .Select(m => m.AccessColumn!).ToList();
+                Check(bound100.Count == 20 && bound100.Contains("PlcTag") &&
+                      bound100.Contains("AddrBit") && bound100.Contains("DcsTag") &&
+                      bound100.Contains("PrfDesignation") && bound100.Contains("DcsFunctions"),
+                    $"F100: реальная двуязычная шапка → 20 колонок карты (факт {bound100.Count})");
+                Check(maps100.Any(m => m.ExcelColumnIndex == 2 && m.AccessColumn == "PlcTag"),
+                    "F100: PlcTag распознан в позиции C (индекс 2)");
+
+                var ifaceHeaders = rdr.GetHeaders("Interface parameters", 1);
+                var ifaceMaps = new MappingService(probeDb100).AutoDetect(ifaceHeaders, mbProf);
+                var stFields = ifaceMaps
+                    .Where(m => m.AccessColumn is "SlaveStation" or "SlaveIdMain" or "SlaveIdBackup"
+                        or "Speed" or "Timeout")
+                    .Select(m => m.AccessColumn).Distinct().ToList();
+                Check(stFields.Count == 5,
+                    $"F100: Interface parameters → 5 полей станции (факт {string.Join(",", stFields)})");
+
+                // IO_LIST-профиль на той же шапке работает как раньше (регресс F2.14)
+                var ioMaps100 = new MappingService(probeDb100).AutoDetect(regHeaders);
+                Check(ioMaps100.Any(m => m.AccessColumn == "LL" && m.ExcelColumn.Trim() == "LL"),
+                    "F100: IO_LIST AutoDetect без изменений (LL → колонка LL)");
+            }
+            else
+            {
+                Check(false, "F100: реальный файл карты EBSM102 найден");
+            }
+
+            // ---- (4) встроенный шаблон ----
+            Check(mbProf.BuiltInTemplate != null &&
+                  mbProf.BuiltInTemplate!.TableName == Schema.ModbusMapTable &&
+                  mbProf.BuiltInTemplate.HeaderRow == 2 &&
+                  mbProf.BuiltInTemplate.SheetHint.Contains("Register Table") &&
+                  mbProf.BuiltInTemplate.Mappings.Count == 20 &&
+                  mbProf.BuiltInTemplate.Mappings.All(x => mbProf.Columns.Contains(x.AccessColumn)),
+                "F100: встроенный шаблон — 20 связок, колонки карты");
+
+            // ---- (5) чтение и сравнительный импорт на свежей tmp-БД ----
+            string tmp100 = Path.Combine(Path.GetTempPath(), $"iosmoke_{Guid.NewGuid():N}.accdb");
+            string xlsx100 = Path.Combine(Path.GetTempPath(), $"f100_{Guid.NewGuid():N}.xlsx");
+            try
+            {
+                var log100 = new EventLogger();
+                var creator100 = new TableCreator(tmp100);
+                creator100.CreateDatabase();
+                creator100.EnsureServiceTables();
+                var audit100 = new AuditService(tmp100, log100);
+                var mapping100 = new MappingService(tmp100);
+                var svc100 = new ModbusImportService(tmp100, mapping100, audit100, log100);
+                var maps100svc = new ModbusMapService(tmp100);
+
+                WriteF100File(xlsx100, "old desc");
+                List<ColumnMap> fileMaps100;
+                using (var rFile = new ExcelReader(xlsx100))
+                    fileMaps100 = mapping100.AutoDetect(
+                        rFile.GetHeaders("Register Table Function 02", 2), mbProf);
+
+                // чтение: 4 валидные строки (02×3 + 03×1), 1 пропуск без PlcTag, 2 листа по маске
+                var read100 = svc100.Read(xlsx100, fileMaps100, 2, "Register Table", true, null);
+                Check(read100.Entries.Count == 4 && read100.RowsSkipped == 1 &&
+                      read100.SheetsRead.Count == 2,
+                    $"F100: чтение файла — 4 строки, 1 пропуск, 2 листа " +
+                    $"(факт {read100.Entries.Count}/{read100.RowsSkipped}/{read100.SheetsRead.Count})");
+                Check(read100.SlaveStation == "ST100" &&
+                      read100.Entries.All(e => e.SlaveStation == "ST100"),
+                    $"F100: параметры станции из Interface parameters (факт {read100.SlaveStation})");
+                Check(read100.Entries.All(e => !string.IsNullOrEmpty(e.ObjectTag)),
+                    "F100: ObjectTag вычисляется из PlcTag");
+
+                // первый импорт: +4, аудит Insert по MODBUS_MAP
+                var imp1 = svc100.Import(xlsx100, fileMaps100, 2, "Register Table", true, null, false, true);
+                Check(imp1.Inserted == 4 && imp1.Updated == 0 && imp1.Deleted == 0,
+                    $"F100: первый импорт +4 (факт +{imp1.Inserted} ~{imp1.Updated} -{imp1.Deleted})");
+                var hist1 = audit100.GetHistory();
+                Check(hist1.Any(h => h.Action == AuditAction.Insert &&
+                                      h.TableName == Schema.ModbusMapTable && h.System == "Modbus"),
+                    $"F100: аудит Insert по MODBUS_MAP (факт {hist1.Count(h => h.Action == AuditAction.Insert)} Insert)");
+
+                // повтор того же файла: 0/0/0, аудит не растёт
+                int auditBefore100 = hist1.Count;
+                var imp2 = svc100.Import(xlsx100, fileMaps100, 2, "Register Table", true, null, false, true);
+                Check(imp2.Inserted == 0 && imp2.Updated == 0 && imp2.Deleted == 0 &&
+                      audit100.GetHistory().Count == auditBefore100,
+                    "F100: повторный импорт без правок — 0/0/0, аудит не вырос");
+
+                // правка файла: Description изменён, строка удалена, новая добавлена;
+                // DcsTag в колонке S задан (файл авторитетен только непустым значением)
+                WriteF100File(xlsx100, "new desc", dropRow: true, addRow: true, dcsTag: "FILE-DCS");
+
+                // ручная привязка/тег до импорта — должны пережить сравнительный импорт
+                using (var cnP = new System.Data.OleDb.OleDbConnection(
+                           $"Provider=Microsoft.ACE.OLEDB.12.0;Data Source={tmp100};"))
+                {
+                    cnP.Open();
+                    using var cmdP = cnP.CreateCommand();
+                    cmdP.CommandText =
+                        $"UPDATE [{Schema.ModbusMapTable}] SET [LinkTag] = ?, [LinkState] = ?, [DcsTag] = ? WHERE [PlcTag] = ?";
+                    cmdP.Parameters.AddWithValue("@l", "1001-MXA-00001");
+                    cmdP.Parameters.AddWithValue("@s", ModbusMapService.LinkStateLinked);
+                    cmdP.Parameters.AddWithValue("@d", "MANUAL-DCS");
+                    cmdP.Parameters.AddWithValue("@t", "1001-PM-101A_STA.MCU");
+                    cmdP.ExecuteNonQuery();
+                }
+                long staIdBefore = maps100svc.LoadFromDb()
+                    .First(x => x.PlcTag == "1001-PM-101A_STA.MCU").Id;
+
+                var imp3 = svc100.Import(xlsx100, fileMaps100, 2, "Register Table", true, null, false, true);
+                Check(imp3.Inserted == 1 && imp3.Updated == 1 && imp3.Deleted == 1,
+                    $"F100: diff-правка +1 ~1 -1 (факт +{imp3.Inserted} ~{imp3.Updated} -{imp3.Deleted})");
+                var updDesc = audit100.GetHistory(field: "Description")
+                    .FirstOrDefault(h => h.Action == AuditAction.Update);
+                Check(updDesc != null && updDesc.OldValue == "old desc" && updDesc.NewValue == "new desc",
+                    $"F100: аудит Update Description old→new (факт {updDesc?.OldValue} → {updDesc?.NewValue})");
+                Check(audit100.GetHistory().Any(h => h.Action == AuditAction.Delete &&
+                                                      h.TableName == Schema.ModbusMapTable),
+                    "F100: аудит Delete отсутствующей строки записан");
+
+                var sta3 = maps100svc.LoadFromDb()
+                    .FirstOrDefault(x => x.PlcTag == "1001-PM-101A_STA.MCU");
+                Check(sta3 != null && sta3.Id == staIdBefore &&
+                      sta3.LinkTag == "1001-MXA-00001" &&
+                      sta3.LinkState == ModbusMapService.LinkStateLinked &&
+                      sta3.DcsTag == "FILE-DCS",
+                    $"F100: ID/LinkTag/LinkState сохранены, DcsTag из файла " +
+                    $"(факт {sta3?.Id}/{sta3?.LinkTag}/{sta3?.DcsTag})");
+
+                // пустой DcsTag файла НЕ затирает сохранённый (строки те же → 0/0/0)
+                WriteF100File(xlsx100, "new desc", dropRow: true, addRow: true);
+                var imp4 = svc100.Import(xlsx100, fileMaps100, 2, "Register Table", true, null, false, true);
+                var sta4 = maps100svc.LoadFromDb().First(x => x.PlcTag == "1001-PM-101A_STA.MCU");
+                Check(imp4.Inserted == 0 && imp4.Updated == 0 && imp4.Deleted == 0 &&
+                      sta4.DcsTag == "FILE-DCS",
+                    $"F100: пустой DcsTag не затирает (0/0/0, DcsTag={sta4.DcsTag})");
+
+                // режим «Заменить строки файла» (поведение F9.2: DELETE+INSERT)
+                int delBefore100 = audit100.GetHistory().Count(h => h.Action == AuditAction.Delete);
+                WriteF100File(xlsx100, "old desc");
+                var imp5 = svc100.Import(xlsx100, fileMaps100, 2, "Register Table", true, null, true, true);
+                int rowCount100 = maps100svc.LoadFromDb().Count;
+                Check(imp5.Replaced && imp5.Inserted == 4 && rowCount100 == 4,
+                    $"F100: замена файла — Replaced, +4, строк 4 " +
+                    $"(факт {imp5.Replaced}/{imp5.Inserted}/{rowCount100})");
+                Check(audit100.GetHistory().Count(h => h.Action == AuditAction.Delete) ==
+                      delBefore100 + 4,
+                    "F100: замена файла — аудит Delete по каждой старой строке");
+
+                // один лист вместо маски
+                var readSingle = svc100.Read(xlsx100, fileMaps100, 2, "Register Table", false,
+                    "Register Table Function 03");
+                Check(readSingle.Entries.Count == 1 && readSingle.SheetsRead.Count == 1 &&
+                      readSingle.SheetsRead[0] == "Register Table Function 03",
+                    $"F100: импорт одного листа — 1 строка (факт {readSingle.Entries.Count})");
+
+                // лист под маской без колонки PlcTag — пропуск с предупреждением
+                WriteF100File(xlsx100, "old desc", badSheet: true);
+                var readBad = svc100.Read(xlsx100, fileMaps100, 2, "Register Table", true, null);
+                Check(readBad.Entries.Count == 4 &&
+                      readBad.Warnings.Any(w => w.Contains("Register Table Bad")),
+                    $"F100: лист без PlcTag пропущен " +
+                    $"(строк {readBad.Entries.Count}, предупреждений {readBad.Warnings.Count})");
+
+                // запись без привязки PlcTag — блокировка с понятной причиной
+                var noTagMaps = fileMaps100.Where(m => m.AccessColumn != "PlcTag").ToList();
+                try
+                {
+                    svc100.Import(xlsx100, noTagMaps, 2, "Register Table", true, null, false, true);
+                    Check(false, "F100: импорт без PlcTag должен быть заблокирован");
+                }
+                catch (InvalidOperationException ex100)
+                {
+                    Check(ex100.Message.Contains("PlcTag"),
+                        $"F100: без PlcTag — исключение с причиной («{ex100.Message.Split('\n')[0]}»)");
+                }
+
+                // шаблоны маппинга фильтруются по целевой таблице профиля
+                mapping100.SaveTemplate(new MappingTemplate
+                {
+                    Name = "F100 Modbus",
+                    TableName = Schema.ModbusMapTable,
+                    HeaderRow = 2,
+                    Mappings = fileMaps100.Where(m => !string.IsNullOrEmpty(m.AccessColumn)).ToList()
+                });
+                mapping100.SaveTemplate(new MappingTemplate
+                {
+                    Name = "F100 IO",
+                    TableName = Schema.DefaultTable,
+                    HeaderRow = 1,
+                    Mappings = new List<ColumnMap>()
+                });
+                var mbNames100 = mapping100.GetTemplateNames(Schema.ModbusMapTable);
+                var ioNames100 = mapping100.GetTemplateNames();
+                Check(mbNames100.Contains("F100 Modbus") && !mbNames100.Contains("F100 IO") &&
+                      ioNames100.Contains("F100 IO") && !ioNames100.Contains("F100 Modbus"),
+                    "F100: GetTemplateNames — шаблоны фильтруются по целевой таблице");
+            }
+            finally
+            {
+                GC.Collect(); GC.WaitForPendingFinalizers(); // освободить handle ACE
+                try { File.Delete(tmp100); } catch { /* мог остаться lock */ }
+                try { File.Delete(xlsx100); } catch { }
+            }
+
+            // ---- (6) пункты меню, окно импорта, версия ----
+            string mainXaml100 = File.ReadAllText(
+                @"c:\Users\RAN-Notebook\Desktop\Work\IO_PJT\Views\MainWindow.xaml");
+            Check(mainXaml100.Contains("Импорт IO LIST из Excel...") &&
+                  mainXaml100.Contains("Импорт Modbus_MAP из Excel...") &&
+                  !mainXaml100.Contains("Карта Modbus...") &&
+                  !mainXaml100.Contains("Импорт из Excel..."),
+                "F100: пункты меню — «Импорт IO LIST/Modbus_MAP из Excel...», старые переименованы");
+            string impXaml100 = File.ReadAllText(
+                @"c:\Users\RAN-Notebook\Desktop\Work\IO_PJT\Views\ImportWindow.xaml");
+            Check(impXaml100.Contains("Тип импорта:") && impXaml100.Contains("Binding Targets") &&
+                  impXaml100.Contains("Binding SelectedTarget") &&
+                  impXaml100.Contains("Маска листов") && impXaml100.Contains("Связать после импорта"),
+                "F100: окно импорта — тип импорта, маска листов, связывание после импорта");
+            Check(!File.Exists(@"c:\Users\RAN-Notebook\Desktop\Work\IO_PJT\Views\ModbusImportWindow.xaml"),
+                "F100: старое окно ModbusImportWindow удалено");
+            Check(AppInfo.Version == "F100", $"F100: AppInfo.Version = {AppInfo.Version}");
         }
 
         /// <summary>F55: связывание в три фазы — полное совпадение имени (FullKey, «по буквам»),

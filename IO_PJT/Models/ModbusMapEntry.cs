@@ -92,6 +92,46 @@ namespace IO_PJT.Models
         public int RowsInserted { get; set; }
     }
 
+    /// <summary>F100: строка аудита изменения MODBUS_MAP — заполняется ModbusMapService.ImportMapped
+    /// (INSERT — по заполненным полям F7.2, UPDATE — по изменённым, DELETE — одна строка «Строка карты»)
+    /// и пишется AuditService после коммита данных.</summary>
+    public sealed class ModbusMapAuditEntry
+    {
+        /// <summary>Тег строки карты (PlcTag).</summary>
+        public string? Tag { get; set; }
+
+        /// <summary>Действие: Insert / Update / Delete.</summary>
+        public AuditAction Action { get; set; }
+
+        /// <summary>Имя колонки MODBUS_MAP (для DELETE — «Строка карты»).</summary>
+        public string Field { get; set; } = "";
+
+        /// <summary>Старое значение (null при INSERT).</summary>
+        public string? OldValue { get; set; }
+
+        /// <summary>Новое значение (null при DELETE).</summary>
+        public string? NewValue { get; set; }
+
+        /// <summary>Лист-источник (MODBUS_MAP.MapSheet).</summary>
+        public string? Sheet { get; set; }
+    }
+
+    /// <summary>F100: итог сравнительного импорта файла в MODBUS_MAP (режим «Сравнение»).</summary>
+    public sealed class ModbusMapDiffResult
+    {
+        /// <summary>Вставлено новых строк.</summary>
+        public int Inserted { get; set; }
+
+        /// <summary>Обновлено существующих строк (изменено ≥1 поле данных).</summary>
+        public int Updated { get; set; }
+
+        /// <summary>Удалено строк, отсутствующих в файле.</summary>
+        public int Deleted { get; set; }
+
+        /// <summary>Строки аудита (пишет вызывающая сторона после коммита).</summary>
+        public List<ModbusMapAuditEntry> AuditRows { get; } = new();
+    }
+
     /// <summary>F59: режим связывания IO_LIST ↔ MODBUS_MAP — полное обновление (всё
     /// пересчитывается, LinkTag/DcsTag/LinkState строк карты затираются расчётом, ручные
     /// правки теряются) либо только пустые связи (строки с уже заполненной привязкой

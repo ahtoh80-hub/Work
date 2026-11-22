@@ -15,9 +15,10 @@
                 <MenuItem Header="Выход" Click="Exit_Click" />
             </MenuItem>
             <MenuItem Header="_Импорт">
-                <MenuItem Header="Импорт из Excel..." Command="{Binding ImportCommand}" />
-                <MenuItem Header="Карта Modbus..." Command="{Binding ImportModbusCommand}"
-                          ToolTip="Импорт карты адресации Modbus (Register Table Function 02/03/06) и связывание строк карты с IO_LIST (LinkTag/DcsTag) — F9" />
+                <MenuItem Header="Импорт IO LIST из Excel..." Command="{Binding ImportCommand}"
+                          ToolTip="F6.3/F100: единое окно импорта Excel с профилем IO_LIST — сопоставление столбцов, шаблоны маппинга, предпросмотр, аудит" />
+                <MenuItem Header="Импорт Modbus_MAP из Excel..." Command="{Binding ImportModbusCommand}"
+                          ToolTip="F100: то же единое окно импорта с профилем MODBUS_MAP — сопоставление столбцов карты Modbus ↔ MODBUS_MAP (шапка строка 2, маска листов), шаблоны, аудит изменений, связывание после импорта (F9.3)" />
                 <MenuItem Header="Обновление адресации Modbus..." Command="{Binding ModbusAddressingCommand}"
                           ToolTip="F99: единое окно — обновление связей (полное/только пустые), запись M_-полей IO_LIST (F9.4), правила связывания MODBUS_LINK_RULES (F9.11) и проверка маски на теге" />
                 <Separator />

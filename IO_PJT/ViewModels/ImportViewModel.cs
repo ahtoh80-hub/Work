@@ -57,7 +57,12 @@ namespace IO_PJT.ViewModels
 
         public Action? Changed { get; set; }
         public bool IsBound => !string.IsNullOrEmpty(AccessColumn);
-        public bool IsTag => string.Equals(AccessColumn, "Tag", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>F100: обязательное поле профиля (Tag / PlcTag) — задаётся при создании строки.</summary>
+        public string RequiredField { get; init; } = "Tag";
+
+        /// <summary>Колонка привязана к обязательному полю профиля (✓ в сетке маппинга, F100).</summary>
+        public bool IsRequired => string.Equals(AccessColumn, RequiredField, StringComparison.OrdinalIgnoreCase);
 
         /// <summary>Всплывающее пояснение поля (назначение) — тултип в окне маппинга + подсказка F2.14.</summary>
         public string Description
@@ -97,10 +102,76 @@ namespace IO_PJT.ViewModels
         private string _newTableName = "IO_LIST";
         public string NewTableName { get => _newTableName; set => Set(ref _newTableName, value, nameof(NewTableName)); }
 
-        // —— Режим импорта (F2.7) ——
-        public ObservableCollection<string> Modes { get; } = new() { "Добавить (upsert по Tag)", "Заменить (очистить)" };
+        // —— Режим импорта (F2.7; состав — по профилю F100) ——
+        public ObservableCollection<string> Modes { get; } = new();
         private string _selectedMode = "Добавить (upsert по Tag)";
         public string SelectedMode { get => _selectedMode; set => Set(ref _selectedMode, value, nameof(SelectedMode)); }
+
+        // —— F100: тип импорта (профиль целевой таблицы) ——
+        /// <summary>Элементы списка «Тип импорта» (ImportTargets.All).</summary>
+        public ObservableCollection<string> Targets { get; } = new();
+
+        private string _selectedTarget = ImportTargets.IoList.DisplayName;
+
+        /// <summary>Выбранный профиль: меняет колонки, обязательное поле, режимы, шапку, шаблоны.</summary>
+        public string SelectedTarget
+        {
+            get => _selectedTarget;
+            set
+            {
+                if (Set(ref _selectedTarget, value, nameof(SelectedTarget)))
+                    OnTargetChanged();
+            }
+        }
+
+        /// <summary>Текущий профиль импорта (F100).</summary>
+        public ImportTargetProfile CurrentProfile => ImportTargets.Find(_selectedTarget);
+
+        /// <summary>true — профиль MODBUS_MAP (видимость элементов карты в окне).</summary>
+        public bool IsModbusTarget => CurrentProfile.Kind == ImportTargetKind.ModbusMap;
+
+        /// <summary>Заголовок окна по профилю.</summary>
+        public string WindowTitle => $"Импорт Excel → {CurrentProfile.TableName} (единое окно)";
+
+        /// <summary>Заголовок колонки обязательного поля в сетке маппинга («Tag?» / «PlcTag?»).</summary>
+        public string RequiredFieldLabel => CurrentProfile.RequiredField + "?";
+
+        /// <summary>Подсказка панели привязки с именем обязательного поля.</summary>
+        public string RequiredFieldHint =>
+            "Привязка «столбец Excel → колонка таблицы» (выбор в комбобоксе = Bind). " +
+            $"Обязательное поле — {CurrentProfile.RequiredField}.";
+
+        /// <summary>Статус «обязательное поле привязано» (зелёный).</summary>
+        public string RequiredStatusOkText =>
+            $"✓ Поле {CurrentProfile.RequiredField} привязано — импорт разрешён";
+
+        /// <summary>Статус «обязательное поле не привязано» (красный, Apply заблокирован).</summary>
+        public string RequiredStatusBadText =>
+            $"⚠ Привязка {CurrentProfile.RequiredField} не задана — Apply заблокирован (F2.2)";
+
+        // —— F100: элементы карты Modbus (маска листов, связывание после импорта) ——
+        private string _sheetMask = "";
+
+        /// <summary>Маска листов (пусто — все листы; «*»/«?» — wildcard; иначе — подстрока).</summary>
+        public string SheetMask { get => _sheetMask; set => Set(ref _sheetMask, value, nameof(SheetMask)); }
+
+        private bool _allSheetsByMask;
+
+        /// <summary>Импортировать все листы по маске (иначе — только выбранный лист).</summary>
+        public bool AllSheetsByMask
+        {
+            get => _allSheetsByMask;
+            set => Set(ref _allSheetsByMask, value, nameof(AllSheetsByMask));
+        }
+
+        private bool _linkAfterImport = true;
+
+        /// <summary>F100: после импорта карты выполнить связывание строк FillEmpty (F9.3).</summary>
+        public bool LinkAfterImport
+        {
+            get => _linkAfterImport;
+            set => Set(ref _linkAfterImport, value, nameof(LinkAfterImport));
+        }
 
         private bool _importWithAudit = true;
         /// <summary>Галочка «Импорт с аудитом» (F2.7; по умолчанию включена).</summary>
@@ -114,8 +185,14 @@ namespace IO_PJT.ViewModels
         public ObservableCollection<MapRow> Mappings { get; } = new();
         public ObservableCollection<string> AccessColumns { get; } = new();
 
-        private bool _hasTagMapping;
-        public bool HasTagMapping { get => _hasTagMapping; set => Set(ref _hasTagMapping, value, nameof(HasTagMapping)); }
+        private bool _hasRequiredMapping;
+
+        /// <summary>F100: привязка обязательного поля профиля (Tag/PlcTag) — без неё Apply блокируется.</summary>
+        public bool HasRequiredMapping
+        {
+            get => _hasRequiredMapping;
+            set => Set(ref _hasRequiredMapping, value, nameof(HasRequiredMapping));
+        }
 
         // —— Предпросмотр с подсветкой ——
         public ObservableCollection<string> PreviewColumns { get; } = new();
@@ -176,31 +253,108 @@ namespace IO_PJT.ViewModels
         public event Action? PreviewColumnsChanged;
         public event Action? Imported;
 
-        public ImportViewModel(AppServices services)
+        /// <summary>Окно импорта (F100). target — DisplayName профиля-пресета из пунктов меню
+        /// («IO_LIST» / «MODBUS_MAP»); по умолчанию IO_LIST.</summary>
+        public ImportViewModel(AppServices services, string? target = null)
         {
             _s = services;
-            _selectedTable = _s.CurrentTable;
+            _selectedTarget = target ?? ImportTargets.IoList.DisplayName;
+            var profile = CurrentProfile;
 
-            foreach (var c in MappingService.AvailableColumns) AccessColumns.Add(c);
+            _headerRow = profile.DefaultHeaderRow.ToString();
+            _sheetMask = profile.DefaultSheetMask;
+            _allSheetsByMask = profile.AllSheetsByMaskDefault;
+            _linkAfterImport = true;
+            _selectedTable = profile.Kind == ImportTargetKind.ModbusMap
+                ? profile.TableName
+                : _s.CurrentTable;
+
+            foreach (var c in profile.Columns) AccessColumns.Add(c);
+            foreach (var m in profile.Modes) Modes.Add(m);
+            _selectedMode = Modes[0];
+            foreach (var t in ImportTargets.All) Targets.Add(t.DisplayName);
 
             BrowseFileCommand = new RelayCommand(BrowseFile);
-            CreateTableCommand = new RelayCommand(CreateTable, () => !string.IsNullOrWhiteSpace(NewTableName));
+            CreateTableCommand = new RelayCommand(CreateTable,
+                () => !IsModbusTarget && !string.IsNullOrWhiteSpace(NewTableName)); // F100: карту не создаём
             SaveTemplateCommand = new RelayCommand(SaveTemplate, () => Mappings.Count > 0);
             LoadTemplateCommand = new RelayCommand(LoadTemplate, () => SelectedTemplate != null);
             DeleteTemplateCommand = new RelayCommand(DeleteTemplate, () => SelectedTemplate != null);
             ApplyCommand = new RelayCommand(() => { _ = ApplyAsync(); },
                 () => !IsBusy && Mappings.Any(m => m.IsBound));
 
+            RebuildTables();
+            ReloadTemplateNames();
+            RefreshSheetCommand = new RelayCommand(() => { _ = LoadSheetDataAsync(); }, () => !IsBusy);
+        }
+
+        /// <summary>F100: список целевых таблиц по профилю: MODBUS_MAP — только таблица карты,
+        /// IO_LIST — все таблицы данных (без служебных и без MODBUS_MAP).</summary>
+        private void RebuildTables()
+        {
+            string? keep = SelectedTable;
+            Tables.Clear();
+            if (IsModbusTarget)
+            {
+                Tables.Add(Data.Schema.ModbusMapTable);
+                SelectedTable = Data.Schema.ModbusMapTable;
+                return;
+            }
             foreach (var t in _s.Creator.GetTableNames().Where(t =>
                          !t.Equals("MappingTemplates", StringComparison.OrdinalIgnoreCase) &&
                          !t.Equals("IO_LIST_Audit", StringComparison.OrdinalIgnoreCase) &&
-                         // MODBUS_MAP — не цель импорта Excel (не IO_LIST-структура)
+                         // MODBUS_MAP доступен только профилем карты (F100)
                          !t.Equals(Data.Schema.ModbusMapTable, StringComparison.OrdinalIgnoreCase)))
                 Tables.Add(t);
-            if (Tables.Count > 0) SelectedTable ??= Tables[0];
+            if (keep != null && Tables.Contains(keep)) SelectedTable = keep;
+            else if (Tables.Contains(_s.CurrentTable)) SelectedTable = _s.CurrentTable;
+            else SelectedTable = Tables.Count > 0 ? Tables[0] : null;
+        }
 
+        /// <summary>F100: смена типа импорта — перестройка колонок/режимов/таблиц/шапки/маски,
+        /// сброс запомненного шаблона и перечитывание открытого файла в новом профиле.</summary>
+        private void OnTargetChanged()
+        {
+            var profile = CurrentProfile;
+
+            AccessColumns.Clear();
+            foreach (var c in profile.Columns) AccessColumns.Add(c);
+
+            Modes.Clear();
+            foreach (var m in profile.Modes) Modes.Add(m);
+            SelectedMode = Modes[0];
+
+            RebuildTables();
+            HeaderRow = profile.DefaultHeaderRow.ToString();
+            SheetMask = profile.DefaultSheetMask;
+            AllSheetsByMask = profile.AllSheetsByMaskDefault;
+            LinkAfterImport = true;
+
+            _appliedTemplate = null;
+            SelectedTemplate = null;
+            Mappings.Clear();
+            Issues.Clear();
             ReloadTemplateNames();
-            RefreshSheetCommand = new RelayCommand(() => { _ = LoadSheetDataAsync(); }, () => !IsBusy);
+
+            Raise(nameof(IsModbusTarget));
+            Raise(nameof(WindowTitle));
+            Raise(nameof(RequiredFieldLabel));
+            Raise(nameof(RequiredFieldHint));
+            Raise(nameof(RequiredStatusOkText));
+            Raise(nameof(RequiredStatusBadText));
+            System.Windows.Input.CommandManager.InvalidateRequerySuggested(); // Create/Apply-CanExecute
+            UpdateRequiredStatus();
+
+            if (!string.IsNullOrWhiteSpace(ExcelPath) && SelectedSheet != null)
+            {
+                _ = LoadSheetDataAsync(); // файл открыт — перечитать лист в новом профиле
+            }
+            else
+            {
+                PreviewColumns.Clear();
+                PreviewRows.Clear();
+                ReportText = $"Тип импорта: {profile.DisplayName} — выберите файл Excel.";
+            }
         }
 
         /// <summary>Команда «Считать»: заголовки вкладки, авто-маппинг, предпросмотр (F2.1/F2.2).
@@ -224,7 +378,14 @@ namespace IO_PJT.ViewModels
                 using var reader = new ExcelReader(ExcelPath);
                 Sheets.Clear();
                 foreach (var s in reader.GetSheetNames()) Sheets.Add(s);
-                if (Sheets.Count > 0) SelectedSheet = Sheets[0];
+                if (Sheets.Count > 0)
+                {
+                    // F100: для карты по умолчанию выбирается первый лист по маске (Register Table…)
+                    string? preferred = string.IsNullOrWhiteSpace(SheetMask)
+                        ? null
+                        : Sheets.FirstOrDefault(s => ImportTargets.MaskMatches(SheetMask, s));
+                    SelectedSheet = preferred ?? Sheets[0];
+                }
                 _ = LoadSheetDataAsync();
             }
             catch (Exception ex)
@@ -266,8 +427,8 @@ namespace IO_PJT.ViewModels
                 _lastHeaderRow = headerRow;
                 _lastRows = rows;
 
-                // Авто-определение маппинга; дальнейшая привязка — вручную (Bind в окне)
-                var maps = _s.Mapping.AutoDetect(headers);
+                // Авто-определение маппинга по профилю (F100); дальнейшая привязка — вручную (Bind)
+                var maps = _s.Mapping.AutoDetect(headers, CurrentProfile);
                 Mappings.Clear();
                 foreach (var m in maps)
                 {
@@ -276,7 +437,8 @@ namespace IO_PJT.ViewModels
                         ExcelColumn = m.ExcelColumn,
                         ExcelColumnIndex = m.ExcelColumnIndex, // F2.14: позиция для дубликатов заголовков
                         Note = m.Note,                          // F2.14: подсказка о дубликатах
-                        AccessColumn = string.IsNullOrEmpty(m.AccessColumn) ? null : m.AccessColumn
+                        AccessColumn = string.IsNullOrEmpty(m.AccessColumn) ? null : m.AccessColumn,
+                        RequiredField = CurrentProfile.RequiredField // F100: обязательное поле профиля
                     };
                     row.Changed = () => OnMappingChanged(row);
                     Mappings.Add(row);
@@ -287,7 +449,7 @@ namespace IO_PJT.ViewModels
                 var (applied, total, missing) = ApplyPendingTemplate();
                 _suppressChanged = false;
 
-                UpdateTagStatus();
+                UpdateRequiredStatus();
                 BuildPreviewCore();
 
                 ReportText = $"Файл: {System.IO.Path.GetFileName(ExcelPath)} | вкладка: {SelectedSheet} | " +
@@ -313,10 +475,10 @@ namespace IO_PJT.ViewModels
             }
         }
 
-        /// <summary>Статус привязки обязательного поля Tag (F2.2).</summary>
-        private void UpdateTagStatus()
+        /// <summary>Статус привязки обязательного поля профиля (F2.2/F100).</summary>
+        private void UpdateRequiredStatus()
         {
-            HasTagMapping = Mappings.Any(m => m.IsTag);
+            HasRequiredMapping = Mappings.Any(m => m.IsRequired);
             Raise(nameof(ApplyCommand));
         }
 
@@ -341,7 +503,7 @@ namespace IO_PJT.ViewModels
                     ReportText = msg;
                 }
             }
-            UpdateTagStatus();
+            UpdateRequiredStatus();
             if (!_suppressChanged) RebuildPreviewFromCache();
         }
 
@@ -374,6 +536,10 @@ namespace IO_PJT.ViewModels
                         string.Equals(r.ExcelColumn.Trim(), m.ExcelColumn.Trim(), StringComparison.OrdinalIgnoreCase));
                 row ??= Mappings.FirstOrDefault(r =>
                     string.Equals(r.ExcelColumn.Trim(), m.ExcelColumn.Trim(), StringComparison.OrdinalIgnoreCase));
+                // F100: встроенный шаблон карты хранит английскую строку шапки — при несовпадении
+                // имени (двуязычный заголовок листа) резолв по позиции колонки
+                if (row == null && m.ExcelColumnIndex is int byIdx)
+                    row = Mappings.FirstOrDefault(r => r.ExcelColumnIndex == byIdx);
                 if (row == null) { missing.Add(m.ExcelColumn); continue; }
                 BindColumn(row, m.AccessColumn); // шаблон вытесняет авто-привязку
                 applied++;
@@ -402,7 +568,10 @@ namespace IO_PJT.ViewModels
             TemplateNames.Clear();
             try
             {
-                foreach (var n in _s.Mapping.GetTemplateNames()) TemplateNames.Add(n);
+                // F100: шаблоны фильтруются по целевой таблице профиля (MODBUS_MAP / остальные)
+                foreach (var n in _s.Mapping.GetTemplateNames(
+                             IsModbusTarget ? Data.Schema.ModbusMapTable : null))
+                    TemplateNames.Add(n);
             }
             catch (Exception ex) { _s.Log.Warn($"Шаблоны недоступны: {ex.Message}"); }
         }
@@ -443,15 +612,16 @@ namespace IO_PJT.ViewModels
             for (int d = 0; d < shown; d++)
             {
                 var row = rows[d];
-                int excelRow = headerRow + 1 + d;
+                int excelRow = row.ExcelRow > 0 ? row.ExcelRow : headerRow + 1 + d; // F100: реальный номер
                 bool separator = row.Cells.All(c => string.IsNullOrWhiteSpace(c) || c.Trim() == "-") &&
                                  row.Cells.Any(c => !string.IsNullOrWhiteSpace(c));
                 var cells = new PreviewCell[row.Cells.Count];
 
-                // F2.12: зачёркнутая ячейка Tag — строка целиком не будет импортирована
+                // F2.12/F100: зачёркнутая ячейка обязательного поля (Tag/PlcTag) — строка целиком не импортируется
+                string requiredField = CurrentProfile.RequiredField;
                 int tagIdx = -1;
                 foreach (var kv in targetByIndex)
-                    if (string.Equals(kv.Value, "Tag", StringComparison.OrdinalIgnoreCase)) { tagIdx = kv.Key; break; }
+                    if (string.Equals(kv.Value, requiredField, StringComparison.OrdinalIgnoreCase)) { tagIdx = kv.Key; break; }
                 bool struckRow = !separator && tagIdx >= 0 && row.IsStruck(tagIdx);
 
                 for (int i = 0; i < row.Cells.Count; i++)
@@ -463,34 +633,34 @@ namespace IO_PJT.ViewModels
 
                     if (struckRow)
                     {
-                        // вся строка зачёркнута по Tag — подсветка всех ячеек строки
-                        hint = "ячейка Tag зачёркнута — строка не будет импортирована (F2.12)";
+                        // вся строка зачёркнута по обязательному полю — подсветка всех ячеек строки
+                        hint = $"ячейка {requiredField} зачёркнута — строка не будет импортирована (F2.12)";
                         if (i == tagIdx)
                             Issues.Add(new ValidationError
                             {
                                 Code = ErrCode.W005_StruckThroughRow,
-                                Field = "Tag",
+                                Field = requiredField,
                                 RowNumber = excelRow,
-                                Message = $"Строка зачёркнута в Excel — не будет импортирована (Tag={value})"
+                                Message = $"Строка зачёркнута в Excel — не будет импортирована ({requiredField}={value})"
                             });
                     }
                     else if (!separator && targetByIndex.TryGetValue(i, out string? target))
                     {
                         bool empty = string.IsNullOrWhiteSpace(value) || value.Trim() == "-";
 
-                        if (string.Equals(target, "Tag", StringComparison.OrdinalIgnoreCase))
+                        if (string.Equals(target, requiredField, StringComparison.OrdinalIgnoreCase))
                         {
-                            // E002: ошибка ТОЛЬКО при ПУСТОМ обязательном поле Tag
+                            // E002: ошибка ТОЛЬКО при ПУСТОМ обязательном поле (Tag/PlcTag)
                             if (empty)
                             {
                                 error = true;
-                                hint = "пустой обязательный Tag (E002)";
+                                hint = $"пустой обязательный {requiredField} (E002)";
                                 Issues.Add(new ValidationError
                                 {
                                     Code = ErrCode.E002_EmptyTag,
-                                    Field = "Tag",
+                                    Field = requiredField,
                                     RowNumber = excelRow,
-                                    Message = "Пустое значение обязательного поля Tag"
+                                    Message = $"Пустое значение обязательного поля {requiredField}"
                                 });
                             }
                         }
@@ -590,7 +760,7 @@ namespace IO_PJT.ViewModels
                     ReportText = $"Шаблон «{t.Name}» загружен. Выберите файл Excel и нажмите «Считать» — привязки будут применены.";
                     _s.Log.Info($"Шаблон загружен (ожидает файла): «{t.Name}»");
                 }
-                UpdateTagStatus();
+                UpdateRequiredStatus();
             }
             catch (Exception ex) { _s.Log.Error($"Ошибка загрузки шаблона: {ex.Message}"); }
         }
@@ -627,16 +797,117 @@ namespace IO_PJT.ViewModels
             catch (Exception ex) { _s.Log.Error($"Ошибка удаления шаблона: {ex.Message}"); }
         }
 
+        /// <summary>F100: импорт карты Modbus → MODBUS_MAP через ModbusImportService:
+        /// чтение по маске/маппингу, режим «Сравнение» либо «Заменить строки файла» (с
+        /// подтверждением), аудит IO_LIST_Audit, затем опционально связывание FillEmpty (F9.3).</summary>
+        private async Task ApplyModbusAsync()
+        {
+            if (IsBusy) return;
+            bool replace = SelectedMode.StartsWith("Заменить", StringComparison.Ordinal);
+            if (replace)
+            {
+                var answer = MessageBox.Show(
+                    $"Заменить все строки файла «{System.IO.Path.GetFileName(ExcelPath)}» в MODBUS_MAP?\n\n" +
+                    "Строки файла будут удалены и вставлены заново: ID строк и привязки LinkTag/DcsTag " +
+                    "будут потеряны (связывание выполнится заново при включённой галке «Связать после импорта»).\n\n" +
+                    "«Отмена» — не импортировать.",
+                    "Импорт Modbus_MAP: замена строк файла (F100)",
+                    MessageBoxButton.OKCancel, MessageBoxImage.Warning);
+                if (answer != MessageBoxResult.OK)
+                {
+                    ReportText = "Импорт отменён пользователем.";
+                    return;
+                }
+            }
+
+            var maps = Mappings.Where(m => m.IsBound)
+                .Select(m => new ColumnMap
+                {
+                    ExcelColumn = m.ExcelColumn,
+                    ExcelColumnIndex = m.ExcelColumnIndex,
+                    AccessColumn = m.AccessColumn!
+                })
+                .ToList();
+
+            IsBusy = true;
+            ProgressValue = 0;
+            ProgressMaximum = 100;
+            ProgressText = "Подготовка…";
+            try
+            {
+                var progress = new Progress<ImportProgress>(p =>
+                {
+                    ProgressMaximum = Math.Max(1, p.Total);
+                    ProgressValue = p.Processed;
+                    ProgressText = $"{p.Phase}: {p.Processed} / {p.Total}";
+                });
+
+                string path = ExcelPath;
+                string sheet = SelectedSheet!;
+                string mask = SheetMask;
+                bool all = AllSheetsByMask;
+                int headerRow = int.Parse(HeaderRow!);
+                bool withAudit = ImportWithAudit;
+                bool link = LinkAfterImport;
+                var services = _s;
+
+                var (report, linkSummary) = await Task.Run(() =>
+                {
+                    var svc = new ModbusImportService(services.DbPath, services.Mapping,
+                        services.Audit, services.Log);
+                    var res = svc.Import(path, maps, headerRow, mask, all, sheet,
+                        replace, withAudit, progress);
+
+                    string? linkText = null;
+                    if (link)
+                    {
+                        // F59/F9.3: заполняются только пустые связи — ручные/файловые привязки сохраняются
+                        var lr = services.ModbusLink.Link(ModbusLinkMode.FillEmpty);
+                        var lines = new List<string> { lr.Summary };
+                        foreach (var s in lr.UnlinkedSamples) lines.Add("  не связано: " + s);
+                        foreach (var s in lr.MapUnlinkedSamples) lines.Add("  карта без привязки: " + s);
+                        foreach (var e in lr.Errors) lines.Add("  ОШИБКА: " + e);
+                        lines.Add("M_-поля IO_LIST не записаны — используйте «Обновить адресацию Modbus» (F9.4)");
+                        linkText = string.Join(Environment.NewLine, lines);
+                    }
+                    return (res, linkText);
+                });
+
+                Issues.Clear();
+                foreach (var w in report.Warnings)
+                    Issues.Add(new ValidationError { Code = ErrCode.W002_UnmappedColumn, Message = w });
+
+                ReportText = report.Summary +
+                             (linkSummary != null ? Environment.NewLine + linkSummary : "");
+                ProgressText = "Готово: " + report.Summary.Replace(Environment.NewLine, " · ");
+                _s.Log.Info($"F100: импорт карты завершён — {report.Summary.Replace(Environment.NewLine, "; ")}");
+                Imported?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                _s.Log.Error($"Импорт карты прерван: {ex.Message}");
+                ReportText = "Ошибка импорта карты: " + ex.Message;
+                ProgressText = "Ошибка: " + ex.Message;
+                MessageBox.Show("Импорт карты прерван:\n" + ex.Message,
+                    "Импорт Modbus_MAP — ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                IsBusy = false;
+            }
+        }
+
         /// <summary>Проверки перед импортом; null — можно начинать (E001 Tag, E008 дубли, F2.7).</summary>
         private string? ValidateBeforeApply()
         {
             if (SelectedTable == null || SelectedSheet == null || string.IsNullOrWhiteSpace(ExcelPath))
                 return "Выберите файл, вкладку и целевую таблицу.";
 
-            if (!HasTagMapping)
+            if (!HasRequiredMapping)
             {
-                _s.Log.Error("Apply: нет привязки поля Tag — импорт заблокирован (F2.2)");
-                return "Импорт заблокирован: не задана привязка обязательного поля Tag (F2.2).";
+                string f = CurrentProfile.RequiredField;
+                _s.Log.Error($"Apply: нет привязки поля {f} — импорт заблокирован (F2.2/F100)");
+                return $"Импорт заблокирован: не задана привязка обязательного поля {f} (F2.2).";
             }
 
             // Уникальность привязок 1:1 — страховка (E008)
@@ -673,6 +944,13 @@ namespace IO_PJT.ViewModels
             if (IsBusy) return;
             var problem = ValidateBeforeApply();
             if (problem != null) { ReportText = problem; return; }
+
+            // F100: карты Modbus пишет отдельный сервис (сравнение/замена строк файла + аудит)
+            if (IsModbusTarget)
+            {
+                await ApplyModbusAsync();
+                return;
+            }
 
             var options = new ImportOptions
             {

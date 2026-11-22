@@ -1,7 +1,7 @@
 <Window x:Class="IO_PJT.Views.ImportWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Импорт Excel → IO_LIST (единое окно)" Width="1360" Height="860"
+        Title="{Binding WindowTitle}" Width="1360" Height="860"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
 
     <!-- Единое окно импорта (ТЗ F6.3): сверху источник/таблица/шаблон,
@@ -39,25 +39,71 @@
                     <ComboBox ItemsSource="{Binding Sheets}" SelectedItem="{Binding SelectedSheet}"
                               Height="26" />
                 </DockPanel>
+
+                <!-- F100: маска листов и действия карты Modbus — только профиль MODBUS_MAP -->
+                <DockPanel Margin="0,4">
+                    <DockPanel.Style>
+                        <Style TargetType="DockPanel">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsModbusTarget}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </DockPanel.Style>
+                    <TextBlock Text="Маска листов:" Width="120" VerticalAlignment="Center" />
+                    <TextBox Text="{Binding SheetMask, UpdateSourceTrigger=PropertyChanged}"
+                             Width="220" Height="26" Margin="6,0,12,0" VerticalAlignment="Center"
+                             ToolTip="Маска листов карты: «Register Table» — вхождение подстроки; с * и ? — wildcard; пусто — все листы (F100)" />
+                    <CheckBox Content="Все листы по маске" IsChecked="{Binding AllSheetsByMask}"
+                              VerticalAlignment="Center" Margin="0,0,16,0"
+                              ToolTip="Импортировать все листы Register Table одним Apply; снятая галка — только выбранный лист (F100)" />
+                    <CheckBox Content="Связать после импорта" IsChecked="{Binding LinkAfterImport}"
+                              VerticalAlignment="Center"
+                              ToolTip="После записи карты заполнить пустые связи строк карты с IO_LIST: LinkTag/DcsTag/LinkState (F9.3 FillEmpty; F100)" />
+                </DockPanel>
             </StackPanel>
         </GroupBox>
 
-        <!-- ===== 2. База Access (F1): выбор таблицы / создание с нуля ===== -->
-        <GroupBox Header="2. База Access — таблица (по умолчанию IO_LIST) или создание с нуля; режим импорта (F2.7)"
+        <!-- ===== 2. База Access (F1/F100): тип импорта, таблица, режим ===== -->
+        <GroupBox Header="2. База Access — тип импорта (F100), таблица или создание с нуля; режим импорта (F2.7)"
                   DockPanel.Dock="Top" Margin="0,0,0,4">
-            <StackPanel Orientation="Horizontal" Margin="4,2">
-                <TextBlock Text="Таблица:" VerticalAlignment="Center" />
-                <ComboBox Width="190" Margin="6,0,16,0"
-                          ItemsSource="{Binding Tables}" SelectedItem="{Binding SelectedTable}" />
-                <TextBlock Text="Имя новой:" VerticalAlignment="Center" />
-                <TextBox Width="140" Margin="6,0,8,0" Text="{Binding NewTableName, UpdateSourceTrigger=PropertyChanged}" />
-                <Button Content="Создать таблицу" Command="{Binding CreateTableCommand}" Margin="0,0,16,0" />
-                <TextBlock Text="Режим:" VerticalAlignment="Center" />
-                <ComboBox Width="220" Margin="6,0,0,0"
-                          ItemsSource="{Binding Modes}" SelectedItem="{Binding SelectedMode}" />
-                <CheckBox Content="Импорт с аудитом" IsChecked="{Binding ImportWithAudit}"
-                          VerticalAlignment="Center" Margin="16,0,0,0"
-                          ToolTip="Запись истории в IO_LIST_Audit при импорте (F2.7). Выключено — история не создаётся; журнал событий работает всегда." />
+            <StackPanel Margin="4,2">
+                <!-- F100: тип импорта (профиль); пункты меню «Импорт IO LIST/Modbus_MAP из Excel» — пресеты -->
+                <DockPanel Margin="0,0,0,4">
+                    <TextBlock Text="Тип импорта:" Width="120" VerticalAlignment="Center" />
+                    <ComboBox Width="240" Margin="6,0,0,0" VerticalAlignment="Center"
+                              ItemsSource="{Binding Targets}" SelectedItem="{Binding SelectedTarget}"
+                              ToolTip="F100: профиль импорта — колонки для привязки, обязательное поле, режимы и шаблоны маппинга (IO_LIST / MODBUS_MAP)" />
+                </DockPanel>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="Таблица:" VerticalAlignment="Center" />
+                    <ComboBox Width="190" Margin="6,0,16,0"
+                              ItemsSource="{Binding Tables}" SelectedItem="{Binding SelectedTable}" />
+                    <!-- F100: создание таблицы с нуля — только для IO_LIST-структур -->
+                    <StackPanel Orientation="Horizontal">
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Visible" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsModbusTarget}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+                        <TextBlock Text="Имя новой:" VerticalAlignment="Center" />
+                        <TextBox Width="140" Margin="6,0,8,0" Text="{Binding NewTableName, UpdateSourceTrigger=PropertyChanged}" />
+                        <Button Content="Создать таблицу" Command="{Binding CreateTableCommand}" Margin="0,0,16,0" />
+                    </StackPanel>
+                    <TextBlock Text="Режим:" VerticalAlignment="Center" />
+                    <ComboBox Width="300" Margin="6,0,0,0"
+                              ItemsSource="{Binding Modes}" SelectedItem="{Binding SelectedMode}" />
+                    <CheckBox Content="Импорт с аудитом" IsChecked="{Binding ImportWithAudit}"
+                              VerticalAlignment="Center" Margin="16,0,0,0"
+                              ToolTip="Запись истории в IO_LIST_Audit при импорте (F2.7/F100: для карты — Insert/Update/Delete строк MODBUS_MAP). Выключено — история не создаётся; журнал событий работает всегда." />
+                </StackPanel>
             </StackPanel>
         </GroupBox>
 
@@ -107,16 +153,16 @@
                 BorderBrush="{StaticResource BorderBrushLight}" BorderThickness="1" Padding="6">
             <DockPanel>
                 <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,0,0,4"
-                           Text="Привязка «столбец Excel → колонка таблицы» (выбор в комбобоксе = Bind). Обязательное поле — Tag." />
+                           Text="{Binding RequiredFieldHint}" />
 
                 <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,6">
                     <TextBlock.Style>
                         <Style TargetType="TextBlock">
-                            <Setter Property="Text" Value="✓ Поле Tag привязано — импорт разрешён" />
+                            <Setter Property="Text" Value="{Binding RequiredStatusOkText}" />
                             <Setter Property="Foreground" Value="#107C10" />
                             <Style.Triggers>
-                                <DataTrigger Binding="{Binding HasTagMapping}" Value="False">
-                                    <Setter Property="Text" Value="⚠ Привязка Tag не задана — Apply заблокирован (F2.2)" />
+                                <DataTrigger Binding="{Binding HasRequiredMapping}" Value="False">
+                                    <Setter Property="Text" Value="{Binding RequiredStatusBadText}" />
                                     <Setter Property="Foreground" Value="#C42B1C" />
                                     <Setter Property="FontWeight" Value="Bold" />
                                 </DataTrigger>
@@ -182,8 +228,9 @@
                                 </Style>
                             </DataGridComboBoxColumn.EditingElementStyle>
                         </DataGridComboBoxColumn>
-                        <DataGridCheckBoxColumn Header="Tag?" Binding="{Binding IsTag, Mode=OneWay}"
-                                                IsReadOnly="True" Width="50" />
+                        <DataGridCheckBoxColumn Header="{Binding RequiredFieldLabel, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                Binding="{Binding IsRequired, Mode=OneWay}"
+                                                IsReadOnly="True" Width="70" />
                     </DataGrid.Columns>
                 </DataGrid>
             </DockPanel>
