@@ -190,6 +190,29 @@
                                           SelectedValue="{Binding Settings.MasterRtuTemplateName, UpdateSourceTrigger=PropertyChanged}"
                                           Height="24"
                                           ToolTip="F22: мастер-шаблон для пакетов Modbus RTU; пусто — RTU-пакеты пропускаются с предупреждением. Для конкретной станции выберите шаблон в правиле («Шаблон пакетов») — F29" />
+
+                        <!-- F101: перечень объектов мастер-шаблона (окончание имени + привязки) -->
+                        <GroupBox Header="Объекты мастер-шаблона" Margin="0,4,0,0">
+                            <StackPanel>
+                                <DataGrid ItemsSource="{Binding MasterObjectVarsView}"
+                                          AutoGenerateColumns="False" MinHeight="70" MaxHeight="220"
+                                          HeadersVisibility="Column" Margin="0,2,0,4"
+                                          ToolTip="Все блоки 31/34 мастер-шаблона (юнит + дополнительная логика), кроме блоков мастера. Имя объекта = авто-имя мастера пакета + окончание; «Окончание» пусто — окончание из шаблона; «Колонка / шаблон» и «Начальное значение» — значение объекта (IV тега / значение константы)">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="Объект" Binding="{Binding Var}" Width="*" IsReadOnly="True" />
+                                        <DataGridTextColumn Header="Окончание" Binding="{Binding NameSuffix, UpdateSourceTrigger=PropertyChanged}" Width="110" />
+                                        <DataGridTextColumn Header="Колонка / шаблон" Binding="{Binding IoColumn, UpdateSourceTrigger=PropertyChanged}" Width="150" />
+                                        <DataGridTextColumn Header="Начальное значение" Binding="{Binding Literal, UpdateSourceTrigger=PropertyChanged}" Width="140" />
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                    <Button Content="Заполнить из шаблонов" Command="{Binding FillMasterObjectVarsCommand}" Width="170" Margin="0,0,6,0"
+                                            ToolTip="Добавить строки для всех объектов выбранного мастер-шаблона; существующие строки сохраняются" />
+                                    <Button Content="Сохранить маппинг объектов" Command="{Binding SaveMasterObjectVarsCommand}" Width="190"
+                                            ToolTip="Заменяются только строки выбранного мастер-шаблона (SCADA_TEMPLATE_VARS, scope masterobj)" />
+                                </StackPanel>
+                            </StackPanel>
+                        </GroupBox>
                             </Grid>
                         </StackPanel>
                         </GroupBox>
@@ -439,7 +462,7 @@
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Шаблон" Binding="{Binding TemplateName}" Width="130" IsReadOnly="True" />
                                     <DataGridTextColumn Header="Направление" Binding="{Binding Direction}" Width="70" IsReadOnly="True" />
-                                    <DataGridTextColumn Header="Объект" Binding="{Binding Var}" Width="*" IsReadOnly="True" />
+                                    <DataGridTextColumn Header="ООбъект" Binding="{Binding Var}" Width="*" IsReadOnly="True" />
                                     <DataGridComboBoxColumn Header="Режим" Width="95"
                                         SelectedItemBinding="{Binding BitMode, UpdateSourceTrigger=PropertyChanged}"
                                         ToolTipService.ToolTip="F80: «Адрес» — тег привязывается только по адресу точки; «Адрес/бит» — адрес + искомый бит (колонка «Бит», значение M_Bit); пусто — прежнее поведение F75 (авто по имени Bit_i со «Смещением бит»)">
@@ -489,16 +512,16 @@
                                                 </DataTemplate>
                                             </DataGridTemplateColumn.CellTemplate>
                                         </DataGridTemplateColumn>
-                                    <DataGridTextColumn Header="Колонка / шаблон"
+                                    <DataGridTextColumn Header="ККолонка / шаблон"
                                                         Binding="{Binding IoColumn, UpdateSourceTrigger=PropertyChanged}" Width="150"
                                                         ToolTipService.ToolTip="Имя колонки IO_LIST или строковый шаблон «{M_DcsTag} Adress: {M_Address}» (F32); при заданной колонке объект переименовывается, а начальное значение пишется в IV (F49)" />
-                                    <DataGridTextColumn Header="Начальное значение"
+                                    <DataGridTextColumn Header="ННачальное значение"
                                                         Binding="{Binding Literal, UpdateSourceTrigger=PropertyChanged}" Width="130"
                                                         ToolTipService.ToolTip="Начальное значение объекта (элемент IV); при заданной колонке/шаблоне применяется вместе с переименованием (F49); если колонка/шаблон не заданы — только значение, имя остаётся шаблонным" />
                                 </DataGrid.Columns>
                             </DataGrid>
                             <StackPanel Orientation="Horizontal">
-                                <Button Content="Заполнить из шаблонов" Command="{Binding FillDataTemplateVarsCommand}" Width="170" Margin="0,0,6,0"
+                                <Button Content="ЗЗаполнить из шаблонов" Command="{Binding FillDataTemplateVarsCommand}" Width="170" Margin="0,0,6,0"
                                         ToolTip="F33: перечислить объекты-переменные (блоки 31/34) во всех data-шаблонах + текстовые объекты [TEXT] примитивов основного шаблона (F38, объект «LOOPComment(Text)»); заведённые строки не затираются" />
                                 <Button Content="Сохранить маппинг объектов" Command="{Binding SaveDataTemplateVarsCommand}" Width="190"
                                         ToolTip="F33: полная замена строк SCADA_TEMPLATE_VARS scope dataout/datain по [имя шаблона]" />
@@ -676,7 +699,7 @@
                                     <Button Content="Добавить" Command="{Binding AddTypnoRuleCommand}" Width="90" Margin="0,0,6,0"
                                             ToolTip="Новое правило «Typno → эталон» (сохраняется кнопкой «Сохранить сопоставление Typno»)" />
                                     <Button Content="Удалить" Command="{Binding DeleteTypnoRuleCommand}" Width="90" Margin="0,0,6,0" />
-                                    <Button Content="Заполнить из данных" Command="{Binding FillTypnoRulesCommand}" Width="140" Margin="0,0,6,0"
+                                    <Button Content="ЗЗаполнить из данных" Command="{Binding FillTypnoRulesCommand}" Width="140" Margin="0,0,6,0"
                                             ToolTip="Добавить уникальные Typno точек с адресацией M_PlcTag, ещё не присутствующие в списке; эталон задаётся вручную" />
                                     <Button Content="Сохранить сопоставление Typno" Command="{Binding SaveTypnoMapCommand}" Width="210"
                                             ToolTip="Полная замена строк таблицы SCADA_TYPNO_MAP; строки без Typno/эталона отбрасываются" />

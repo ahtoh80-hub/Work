@@ -54,12 +54,21 @@ namespace IO_PJT.ViewModels
         /// <summary>F22: все залитые мастер-шаблоны блоков (SCADA_MASTER_TEMPLATES).</summary>
         public ObservableCollection<MbMasterTemplate> MasterTemplates { get; } = new();
 
+        public ObservableCollection<MbDataTemplateVarRow> MasterObjectVars { get; } = new(); // F101
+
+        /// <summary>F101: MasterObjectVars с фильтром по выбранному мастер-шаблону.</summary>
+        public ICollectionView MasterObjectVarsView { get; }
+
         private MbMasterTemplate? _selectedMasterTemplate;
         /// <summary>F22: выбранный мастер-шаблон в списке.</summary>
         public MbMasterTemplate? SelectedMasterTemplate
         {
             get => _selectedMasterTemplate;
-            set => Set(ref _selectedMasterTemplate, value, nameof(SelectedMasterTemplate));
+            set
+            {
+                if (Set(ref _selectedMasterTemplate, value, nameof(SelectedMasterTemplate)))
+                    MasterObjectVarsView?.Refresh(); // F101
+            }
         }
 
         /// <summary>F22: все залитые шаблоны привязок DataIn (SCADA_DATAIN_TEMPLATES).</summary>
@@ -312,6 +321,8 @@ namespace IO_PJT.ViewModels
         /// <summary>F33 (этап 7): перечень объектов-переменных data-шаблонов и их маппинг.</summary>
         public RelayCommand FillDataTemplateVarsCommand { get; }
         public RelayCommand SaveDataTemplateVarsCommand { get; }
+        public RelayCommand FillMasterObjectVarsCommand { get; }   // F101
+        public RelayCommand SaveMasterObjectVarsCommand { get; }   // F101
 
         /// <summary>F16: сохранить текущий текст шаблона привязок под именем (имя спрашивается).</summary>
         public RelayCommand SaveDataOutTemplateAsCommand { get; }
@@ -357,6 +368,12 @@ namespace IO_PJT.ViewModels
                 (o is MbDataTemplateVarRow row && string.Equals(
                     row.TemplateName, _selectedDataTemplate.Name,
                     StringComparison.OrdinalIgnoreCase));
+            MasterObjectVarsView = CollectionViewSource.GetDefaultView(MasterObjectVars);
+            MasterObjectVarsView.Filter = o =>
+                _selectedMasterTemplate == null ||
+                (o is MbDataTemplateVarRow row && string.Equals(
+                    row.TemplateName, _selectedMasterTemplate.Name,
+                    StringComparison.OrdinalIgnoreCase));
             Settings = _s.ModbusBlocks.LoadSettings();
             _policyIndex = (int)Settings.Policy;
             _modeFile = Settings.TemplateMode == MbTemplateMode.File;
@@ -394,6 +411,8 @@ namespace IO_PJT.ViewModels
             // F23/F25: команды маппинга мастер-шаблона убраны (F34) — входы заполняются из плана
             FillDataTemplateVarsCommand = new RelayCommand(FillDataTemplateVars);  // F33
             SaveDataTemplateVarsCommand = new RelayCommand(SaveDataTemplateVars);  // F33
+            FillMasterObjectVarsCommand = new RelayCommand(FillMasterObjectVars);  // F101
+            SaveMasterObjectVarsCommand = new RelayCommand(SaveMasterObjectVars);  // F101
             SelectAllStationsCommand = new RelayCommand(() => SetAllStations(true));   // F28
             ClearAllStationsCommand = new RelayCommand(() => SetAllStations(false));   // F28
             SaveDataOutTemplateAsCommand = new RelayCommand(SaveDataOutTemplateAs);
@@ -416,6 +435,7 @@ namespace IO_PJT.ViewModels
             LoadDataInTemplateList();                   Perf("LoadDataInTemplateList");  // F22
             swStage.Restart();
             LoadDataTemplateVars();                     // F33 (этап 7): PERF — внутри метода
+            LoadMasterObjectVars(); // F101
             swStage.Restart();
             if (Settings.TemplateMode == MbTemplateMode.Inline)
             {
@@ -655,6 +675,7 @@ namespace IO_PJT.ViewModels
 
                 RefreshDataTemplates(); // F31: объединённый перечень data-шаблонов
                 LoadDataTemplateVars(); // F33 (этап 7): перечитать маппинг объектов
+                LoadMasterObjectVars(); // F101
             }
             catch (Exception ex)
             {
@@ -781,7 +802,7 @@ namespace IO_PJT.ViewModels
             var t = SelectedMasterTemplate;
             if (t == null)
             {
-                StatusText = "Выберите мастер-шаблон в перечне.";
+                StatusText = "ВВыберите мастер-шаблон в перечне.";
                 return null;
             }
             return t.Body ?? "";
@@ -1179,10 +1200,11 @@ namespace IO_PJT.ViewModels
                 // (тот же набор использует split-экспорт ExportSplit);
                 // F38: dataVars нужен и WriteProtocolSplit — тексты примитивов [TEXT]
                 var (typnoMap, namedTemplates, dataInTemplates, dataVars) = BuildDataMaps();
+                var masterObjMap = BuildMasterObjMap(); // F101
 
                 var gen = _s.ModbusBlocksXml.WriteProtocolSplit(
                     packets, templateByStation, _templateText!, rtuText, Settings,
-                    dataVars, Settings.DataOutTemplateName);
+                    dataVars, Settings.DataOutTemplateName, masterObjMap);
                 foreach (var w in gen.Warnings) _s.Log.Warn(w);
                 var nameWarns = new List<string>(gen.Warnings); // F69: красный блок «ИМЯ:»
                 File.WriteAllText(outFile!, gen.PousXml, new System.Text.UTF8Encoding(true));
@@ -1237,6 +1259,7 @@ namespace IO_PJT.ViewModels
             Dictionary<string, string> templateByStation, string? rtuText)
         {
             var (typnoMap, namedTemplates, dataInTemplates, dataVars) = BuildDataMaps();
+            var masterObjMap = BuildMasterObjMap(); // F101
             bool dataTplValid = _dataOutTemplateText != null && _dataOutTemplate != null && _dataOutTemplate.Valid;
             if (!dataTplValid) CheckDataOutTemplate();
             dataTplValid = _dataOutTemplateText != null && _dataOutTemplate != null && _dataOutTemplate.Valid;
@@ -1262,7 +1285,7 @@ namespace IO_PJT.ViewModels
                 seq++;
                 var gen = _s.ModbusBlocksXml.WriteProtocolSplit(
                     groupPackets, templateByStation, _templateText!, rtuText, settings,
-                    dataVars, Settings.DataOutTemplateName); // F38: тексты примитивов [TEXT]
+                    dataVars, Settings.DataOutTemplateName, masterObjMap); // F38: тексты примитивов [TEXT]
                 foreach (var w in gen.Warnings) _s.Log.Warn(w);
                 nameWarns69.AddRange(gen.Warnings); // F69
                 string blockPath = Path.Combine(dir, $"{ctrlPart}_{stPart}_{seq}.xml");
@@ -2048,7 +2071,7 @@ namespace IO_PJT.ViewModels
             var t = SelectedMasterTemplate;
             if (t == null)
             {
-                StatusText = "Выберите мастер-шаблон в списке «Мастер-блоки».";
+                StatusText = "ВВыберите мастер-шаблон в списке «Мастер-блоки».";
                 return;
             }
             InlineTemplateText = t.Body ?? "";
@@ -2065,7 +2088,7 @@ namespace IO_PJT.ViewModels
             var t = SelectedMasterTemplate;
             if (t == null)
             {
-                StatusText = "Выберите мастер-шаблон в списке «Мастер-блоки».";
+                StatusText = "ВВыберите мастер-шаблон в списке «Мастер-блоки».";
                 return;
             }
             var ans = System.Windows.MessageBox.Show(
@@ -2387,6 +2410,7 @@ namespace IO_PJT.ViewModels
                 _s.Log.Info($"F33: маппинг объектов data-шаблонов сохранён: {total} строк");
                 StatusText = $"Сохранено строк маппинга объектов: {total}.";
                 LoadDataTemplateVars(); // перечитать
+                LoadMasterObjectVars(); // F101
             }
             catch (Exception ex)
             {
@@ -2437,6 +2461,129 @@ namespace IO_PJT.ViewModels
             catch (Exception ex)
             {
                 _s.Log.Error($"F85: ошибка записи M_GEN_STS: {ex.Message}");
+            }
+        }
+
+        /// <summary>F101: перечитать строки перечня «Объекты мастер-шаблона»
+        /// (SCADA_TEMPLATE_VARS scope masterobj, по каждому мастер-шаблону).</summary>
+        private void LoadMasterObjectVars()
+        {
+            try
+            {
+                MasterObjectVars.Clear();
+                var byKey = _s.ModbusBlocks.LoadTemplateVarsAll("masterobj", out var legacy);
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var t in MasterTemplates)
+                    foreach (var v in ModbusBlockPlannerService.MergeTemplateVars(
+                        byKey.TryGetValue(t.Name, out var own) ? own : new(), legacy))
+                        if (seen.Add(t.Name + "|" + v.Var))
+                            MasterObjectVars.Add(new MbDataTemplateVarRow
+                            {
+                                TemplateName = t.Name, Var = v.Var,
+                                IoColumn = v.IoColumn, Literal = v.Literal,
+                                NameSuffix = v.NameSuffix
+                            });
+                MasterObjectVarsView?.Refresh();
+            }
+            catch (Exception ex)
+            {
+                _s.Log.Error("F101: ошибка загрузки перечня оОбъектов мастер-шаблона: " +
+                    DbProbe.ClassifyMessage(ex.Message));
+            }
+        }
+
+        /// <summary>F101: плоская карта перечня «Объекты мастер-шаблона» для экспорта:
+        /// «шаблонное имя объекта → строка»; при совпадении имён приоритет — строки
+        /// активных мастер-шаблонов (TCP/RTU из настроек).</summary>
+        private System.Collections.Generic.Dictionary<string,
+            (string NameSuffix, string IoColumn, string Literal)> BuildMasterObjMap()
+        {
+            var map = new System.Collections.Generic.Dictionary<string,
+                (string NameSuffix, string IoColumn, string Literal)>(StringComparer.OrdinalIgnoreCase);
+            void AddRow(MbDataTemplateVarRow r)
+            {
+                string k = r.Var.Trim();
+                if (k.Length == 0 || map.ContainsKey(k)) return;
+                map[k] = (r.NameSuffix?.Trim() ?? "", r.IoColumn?.Trim() ?? "", r.Literal?.Trim() ?? "");
+            }
+            var active = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string tk = (Settings.MasterTcpTemplateName ?? "").Trim();
+            string rk = (Settings.MasterRtuTemplateName ?? "").Trim();
+            if (tk.Length > 0) active.Add(tk);
+            if (rk.Length > 0) active.Add(rk);
+            foreach (var r in MasterObjectVars)
+                if (active.Contains(r.TemplateName.Trim())) AddRow(r);
+            foreach (var r in MasterObjectVars) AddRow(r);
+            return map;
+        }
+
+        /// <summary>F101: «аполнить из шаблонов» перечня оОбъектов мастер-шаблона: все блоки
+        /// 31/34 выбранного мастер-шаблона (юнит + дополнительная логика), кроме блоков
+        /// мастера и блоков-источников; существующие строки сохраняются.</summary>
+        private void FillMasterObjectVars()
+        {
+            var t = SelectedMasterTemplate;
+            if (t == null)
+            {
+                StatusText = "Выберите мастер-шаблон в перечне «Шаблоны пакетов (Master)».";
+                return;
+            }
+            try
+            {
+                var have = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var r in MasterObjectVars)
+                    if (string.Equals(r.TemplateName, t.Name, StringComparison.OrdinalIgnoreCase))
+                        have.Add(r.Var);
+                int added = 0;
+                foreach (var o in _s.ModbusBlocksXml.ParseMasterTemplateObjects(t.Body))
+                    if (have.Add(o.Name))
+                    {
+                        MasterObjectVars.Add(new MbDataTemplateVarRow
+                        { TemplateName = t.Name, Var = o.Name, NameSuffix = "" });
+                        added++;
+                    }
+                MasterObjectVarsView?.Refresh();
+                StatusText = added > 0
+                    ? $"Объектов мастер-шаблона добавлено: {added} (всего {MasterObjectVars.Count}). " +
+                      "Задайте «кончание»/«олонка / шаблон» и «Сохранить маппинг объектов»."
+                    : "овых оОбъектов мастер-шаблона не найдено.";
+            }
+            catch (Exception ex)
+            {
+                string msg = DbProbe.ClassifyMessage(ex.Message);
+                _s.Log.Error("F101: ошибка заполнения оОбъектов мастер-шаблона: " + msg);
+                StatusText = "шибка заполнения оОбъектов мастер-шаблона: " + msg;
+            }
+        }
+
+        /// <summary>F101: «Сохранить маппинг объектов» перечня мастер-шаблона: заменяются
+        /// только строки выбранного мастер-шаблона (scope masterobj).</summary>
+        private void SaveMasterObjectVars()
+        {
+            var t = SelectedMasterTemplate;
+            if (t == null)
+            {
+                StatusText = "Выберите мастер-шаблон в перечне «Шаблоны пакетов (Master)».";
+                return;
+            }
+            try
+            {
+                var rows = new List<MbTemplateVar>();
+                foreach (var r in MasterObjectVars)
+                    if (string.Equals(r.TemplateName, t.Name, StringComparison.OrdinalIgnoreCase))
+                        rows.Add(new MbTemplateVar
+                        {
+                            Var = r.Var, IoColumn = r.IoColumn,
+                            Literal = r.Literal, NameSuffix = r.NameSuffix
+                        });
+                int n = _s.ModbusBlocks.SaveTemplateVars("masterobj", t.Name, rows);
+                StatusText = $"аппинг оОбъектов мастер-шаблона «{t.Name}» сохранён (строк: {n}).";
+            }
+            catch (Exception ex)
+            {
+                string msg = DbProbe.ClassifyMessage(ex.Message);
+                _s.Log.Error("F101: ошибка сохранения перечня оОбъектов мастер-шаблона: " + msg);
+                StatusText = "шибка сохранения перечня оОбъектов мастер-шаблона: " + msg;
             }
         }
     }

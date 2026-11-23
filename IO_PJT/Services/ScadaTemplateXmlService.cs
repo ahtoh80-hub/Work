@@ -572,7 +572,8 @@ namespace IO_PJT.Services
         public GeneratedXml Write(IReadOnlyList<MbPacketPlan> packets, string templateXml, ScadaMbGenSettings s,
             IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal, string BitMode, string BitNo)>>? dataVars = null,
             string dataVarsTemplateKey = "", int posBase = 0,
-            List<(int X0, int Y0, int X1, int Y1)>? placedRects = null)
+            List<(int X0, int Y0, int X1, int Y1)>? placedRects = null,
+            IReadOnlyDictionary<string, (string NameSuffix, string IoColumn, string Literal)>? masterObjVars = null)
         {
             if (packets == null) throw new ArgumentNullException(nameof(packets));
             if (s == null) throw new ArgumentNullException(nameof(s));
@@ -944,9 +945,11 @@ namespace IO_PJT.Services
                         // маппинг плановыми значениями ниже (F35)
                         if (!isMasterClone)
                         {
-                            string? mapped52 = ApplyMainObjectMapping(clone, p, dataVars,
-                                dataVarsTemplateKey, warnings, mainMapWarned);
-                            if (mapped52 != null) name = mapped52;
+                            string? mapped52 = ApplyMasterObjMapping101(clone, p, b.Info,
+                                FindMasterObjRow(masterObjVars, b.Info), dataVars, dataVarsTemplateKey,
+                                info.MasterNameBase, reserveTok, reserveName69,
+                                warnings, mainMapWarned, out string? name101);
+                            if (name101 != null) name = name101;
                             // F76: имя простого блока из шаблона не трогаем (без подмены
                             // токенов/санитизации); подстановка маппинга (mapped52) —
                             // осознанное действие пользователя, обрабатывается как раньше
@@ -1323,8 +1326,9 @@ namespace IO_PJT.Services
         public GeneratedXml WriteProtocolSplit(IReadOnlyList<MbPacketPlan> packets,
             string tcpTemplateXml, string? rtuTemplateXml, ScadaMbGenSettings s,
             IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal, string BitMode, string BitNo)>>? dataVars = null,
-            string dataVarsTemplateKey = "") =>
-            WriteProtocolSplit(packets, null, tcpTemplateXml, rtuTemplateXml, s, dataVars, dataVarsTemplateKey);
+            string dataVarsTemplateKey = "",
+            IReadOnlyDictionary<string, (string NameSuffix, string IoColumn, string Literal)>? masterObjVars = null) =>
+            WriteProtocolSplit(packets, null, tcpTemplateXml, rtuTemplateXml, s, dataVars, dataVarsTemplateKey, masterObjVars);
 
         /// <summary>F29: генерация с выбором шаблона пакетов по станции: templateByStation —
         /// «станция → тело шаблона» (SCADA_MB_SLAVE_RULES.MasterTemplate → SCADA_MASTER_TEMPLATES).
@@ -1337,7 +1341,8 @@ namespace IO_PJT.Services
             IReadOnlyDictionary<string, string>? templateByStation,
             string tcpTemplateXml, string? rtuTemplateXml, ScadaMbGenSettings s,
             IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal, string BitMode, string BitNo)>>? dataVars = null,
-            string dataVarsTemplateKey = "")
+            string dataVarsTemplateKey = "",
+            IReadOnlyDictionary<string, (string NameSuffix, string IoColumn, string Literal)>? masterObjVars = null)
         {
             if (packets == null) throw new ArgumentNullException(nameof(packets));
             if (s == null) throw new ArgumentNullException(nameof(s));
@@ -1384,7 +1389,7 @@ namespace IO_PJT.Services
             foreach (var g in groups)
             {
                 var gen = Write(g.Value, g.Key, settings, dataVars, dataVarsTemplateKey, posBaseGroups,
-                    placedRects);
+                    placedRects, masterObjVars);
                 posBaseGroups += gen.ClusterCount; // F73: без дыр от пропущенных twin
                 acc = acc == null ? gen : MergeSplitResults(acc, gen);
                 settings = ShiftSettingsForSecondPass(s, acc);
@@ -1627,6 +1632,135 @@ namespace IO_PJT.Services
                 return nm52;
             }
             // F36: только литерал — канал ЗНАЧЕНИЯ (<IV>), Info без изменений
+            ScadaDataOutXmlService.SetIvValue(clone, dval);
+            return null;
+        }
+        /// <summary>F101: строка перечня «Объекты мастер-шаблона» по шаблонному имени объекта
+        /// (masterObjVars — плоская карта «имя объекта → строка перечня»).</summary>
+        private static (string NameSuffix, string IoColumn, string Literal)? FindMasterObjRow(
+            IReadOnlyDictionary<string, (string NameSuffix, string IoColumn, string Literal)>? vars,
+            string objName)
+        {
+            if (vars == null || objName.Length == 0) return null;
+            return vars.TryGetValue(objName, out var row) ? row : null;
+        }
+        /// <summary>F101: общий маппинг объекта клона с учётом перечня «Объекты мастер-шаблона»:
+        /// строка перечня (по шаблонному имени объекта) имеет приоритет над маппингом объектов
+        /// data-шаблонов (F52). «Окончание» строки задаёт окончание имени — итог = авто-имя
+        /// мастера пакета + окончание (пусто/нет строки — окончание из шаблона); для объектов
+        /// с токеном мастера (ссылки вида X.Busy) канал имени F52 не применяется — имя
+        /// детерминировано. name101 — явное имя (null — без изменений); возврат — результат
+        /// F52-маппинга (для keepTplName).</summary>
+        private static string? ApplyMasterObjMapping101(XElement clone, MbPacketPlan p,
+            string objName, (string NameSuffix, string IoColumn, string Literal)? row101,
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, (string IoColumn, string Literal, string BitMode, string BitNo)>>? dataVars,
+            string dataVarsTemplateKey, string mainToken, string reserveToken, string? reserveName,
+            List<string> warnings, HashSet<string> warned, out string? name101)
+        {
+            name101 = null;
+            if (row101 != null)
+            {
+                string suff = (row101.Value.NameSuffix ?? "").Trim();
+                if (suff.Length > 0 && (clone.Attribute("GROBJTYPE")?.Value ?? "") != "34")
+                {
+                    bool resObj = reserveToken.Length > 0 &&
+                        objName.IndexOf(reserveToken, StringComparison.OrdinalIgnoreCase) >= 0;
+                    string baseName = (resObj ? reserveName : p.MasterName) ?? "";
+                    if (baseName.Length > 0)
+                        name101 = baseName + suff;
+                    else if (warned.Add("f101res|" + objName))
+                        warnings.Add($"ИМЯ: объект «{objName}» (пакет {p.MasterName}) — резервный " +
+                            "токен не заменён: у пакета нет reserve-блока " +
+                            $"(окончание «{suff}» из маппинга не применено)");
+                }
+                string? valName = ApplyMasterObjValue(clone, p, row101.Value, warnings, warned, objName);
+                if (valName != null) name101 = valName;
+                return null;
+            }
+            string? mapped = ApplyMainObjectMapping(clone, p, dataVars,
+                dataVarsTemplateKey, warnings, warned);
+            if (mapped != null && ContainsMasterToken(objName, mainToken, reserveToken))
+            {
+                if (warned.Add("f101lock|" + objName))
+                    warnings.Add($"F101: объект «{objName}» — имя задаётся перечнем «Объекты " +
+                        "мастер-шаблона»: переименование строкой объектов data-шаблонов не применено");
+                return null;
+            }
+            return mapped;
+        }
+        /// <summary>F101: объекты мастер-шаблона для перечня «Объекты мастер-шаблона»: блоки
+        /// GROBJTYPE 31/34 всех POU шаблона, кроме блоков мастера и блоков-источников
+        /// (.DataOut[/.DataIn[). DefaultEnding — окончание имени по умолчанию: хвост после
+        /// токена мастера («.Busy», «_LINK»); пусто — токена в имени нет.</summary>
+        public List<MasterTemplateObject> ParseMasterTemplateObjects(string? body)
+        {
+            var list = new List<MasterTemplateObject>();
+            if (string.IsNullOrWhiteSpace(body)) return list;
+            XDocument doc;
+            try { doc = XDocument.Parse(body!); }
+            catch (Exception) { return list; }
+            var masters = new HashSet<int>();
+            foreach (var m in FindMasterElements(doc))
+                if (int.TryParse((string?)m.Attribute("T11ID"), out int mt)) masters.Add(mt);
+            var info = Parse(body!);
+            string mainTok = (info.MasterNameBase ?? "").Trim();
+            string resTok = (info.ReserveTokenBase ?? "").Trim();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pou in doc.Root?.Element("POUS")?.Elements("OnePOU") ??
+                             Enumerable.Empty<XElement>())
+            foreach (var b in pou.Element("ISAGraf")?.Element("Blocks")?.Elements("Block") ??
+                             Enumerable.Empty<XElement>())
+            {
+                string gt = (string?)b.Attribute("GROBJTYPE") ?? "";
+                if (gt != "31" && gt != "34") continue;
+                if (int.TryParse((string?)b.Attribute("T11ID"), out int t) && masters.Contains(t))
+                    continue;
+                string name = ((string?)b.Attribute("Info") ?? "").Trim();
+                if (name.Length == 0) continue;
+                if (name.IndexOf(".DataOut[", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    name.IndexOf(".DataIn[", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                if (!seen.Add(name)) continue;
+                string end = "";
+                int pos = resTok.Length > 0
+                    ? name.IndexOf(resTok, StringComparison.OrdinalIgnoreCase) : -1;
+                if (pos >= 0) end = name.Substring(pos + resTok.Length);
+                else
+                {
+                    pos = mainTok.Length > 0
+                        ? name.IndexOf(mainTok, StringComparison.OrdinalIgnoreCase) : -1;
+                    if (pos >= 0) end = name.Substring(pos + mainTok.Length);
+                }
+                list.Add(new MasterTemplateObject
+                {
+                    Name = name,
+                    GrobjType = int.Parse(gt),
+                    DefaultEnding = end
+                });
+            }
+            return list;
+        }
+        /// <summary>F101: канал значения строки перечня объектов мастер-шаблона: «Колонка/шаблон»
+        /// (приоритет, рендер по колонкам первой точки привязки) либо «Начальное значение» →
+        /// значение объекта: константа 34 — Info/T11Text (канал значения F36), тег 31 — <IV>.
+        /// озвращает новое имя (константа) или null; пустое значение — без изменений.</summary>
+        private static string? ApplyMasterObjValue(XElement clone, MbPacketPlan p,
+            (string NameSuffix, string IoColumn, string Literal) row,
+            List<string> warnings, HashSet<string> warned, string objName)
+        {
+            var colVals = p.Bindings != null && p.Bindings.Count > 0
+                ? p.Bindings[0].ColumnValues : null;
+            string dval = ScadaDataOutXmlService.ResolveDataVarValue(
+                row.IoColumn, row.Literal, colVals, out string? unres, out _);
+            if (unres != null && warned.Add(objName + "|f101unres"))
+                warnings.Add($"F101: объект мастер-шаблона «{objName}» — колонка/шаблон " +
+                    $"«{row.IoColumn}» не разрешился ({unres}) — значение не подставлено");
+            if (dval.Length == 0) return null;
+            if ((clone.Attribute("GROBJTYPE")?.Value ?? "") == "34")
+            {
+                clone.SetAttributeValue("Info", dval);
+                clone.Element("Params")?.SetAttributeValue("T11Text", dval);
+                return dval;
+            }
             ScadaDataOutXmlService.SetIvValue(clone, dval);
             return null;
         }

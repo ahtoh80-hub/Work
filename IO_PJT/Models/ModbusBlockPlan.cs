@@ -550,7 +550,7 @@ namespace IO_PJT.Models
     /// (блок-константа 34 / тег 31, кроме источников .DataOut[/.DataIn[ и приёмника-тега)
     /// → колонка IO_LIST / строковый шаблон «{Кол}…» / литерал». Хранится в
     /// SCADA_TEMPLATE_VARS (Scope=dataout для чтения, datain для записи;
-    /// TemplateName — имя data-шаблона, Var — имя объекта).</summary>
+    /// TemplateName — имя data-шаблона, Var — иИмя объекта).</summary>
     public sealed class MbDataTemplateVarRow : INotifyPropertyChanged
     {
         // F85: INPC so the bit ComboBox reacts to BitMode changes live.
@@ -576,6 +576,8 @@ namespace IO_PJT.Models
 
         private string _bitNo = "";
         public string BitNo { get => _bitNo; set => Set(ref _bitNo, value ?? ""); }
+        private string _nameSuffix = "";
+        public string NameSuffix { get => _nameSuffix; set => Set(ref _nameSuffix, value ?? ""); }
     }
 
     /// <summary>F16: именованный шаблон привязок Data_Out — таблица SCADA_DATAOUT_TEMPLATES.
@@ -685,12 +687,30 @@ namespace IO_PJT.Models
 
         /// <summary>F80: искомый номер бита (0..15, значение M_Bit) при режиме «Адрес/бит».</summary>
         public string BitNo { get; set; } = "";
+
+        /// <summary>F101: Окончание имени объекта мастер-шаблона («.Busy», «_LINK»):
+        /// итоговое имя = авто-имя мастера пакета + окончание; пусто — окончание из шаблона.</summary>
+        public string NameSuffix { get; set; } = "";
     }
 
     /// <summary>F31: строка объединённого перечня data-шаблонов окна генерации — шаблон
     /// привязок чтения (SCADA_DATAOUT_TEMPLATES, «DataOut[] → тег») или записи
     /// (SCADA_DATAIN_TEMPLATES, «тег → DataIn[]»). Тело (Body) живёт в исходных списках —
     /// строка только отображает принадлежность и путь.</summary>
+    /// <summary>F101: объект мастер-шаблона (перечень «Объекты мастер-шаблона»): блок 31/34
+    /// шаблона пакетов, кроме блоков мастера и блоков-источников.</summary>
+    public sealed class MasterTemplateObject
+    {
+        /// <summary>Имя объекта (Info блока шаблона).</summary>
+        public string Name { get; set; } = "";
+
+        /// <summary>GROBJTYPE блока: 34 — константа, 31 — тег.</summary>
+        public int GrobjType { get; set; }
+
+        /// <summary>Окончание имени по умолчанию: хвост после токена мастера («.Busy», «_LINK»);
+        /// пусто — токена в имени нет.</summary>
+        public string DefaultEnding { get; set; } = "";
+    }
     public sealed class MbDataTemplateRow
     {
         /// <summary>Направление: «чтение» (DataOut) / «запись» (DataIn).</summary>

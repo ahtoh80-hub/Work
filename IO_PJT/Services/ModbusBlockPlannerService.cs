@@ -1234,10 +1234,10 @@ namespace IO_PJT.Services
                     using var cn = new OleDbConnection(ConnStr);
                     cn.Open();
                     string sql = key == null
-                        ? $@"SELECT ID, [Scope], [TemplateName], [Var], [IoColumn], [Literal], [BitMode], [BitNo]
+                        ? $@"SELECT ID, [Scope], [TemplateName], [Var], [IoColumn], [Literal], [BitMode], [BitNo], [NameSuffix]
                             FROM [{Schema.ScadaTemplateVarsTable}] WHERE [Scope] = ?
                             ORDER BY [Var]"
-                        : $@"SELECT ID, [Scope], [TemplateName], [Var], [IoColumn], [Literal], [BitMode], [BitNo]
+                        : $@"SELECT ID, [Scope], [TemplateName], [Var], [IoColumn], [Literal], [BitMode], [BitNo], [NameSuffix]
                             FROM [{Schema.ScadaTemplateVarsTable}]
                             WHERE [Scope] = ? AND ([TemplateName] = ? OR [TemplateName] = ''
                                   OR [TemplateName] IS NULL)
@@ -1257,7 +1257,7 @@ namespace IO_PJT.Services
                             IoColumn = rd.IsDBNull(4) ? "" : rd.GetString(4),
                             Literal = rd.IsDBNull(5) ? "" : rd.GetString(5),
                             BitMode = rd.IsDBNull(6) ? "" : rd.GetString(6),
-                            BitNo = rd.IsDBNull(7) ? "" : rd.GetString(7)
+                            BitNo = rd.IsDBNull(7) ? "" : rd.GetString(7), NameSuffix = rd.IsDBNull(8) ? "" : rd.GetString(8)
                         });
                     break;
                 }
@@ -1299,7 +1299,7 @@ namespace IO_PJT.Services
                     EnsureTables();
                     using var cn = new OleDbConnection(ConnStr);
                     cn.Open();
-                    string sql = $@"SELECT ID, [Scope], [TemplateName], [Var], [IoColumn], [Literal], [BitMode], [BitNo]
+                    string sql = $@"SELECT ID, [Scope], [TemplateName], [Var], [IoColumn], [Literal], [BitMode], [BitNo], [NameSuffix]
                         FROM [{Schema.ScadaTemplateVarsTable}] WHERE [Scope] = ?
                         ORDER BY [TemplateName], [Var]";
                     using var cmd = new OleDbCommand(sql, cn);
@@ -1316,7 +1316,7 @@ namespace IO_PJT.Services
                             IoColumn = rd.IsDBNull(4) ? "" : rd.GetString(4),
                             Literal = rd.IsDBNull(5) ? "" : rd.GetString(5),
                             BitMode = rd.IsDBNull(6) ? "" : rd.GetString(6),
-                            BitNo = rd.IsDBNull(7) ? "" : rd.GetString(7)
+                            BitNo = rd.IsDBNull(7) ? "" : rd.GetString(7), NameSuffix = rd.IsDBNull(8) ? "" : rd.GetString(8)
                         });
                     break;
                 }
@@ -1372,7 +1372,7 @@ namespace IO_PJT.Services
                     IoColumn = (v.IoColumn ?? "").Trim(),
                     Literal = v.Literal ?? "",
                     BitMode = (v.BitMode ?? "").Trim(),
-                    BitNo = (v.BitNo ?? "").Trim()
+                    BitNo = (v.BitNo ?? "").Trim(), NameSuffix = (v.NameSuffix ?? "").Trim()
                 })
                 .ToList();
             EnsureTables();
@@ -1408,8 +1408,8 @@ namespace IO_PJT.Services
                 }
                 using (var ins = new OleDbCommand(
                     $@"INSERT INTO [{Schema.ScadaTemplateVarsTable}]
-                       ([Scope], [TemplateName], [Var], [IoColumn], [Literal], [BitMode], [BitNo])
-                       VALUES (?, ?, ?, ?, ?, ?, ?)", cn, tr))
+                       ([Scope], [TemplateName], [Var], [IoColumn], [Literal], [BitMode], [BitNo], [NameSuffix])
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)", cn, tr))
                 {
                     ins.CommandTimeout = DbProbe.TimeoutSeconds;
                     foreach (var v in list)
@@ -1422,6 +1422,7 @@ namespace IO_PJT.Services
                         OleDbArgs.Add(ins, v.Literal);
                         OleDbArgs.Add(ins, v.BitMode);
                         OleDbArgs.Add(ins, v.BitNo);
+                        OleDbArgs.Add(ins, v.NameSuffix);
                         ins.ExecuteNonQuery();
                     }
                 }

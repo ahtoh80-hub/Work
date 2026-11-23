@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.OleDb;
@@ -251,6 +251,9 @@ namespace IO_PJT.Services
                     Execute($"ALTER TABLE [{Schema.ScadaTemplateVarsTable}] ADD COLUMN [BitMode] TEXT(10)");
                 if (!tvCols.Contains("BitNo"))
                     Execute($"ALTER TABLE [{Schema.ScadaTemplateVarsTable}] ADD COLUMN [BitNo] TEXT(4)");
+                // F101: окончание имени объекта мастер-шаблона
+                if (!tvCols.Contains("NameSuffix"))
+                    Execute($"ALTER TABLE [{Schema.ScadaTemplateVarsTable}] ADD COLUMN [NameSuffix] TEXT(255)");
             }
             // F65: генерация экземпляров типовых алгоритмов — настройки, шаблоны, привязки,
             // таблица описаний TYPNO (создаётся только при отсутствии — в рабочих базах
