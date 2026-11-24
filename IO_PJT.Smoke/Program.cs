@@ -24,6 +24,11 @@ namespace IO_PJT.Smoke
             else { _failed++; Console.WriteLine($"  FAIL {name}"); }
         }
 
+        private static void Log(string message)
+        {
+            Console.WriteLine($"  LOG  {message}");
+        }
+
         /// <summary>Каждый тест изолирован: исключение = FAIL теста, остальные продолжают работу.</summary>
         private static void RunTest(string title, Action body)
         {
@@ -47,6 +52,10 @@ namespace IO_PJT.Smoke
             RunTest("6. План блоков (пакеты)", TestBlockPlan);
             RunTest("7. Генерация XML мастер-блоков", TestGenerateXml);
             RunTest("8. Объекты мастер-шаблона (F101)", TestMasterObjects);
+            RunTest("9. Реальный мастер-шаблон", TestRealTemplate);
+            RunTest("10. БАГ: объекты мастер-шаблона с .Busy/.Error", Test10_MasterObjectsBug);
+            RunTest("10.1. Простая проверка методов маппинга", Test10_MasterObjectsBugSimple);
+            RunTest("11. F105: удаление непривязанных битовых объектов", Test11_UnboundBits);
             Console.WriteLine($"ИТОГО: OK {_passed}, FAIL {_failed}");
             return _failed == 0 ? 0 : 1;
         }

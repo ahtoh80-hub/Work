@@ -6,8 +6,8 @@
     {
         /// <summary>Current program version. Versioning restarted at 1.0 (previously F-numbering,
         /// last F100); the change log lives in Work/ТЗ.md ("Перечень изменений").
-        /// 1.0 = master template object list (name ending + column/literal value) and the
-        /// reduced set of 8 main smoke tests.</summary>
-        public const string Version = "1.0";
+        /// 1.1 = F105 unbound bit object removal (data templates) + F102/F103 master
+        /// object name mapping fixes; smoke suite Test 11.</summary>
+        public const string Version = "1.1";
     }
 }

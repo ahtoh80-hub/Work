@@ -435,6 +435,119 @@ namespace IO_PJT.Services
             return s;
         }
 
+        /// <summary>F102: Применить маппинг окончаний для объекта мастер-шаблона.
+        /// Если есть маппинг для objName, заменяет окончание на NameSuffix из маппинга.
+        /// Объект должен содержать токен мастера (уже заменённый).</summary>
+        public static string ApplyMasterObjectSuffix(string objName, string? mainToken, string? reserveToken,
+            IReadOnlyDictionary<string, (string NameSuffix, string IoColumn, string Literal)>? masterObjVars)
+        {
+            if (masterObjVars == null || string.IsNullOrEmpty(objName)) return objName;
+            
+            // Ищем точное совпадение с исходным именем (до замены токенов)
+            // или с заменённым именем
+            string mappedName = objName;
+            
+            // Пытаемся найти маппинг для текущего имени объекта
+            if (masterObjVars.TryGetValue(objName, out var mapping))
+            {
+                if (!string.IsNullOrEmpty(mapping.NameSuffix))
+                {
+                    // Ищем позицию токена в имени
+                    string resT = (reserveToken ?? "").Trim();
+                    string mainT = (mainToken ?? "").Trim();
+                    
+                    int tokenPos = -1;
+                    int tokenLength = 0;
+                    
+                    if (resT.Length > 0)
+                    {
+                        tokenPos = objName.IndexOf(resT, StringComparison.OrdinalIgnoreCase);
+                        tokenLength = resT.Length;
+                    }
+                    
+                    if (tokenPos < 0 && mainT.Length > 0)
+                    {
+                        tokenPos = objName.IndexOf(mainT, StringComparison.OrdinalIgnoreCase);
+                        tokenLength = mainT.Length;
+                    }
+                    
+                    if (tokenPos >= 0)
+                    {
+                        // Заменяем окончание после токена
+                        string beforeToken = objName.Substring(0, tokenPos + tokenLength);
+                        return beforeToken + mapping.NameSuffix;
+                    }
+                }
+            }
+            
+            return mappedName;
+        }
+
+        /// <summary>F103: Замена токенов мастера с применением маппинга окончаний.
+        /// Сначала заменяет токены мастеров, затем применяет маппинг окончаний из masterObjVars.</summary>
+        public static string SubstituteWithMasterMapping(string text, string? mainToken,
+            string? reserveToken, string? mainName, string? reserveName,
+            IReadOnlyDictionary<string, (string NameSuffix, string IoColumn, string Literal)>? masterObjVars)
+        {
+            if (string.IsNullOrEmpty(text)) return text;
+            
+            // 1. Заменяем токены мастеров
+            string substituted = SubstituteMasterTokens(text, mainToken, reserveToken, mainName, reserveName);
+            
+            // 2. Если после замены имя изменилось, пытаемся применить маппинг окончаний
+            if (substituted != text && masterObjVars != null)
+            {
+                // Ищем точное совпадение с исходным именем
+                if (masterObjVars.TryGetValue(text, out var origMapping) && 
+                    !string.IsNullOrEmpty(origMapping.NameSuffix))
+                {
+                    // Применяем маппинг
+                    string resT = (reserveToken ?? "").Trim();
+                    string mainT = (mainToken ?? "").Trim();
+                    
+                    // Находим, какой токен был заменен
+                    bool wasReserveToken = !string.IsNullOrEmpty(resT) && 
+                        text.IndexOf(resT, StringComparison.OrdinalIgnoreCase) >= 0;
+                    bool wasMainToken = !wasReserveToken && !string.IsNullOrEmpty(mainT) && 
+                        text.IndexOf(mainT, StringComparison.OrdinalIgnoreCase) >= 0;
+                    
+                    if (wasReserveToken || wasMainToken)
+                    {
+                        // Находим позицию токена в исходном имени
+                        string tokenToFind = wasReserveToken ? resT : mainT;
+                        int tokenPos = text.IndexOf(tokenToFind, StringComparison.OrdinalIgnoreCase);
+                        
+                        if (tokenPos >= 0)
+                        {
+                            // Заменяем имя: часть до токена + замена токена + маппинг суффикса
+                            string beforeToken = tokenPos > 0 ? text.Substring(0, tokenPos) : "";
+                            string tokenReplacement = wasReserveToken ? reserveName : mainName;
+                            
+                            return beforeToken + tokenReplacement + origMapping.NameSuffix;
+                        }
+                    }
+                }
+                
+                // Также проверяем маппинг по уже замененному имени
+                if (masterObjVars.TryGetValue(substituted, out var subMapping) && 
+                    !string.IsNullOrEmpty(subMapping.NameSuffix))
+                {
+                    // Находим позицию замененного токена в результирующем имени
+                    string tokenReplacement = substituted.Contains(reserveName ?? "") ? reserveName : mainName;
+                    
+                    if (!string.IsNullOrEmpty(tokenReplacement))
+                    {
+                        int tokenPos = substituted.IndexOf(tokenReplacement, StringComparison.OrdinalIgnoreCase);
+                        if (tokenPos >= 0)
+                        {
+                            return substituted.Substring(0, tokenPos + tokenReplacement.Length) + subMapping.NameSuffix;
+                        }
+                    }
+                }
+            }
+            
+            return substituted;
+        }
         /// <summary>F34: стандартные входы мастера, заполняемые из плана при генерации;
         /// для RTU-мастера IpOctet_1..4/Port не синтезируются (у MB_RTU_MASTER их нет).</summary>
         public static readonly string[] MasterInputPorts =

@@ -696,7 +696,8 @@ namespace IO_PJT.Services
             "BaseT11Id", "BaseCardId", "ColumnsPerRow", "RowStep", "ColumnStep",
             "DataChainGap", "PouCommentPattern", "DataOutPouCommentPattern", // F61
             "DataPacketGap", // F63: зазор между пакетами чанка на одном POU
-            "DataChainStep" // F64: шаг цепочки data (0 = естественный шаг шаблона)
+            "DataChainStep", // F64: шаг цепочки data (0 = естественный шаг шаблона)
+            "RemoveUnboundBitObjects" // F105: удалять непривязанные битовые объекты (false)
         };
 
         /// <summary>F13: устаревшие ключи SCADA_MB_SETTINGS (были в F13 v1 до шаблонной генерации);
@@ -789,6 +790,8 @@ namespace IO_PJT.Services
                 int.TryParse(dpg, out int dpgv)) s.DataPacketGap = dpgv;
             if (values.TryGetValue("DataChainStep", out var dcs) && // F64
                 int.TryParse(dcs, out int dcsv)) s.DataChainStep = dcsv;
+            if (values.TryGetValue("RemoveUnboundBitObjects", out var rub) && // F105
+                bool.TryParse(rub, out bool rubv)) s.RemoveUnboundBitObjects = rubv;
             if (values.TryGetValue("PouCommentPattern", out var pcp)) s.PouCommentPattern = pcp; // F61
             if (values.TryGetValue("DataOutPouCommentPattern", out var dopc)) // F61
                 s.DataOutPouCommentPattern = dopc;
@@ -828,6 +831,7 @@ namespace IO_PJT.Services
                 ("DataChainGap", Math.Max(0, s.DataChainGap).ToString()), // F61: зазор цепочек data
                 ("DataPacketGap", Math.Max(0, s.DataPacketGap).ToString()), // F63: зазор пакетов чанка
                 ("DataChainStep", Math.Max(0, s.DataChainStep).ToString()), // F64: шаг цепочки data
+                ("RemoveUnboundBitObjects", s.RemoveUnboundBitObjects ? "True" : "False"), // F105
                 ("PouCommentPattern", s.PouCommentPattern ?? ""), // F61
                 ("DataOutPouCommentPattern", s.DataOutPouCommentPattern ?? ""), // F61
                 ("BaseT11Id", s.BaseT11Id.ToString()),

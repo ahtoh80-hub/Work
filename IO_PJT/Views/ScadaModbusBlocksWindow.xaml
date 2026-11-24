@@ -244,6 +244,7 @@
                                     <RowDefinition /><RowDefinition /><RowDefinition />
                                     <RowDefinition /><RowDefinition /><RowDefinition />
                                     <RowDefinition /><RowDefinition />
+                                    <RowDefinition />
                                 </Grid.RowDefinitions>
                                 <Label Grid.Row="0" Grid.Column="0" Content="Политика:" />
                                 <ComboBox Grid.Row="0" Grid.Column="1" Margin="4" SelectedIndex="{Binding PolicyIndex}"
@@ -331,6 +332,10 @@
                                 <TextBox Grid.Row="18" Grid.Column="1" Margin="4"
                                          Text="{Binding Settings.BlockTokenReserve, UpdateSourceTrigger=PropertyChanged}"
                                          ToolTip="F69/F70: токен reserve-блока в шаблонах (напр. NAME_PACK_TCP_RESERVE) — вхождение в имени объекта логики пакета или data-шаблона заменяется на имя reserve-блока пары (суффиксы .busy/_LINK сохраняются). Пусто — токен берётся автоматически из имени ВТОРОГО мастера шаблона; если второго мастера нет — reserve-подмена не выполняется. main-токен — имя блока мастера шаблона (MasterNameBase), автоматически" />
+                                <CheckBox Grid.Row="19" Grid.Column="1" Margin="4"
+                                          IsChecked="{Binding Settings.RemoveUnboundBitObjects}"
+                                          Content="Удалять непривязанные битовые объекты (BIT0..BIT15)"
+                                          ToolTip="F105: при генерации файла привязок объект битового шаблона (BIT0..BIT15 / BIT1..BIT16), для которого марка не привязалась (бит не найден в IO_LIST по M_Bit или у точки пустая M_Marka), удаляется из цепочки вместе со связями и карточкой — в файл не попадает. Сохраняется, если есть явная строка маппинга (колонка/начальное значение) либо выбран режим «Адрес». Выкл (default) — историческое поведение: объект остаётся с шаблонным именем" />
                             </Grid>
                         </GroupBox>
 

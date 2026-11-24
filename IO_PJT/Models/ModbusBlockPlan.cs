@@ -845,6 +845,18 @@ namespace IO_PJT.Models
         /// для всех цепочек. Зазор DataChainGap прибавляется сверх шага.</summary>
         public int DataChainStep { get => _dataChainStep; set => Set(ref _dataChainStep, value); }
 
+        private bool _removeUnboundBitObjects = false;
+        /// <summary>F105: удалять непривязанные битовые объекты (BIT0..BIT15) при генерации
+        /// data-цепочек: бит не найден в IO_LIST (M_Bit) или у точки пустая M_Marka →
+        /// блок/связь/карточка не создаются, объект не попадает в файл привязок. Объект
+        /// сохраняется, если есть явная строка маппинга (колонка IoColumn или литерал) либо
+        /// выбран режим «Адрес». Default false — регресс (историческое поведение).</summary>
+        public bool RemoveUnboundBitObjects
+        {
+            get => _removeUnboundBitObjects;
+            set => Set(ref _removeUnboundBitObjects, value);
+        }
+
         private string _pouCommentPattern = "";
         /// <summary>F61: шаблон комментария (Disc) POU основного файла BufScadaPOUS.
         /// Пусто (default) — Disc шаблона (историческое поведение). Токены те же, что в
@@ -901,6 +913,7 @@ namespace IO_PJT.Models
             DataChainGap = DataChainGap, // F61
             DataPacketGap = DataPacketGap, // F63
             DataChainStep = DataChainStep, // F64
+            RemoveUnboundBitObjects = RemoveUnboundBitObjects, // F105
             PouCommentPattern = PouCommentPattern, DataOutPouCommentPattern = DataOutPouCommentPattern // F61
         };
 

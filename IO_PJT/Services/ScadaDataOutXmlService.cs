@@ -650,6 +650,7 @@ namespace IO_PJT.Services
                         warnings.Add($"F35: {activeTplName}: маппинг объектов data-шаблона " +
                             "не найден — подстановки не выполняются");
                     var t11Map = new Dictionary<int, int>();
+                    var removedT11 = new HashSet<int>(); // F105: T11ID удалённых битовых объектов
                     foreach (var blk in ex.Blocks)
                     {
                         int oldT11 = T11Of(blk.Attribute("T11ID")?.Value);
@@ -659,16 +660,25 @@ namespace IO_PJT.Services
                         clone.SetAttributeValue("T11ID", newT11);
                         clone.Element("Graphics")?.SetAttributeValue("Y",
                             (int.TryParse((string?)blk.Element("Graphics")?.Attribute("Y"), out int by) ? by : 0) + yBase);
-                        ApplyBindingSubstitutions(clone, blk, p, b, ex, masterMeta,
+                        bool keepClone = ApplyBindingSubstitutions(clone, blk, p, b, ex, masterMeta,
                             ref nextCard, outCards, seenCards, dv, warnings, noMapWarned,
-                            f68Split, mainTokenF69, reserveTokenF69);
-                        pouBlocks.Add(clone);
+                            f68Split, mainTokenF69, reserveTokenF69,
+                            s.RemoveUnboundBitObjects); // F105
+                        if (keepClone)
+                            pouBlocks.Add(clone);
+                        else
+                            removedT11.Add(newT11); // F105: блок не добавлен — связи/подписи прунятся
                     }
                     foreach (var l in ex.Links)
                     {
                         var clone = new XElement(l);
                         RemapEndPoint(clone, "FirstPoint", "FP", t11Map);
                         RemapEndPoint(clone, "LastPoint", "LP", t11Map);
+                        // F105: связь с удалённым битовым объектом не переносится
+                        if (removedT11.Count > 0 &&
+                            (removedT11.Contains(T11Of(clone.Element("FirstPoint")?.Attribute("FP")?.Value?.Split('|')[0])) ||
+                             removedT11.Contains(T11Of(clone.Element("LastPoint")?.Attribute("LP")?.Value?.Split('|')[0]))))
+                            continue;
                         ShiftPointListY(clone, yBase);
                         pouLinks.Add(clone);
                     }
@@ -684,7 +694,12 @@ namespace IO_PJT.Services
                         string? stS = pr.Attribute("SourceT11ID")?.Value;
                         if (stS != null && int.TryParse(stS, out int st) &&
                             t11Map.TryGetValue(st, out int stNew))
+                        {
+                            // F105: подпись удалённого битового объекта не переносится
+                            if (removedT11.Contains(stNew))
+                                continue;
                             prc.SetAttributeValue("SourceT11ID", stNew);
+                        }
                         prc.SetAttributeValue("Y",
                             (int.TryParse((string?)prc.Attribute("Y"), out int py) ? py : 0) + yBase);
                         ApplyPrimTextSubstitution(prc, p, b, dv, warnings, primTextWarned,
@@ -896,7 +911,7 @@ namespace IO_PJT.Services
             return fixedS;
         }
 
-        private void ApplyBindingSubstitutions(XElement clone, XElement blk, MbPacketPlan p,
+        private bool ApplyBindingSubstitutions(XElement clone, XElement blk, MbPacketPlan p,
             MbBinding b, Exemplar ex,
             IReadOnlyDictionary<string, (int CardId, string Iv)> masterMeta,
             ref int nextCard, List<XElement> outCards, HashSet<int> seenCards,
@@ -908,7 +923,9 @@ namespace IO_PJT.Services
             // верхняя половина источников → main-блок, нижняя → reserve-блок
             bool splitReserve = false,
             // F69: токены подмены имён объектов data-шаблона (main/reserve)
-            string? mainToken = null, string? reserveToken = null)
+            string? mainToken = null, string? reserveToken = null,
+            // F105: удалять непривязанные битовые объекты (BIT0..BIT15) из цепочки
+            bool removeUnboundBits = false)
         {
             // F33 (этап 7): переменная data-шаблона — блок-константа (34) или тег (31),
             // не источник/приёмник цепочки; подстановка значения из маппинга объектов
@@ -1104,6 +1121,25 @@ namespace IO_PJT.Services
                             outCards.Add(NewCard(bitCard75, bitName75));
                         SetIvValue(clone, litRow75);
                     }
+                    // F105: настройка включена, объект битовый, марка не привязалась
+                    // (бит не найден в IO_LIST либо у точки пустая M_Marka) и у объекта
+                    // нет ЯВНОЙ строки маппинга (колонка/литерал; автозаполненные
+                    // BitMode/BitNo явными не считаются) → объект удаляется из цепочки:
+                    // карточка не создаётся, вызывающий код не добавляет блок/связи/подпись
+                    if (removeUnboundBits && isVarBlock &&
+                        (nameIsBit75 || explicitBit80) && want75 is int &&
+                        !bitApplied75 && (bitFalse80 || bitMarka75.Length == 0) &&
+                        !(hasRowV && ((drow.IoColumn ?? "").Trim().Length > 0 ||
+                                      (drow.Literal ?? "").Trim().Length > 0)))
+                    {
+                        if (warnings != null &&
+                            (noMapWarned == null ||
+                             noMapWarned.Add($"F105|{p.MasterName}|{objName}")))
+                            warnings.Add($"F105: {p.MasterName}: объект «{objName}» — марка " +
+                                "не привязана (бит не найден в IO_LIST / M_Marka пуста) — " +
+                                "объект удалён из цепочки");
+                        return false;
+                    }
                     // F97: бит не привязан (нет точки с M_Bit) — Info/карточка = имя
                     // объекта по умолчанию (FALSE/Literal в имя не подставляются);
                     // Literal «Начальное значение» — только в <IV> (канал значения
@@ -1132,6 +1168,32 @@ namespace IO_PJT.Services
                         reserveToken, warnings);
                     if (!string.Equals(fixedObj69, objName69, StringComparison.Ordinal))
                         clone.SetAttributeValue("Info", fixedObj69);
+                    // F105: строк маппинга нет (dv == null) — явных привязок сохранить
+                    // нельзя; битовый объект с непривязанной маркой удаляется при
+                    // включённой настройке (только var-объект, корень цепочки не трогаем)
+                    if (removeUnboundBits && isVarBlock)
+                    {
+                        var bitM69 = Regex.Match(objName69, @"^Bit(\d{1,2})$",
+                            RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+                        if (bitM69.Success && int.TryParse(bitM69.Groups[1].Value, out int bitI69))
+                        {
+                            int want69 = bitI69 + (p.BitOffset ? 1 : 0);
+                            var bitCols69 = FindBitColumns(b, want69);
+                            bool bound69 = bitCols69 != null &&
+                                bitCols69.TryGetValue("M_Marka", out var bm69) &&
+                                !string.IsNullOrWhiteSpace(bm69);
+                            if (!bound69)
+                            {
+                                if (warnings != null &&
+                                    (noMapWarned == null ||
+                                     noMapWarned.Add($"F105N|{p.MasterName}|{objName69}")))
+                                    warnings.Add($"F105: {p.MasterName}: объект «{objName69}» — " +
+                                        "марка не привязана (бит не найден в IO_LIST / M_Marka " +
+                                        "пуста) — объект удалён из цепочки");
+                                return false;
+                            }
+                        }
+                    }
                 }
             }
             // F30: write-эталон — направление инвертировано: блок-приёмник «.DataIn[…]»
@@ -1154,7 +1216,7 @@ namespace IO_PJT.Services
                         if (ivW != null) ivW.Value = metaW.Iv;
                         else prW?.Add(new XElement("IV", metaW.Iv));
                     }
-                    return;
+                    return true;
                 }
                 if (ReferenceEquals(blk, ex.SourceTpl) && !rootVarRow46)
                 {
@@ -1174,7 +1236,7 @@ namespace IO_PJT.Services
                     if (seenCards.Add(newCardW))
                         outCards.Add(NewCard(newCardW, tagW));
                 }
-                return; // промежуточные блоки (Word_to_MB/swap) — без изменений
+                return true; // промежуточные блоки (Word_to_MB/swap) — без изменений
             }
 
             // блок-источник «.DataOut[…]»
@@ -1194,7 +1256,7 @@ namespace IO_PJT.Services
                     if (iv != null) iv.Value = meta.Iv;
                     else pr?.Add(new XElement("IV", meta.Iv));
                 }
-                return;
+                return true;
             }
 
             // блок-приёмник (тег/член тега)
@@ -1255,6 +1317,21 @@ namespace IO_PJT.Services
                     }
                     else if (bitColsT75.TryGetValue("M_Marka", out var bmT75) && !string.IsNullOrWhiteSpace(bmT75))
                         bitMarkaT75 = bmT75.Trim();
+                }
+                // F105: приёмник-бит с непривязанной маркой и без ЯВНОЙ строки маппинга
+                // (колонка/литерал) удаляется из цепочки (карточка ниже не создаётся)
+                if (removeUnboundBits && (nameIsBitT75 || explicitBitT80) &&
+                    wantT75 is int && (bitFalseT80 || bitMarkaT75.Length == 0) &&
+                    !(hasRowT && ((drowT.IoColumn ?? "").Trim().Length > 0 ||
+                                  (drowT.Literal ?? "").Trim().Length > 0)))
+                {
+                    if (warnings != null &&
+                        (noMapWarned == null ||
+                         noMapWarned.Add($"F105T|{p.MasterName}|{objName}")))
+                        warnings.Add($"F105: {p.MasterName}: приёмник «{objName}» — марка " +
+                            "не привязана (бит не найден в IO_LIST / M_Marka пуста) — " +
+                            "объект удалён из цепочки");
+                    return false;
                 }
                 string? mappedName = null;
                 bool mappedFromName = false;
@@ -1329,6 +1406,7 @@ namespace IO_PJT.Services
                     // подмены токенов/автозамены)
                     outCards.Add(NewCard(newCard, cardTarget));
             }
+            return true; // F105: блок остаётся в цепочки (удаление — только return false выше)
         }
 
         /// <summary>F44: подстановка [TEXT] в клоне примитива цепочки data-шаблона (файл
