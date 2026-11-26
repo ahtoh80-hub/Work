@@ -12,7 +12,10 @@
         /// with "_") + F13 window overlap fix (master objects group); smoke Test 12.
         /// 1.3 = F107: dataout template falls back to SCADA_DATAOUT_TEMPLATES when
         /// the configured file path is missing (DB moved to another computer);
-        /// smoke Test 13.</summary>
-        public const string Version = "1.3";
+        /// smoke Test 13.
+        /// 1.4 = F108: templates live only in the DB/editor — file mode and all
+        /// external path settings removed from F13 (no file paths in the DB);
+        /// smoke Test 13 (templates from DB).</summary>
+        public const string Version = "1.4";
     }
 }

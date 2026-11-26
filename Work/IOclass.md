@@ -2837,4 +2837,35 @@ SCADA_DATAOUT_TEMPLATES». **Смоук Test 13** (`Test13.DataOutDbFallback.cs`
 `AOR16 → MB_AO_WORD16K_RES`) — при генерации будет ⚠ «не найден в
 SCADA_DATAOUT_TEMPLATES»; шаблоны нужно пересохранить в эту БД.
 
-Версия `AppInfo.Version` → **1.2**.
+**F108 — шаблоны только из БД: режим «Файл» и внешние пути убраны (2026-11, версия 1.4):**
+Требование: все шаблоны (мастер/data — из файлов и из кода) хранятся **только в БД**;
+при открытии любой БД (не важно где она лежит) генерация работает от её данных —
+внешние пути не используются и не сохраняются.
+(1) **Окно F13** (`ScadaModbusBlocksWindow.xaml`): из групп «XML-шаблон» и «XML-шаблон
+привязок» убраны радиокнопки «Файл»/«Код», поля путей и кнопки «Обзор...»; в VM удалены
+свойства `ModeFile/ModeInline/ModeDataOutFile/ModeDataOutInline`, команды и методы
+`BrowseTemplate`/`BrowseDataOutTemplate`.
+(2) **Источник тела шаблона** (`LoadTemplateText`/`LoadDataOutTemplateText`): 1) непустой
+код редактора (`InlineTemplateText`/`InlineDataOutText` — при «Сохранить настройки»
+сохраняются в `SCADA_MB_TEMPLATE` ВСЕГДА, без режима), 2) именованный шаблон из БД
+(`MasterTcpTemplateName` → `SCADA_MASTER_TEMPLATES`, `DataOutTemplateName` →
+`SCADA_DATAOUT_TEMPLATES`), иначе null с понятным сообщением. Автопоиск внешних файлов
+и fallback'и по путям F88/F107 больше не вызываются — их заменяет прямое чтение БД.
+(3) **Настройки:** `TemplateMode/TemplateFilePath/DataOutTemplateMode/DataOutTemplateFilePath`
+удалены из `ScadaMbGenSettings` (в т.ч. `Clone()`), исключены из `SettingKeys` и добавлены
+в `ObsoleteSettingKeys` — при следующем «Сохранить настройки» ключи вычищаются из старых
+БД; чтение/запись путей в `LoadSettings`/`SaveSettings` убраны; enum `MbTemplateMode`
+удалён (мёртвый код).
+(4) **Сохранения:** `SaveMasterTemplateAs`/`SaveDataOutTemplateAs`/`SaveSettings` передают
+пустой источник сохранения (F81: прежнее имя файла-источника сохраняется), подсказки имён
+взяты из настроек (не из путей); «Сохранить настройки» спрашивает имя dataout-шаблона
+при пустом поле всегда (раньше — только в режиме «Код»).
+(5) **F65 (типовые алгоритмы):** `ScadaAlgoService.SaveTemplateOnce` пишет в
+`SCADA_ALGO_TEMPLATES.FilePath` только `Path.GetFileName(...)` (имя источника без пути,
+как в мастер/dataout-шаблонах); при чтении легаси-пути обрезаются до имени.
+**Смоук Test 13 переписан** (`Test13_TemplatesFromDb`, 10 проверок): шаблоны сохранены
+в БД → VM F13 → пустой редактор → статус «БД «TPL_FB_TEST»» (валиден, эталоны BOOL/INT);
+непустой код редактора имеет приоритет; пусто и без имени → «шаблон не выбран» (внешние
+файлы не читаются); мастер по имени «БД «TPL_MST»»; ключи путей исключены из `SettingKeys`
+и присутствуют в `ObsoleteSettingKeys`. Итог смоука: **155 OK / 0 FAIL**.
+Версия `AppInfo.Version` → **1.4**.

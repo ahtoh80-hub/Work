@@ -198,28 +198,9 @@ namespace IO_PJT.ViewModels
             set => Set(ref _inlineTemplateText, value, nameof(InlineTemplateText));
         }
 
-        // —— режим источника шаблона (радиокнопки Файл/Код) ——
-        private bool _modeFile = true;
-        public bool ModeFile
-        {
-            get => _modeFile;
-            set
-            {
-                if (Set(ref _modeFile, value, nameof(ModeFile)))
-                {
-                    Settings.TemplateMode = value ? MbTemplateMode.File : MbTemplateMode.Inline;
-                    Raise(nameof(ModeInline));
-                }
-            }
-        }
+        // —— F108: режимов «Файл/Код» больше нет — источник шаблона всегда БД/редактор ——
 
-        public bool ModeInline
-        {
-            get => !_modeFile;
-            set { if (value) ModeFile = false; }
-        }
-
-        // —— F13.1: шаблон привязок Data_Out (отдельная группа Файл/Код) ——
+        // —— F13.1: шаблон привязок Data_Out ——
         private string _dataOutTemplateStatus = "Шаблон привязок не загружен";
         /// <summary>F13.1: статус шаблона привязок (эталоны BOOL/INT/… или текст ошибки).</summary>
         public string DataOutTemplateStatus
@@ -234,27 +215,6 @@ namespace IO_PJT.ViewModels
         {
             get => _inlineDataOutText;
             set => Set(ref _inlineDataOutText, value, nameof(InlineDataOutText));
-        }
-
-        private bool _modeDataOutFile = true;
-        /// <summary>F13.1: режим источника шаблона привязок (Файл/Код).</summary>
-        public bool ModeDataOutFile
-        {
-            get => _modeDataOutFile;
-            set
-            {
-                if (Set(ref _modeDataOutFile, value, nameof(ModeDataOutFile)))
-                {
-                    Settings.DataOutTemplateMode = value ? MbTemplateMode.File : MbTemplateMode.Inline;
-                    Raise(nameof(ModeDataOutInline));
-                }
-            }
-        }
-
-        public bool ModeDataOutInline
-        {
-            get => !_modeDataOutFile;
-            set { if (value) ModeDataOutFile = false; }
         }
 
         /// <summary>Последний построенный результат (для экспорта/записи привязок).</summary>
@@ -276,9 +236,7 @@ namespace IO_PJT.ViewModels
         public RelayCommand ExportCommand { get; }
         public RelayCommand WriteBindingsCommand { get; }
         public RelayCommand CheckTemplateCommand { get; }
-        public RelayCommand BrowseTemplateCommand { get; }
         public RelayCommand CheckDataOutTemplateCommand { get; }
-        public RelayCommand BrowseDataOutTemplateCommand { get; }
         public RelayCommand SaveSettingsCommand { get; }
         public RelayCommand SaveAllSettingsCommand { get; } // F85 p8: save all settings at once
         public RelayCommand SaveRulesCommand { get; }
@@ -376,15 +334,11 @@ namespace IO_PJT.ViewModels
                     StringComparison.OrdinalIgnoreCase));
             Settings = _s.ModbusBlocks.LoadSettings();
             _policyIndex = (int)Settings.Policy;
-            _modeFile = Settings.TemplateMode == MbTemplateMode.File;
-            _modeDataOutFile = Settings.DataOutTemplateMode == MbTemplateMode.File;
             BuildCommand = new RelayCommand(Build);
             ExportCommand = new RelayCommand(Export, () => Preview.Count > 0);
             WriteBindingsCommand = new RelayCommand(WriteBindingsToDb, () => Preview.Count > 0);
             CheckTemplateCommand = new RelayCommand(CheckTemplate);
-            BrowseTemplateCommand = new RelayCommand(BrowseTemplate);
             CheckDataOutTemplateCommand = new RelayCommand(CheckDataOutTemplate);
-            BrowseDataOutTemplateCommand = new RelayCommand(BrowseDataOutTemplate);
             SaveSettingsCommand = new RelayCommand(SaveSettings);
             SaveAllSettingsCommand = new RelayCommand(SaveAllSettings); // F85 p8
             SaveRulesCommand = new RelayCommand(SaveRules);
@@ -437,17 +391,13 @@ namespace IO_PJT.ViewModels
             LoadDataTemplateVars();                     // F33 (этап 7): PERF — внутри метода
             LoadMasterObjectVars(); // F101
             swStage.Restart();
-            if (Settings.TemplateMode == MbTemplateMode.Inline)
-            {
-                try { InlineTemplateText = _s.ModbusBlocks.LoadInlineTemplate() ?? ""; }
-                catch (Exception) { InlineTemplateText = ""; }
-            }
-            if (Settings.DataOutTemplateMode == MbTemplateMode.Inline)
-            {
-                try { InlineDataOutText = _s.ModbusBlocks.LoadInlineTemplate(
-                    ModbusBlockPlannerService.InlineDataOutTemplateName) ?? ""; }
-                catch (Exception) { InlineDataOutText = ""; }
-            }
+            // F108: коды шаблонов грузятся из БД всегда (SCADA_MB_TEMPLATE) —
+            // внешние режимы «Файл»/пути больше не используются
+            try { InlineTemplateText = _s.ModbusBlocks.LoadInlineTemplate() ?? ""; }
+            catch (Exception) { InlineTemplateText = ""; }
+            try { InlineDataOutText = _s.ModbusBlocks.LoadInlineTemplate(
+                ModbusBlockPlannerService.InlineDataOutTemplateName) ?? ""; }
+            catch (Exception) { InlineDataOutText = ""; }
             CheckTemplate();                            Perf("CheckTemplate"); // автозагрузка шаблона
             swStage.Restart();
             CheckDataOutTemplate();                     Perf("CheckDataOutTemplate"); // F13.1
@@ -479,38 +429,20 @@ namespace IO_PJT.ViewModels
         }
         // ================== Шаблон ==================
 
-        /// <summary>F13/F18: прочитать текст шаблона по режиму: Inline — вставленный код,
-        /// File — путь настройки (иначе авто-поиск MB_TCP_MASTER_пример_new.xml рядом с exe
-        /// или в Work\). F18: встроенных копий примеров больше нет — без файла/кода шаблон
-        /// не найден.</summary>
+        /// <summary>F108: текст текущего мастер-шаблона — ТОЛЬКО из БД/редактора, внешних
+        /// файлов и путей нет: 1) непустой код редактора (InlineTemplateText, хранится
+        /// в SCADA_MB_TEMPLATE при сохранении настроек); 2) именованный шаблон
+        /// SCADA_MASTER_TEMPLATES по Settings.MasterTcpTemplateName; иначе null.
+        /// Любой XML-файл подключается через «Из файла…» → окно кода → сохранение в БД.</summary>
         private (string? Text, string Source) LoadTemplateText()
         {
-            if (Settings.TemplateMode == MbTemplateMode.Inline)
-            {
-                string t = (InlineTemplateText ?? "").Trim();
-                return t.Length > 0 ? (t, "вставленный код") : (null, "вставленный код (пусто)");
-            }
-            if (!string.IsNullOrWhiteSpace(Settings.TemplateFilePath))
-            {
-                if (File.Exists(Settings.TemplateFilePath))
-                    return (File.ReadAllText(Settings.TemplateFilePath), Settings.TemplateFilePath);
-                // F88 (Этап 0): файл не найден — fallback на мастер-шаблон из БД
-                // (SCADA_MASTER_TEMPLATES по MasterTemplateName); позволяет работать
-                // без привязки к путям файлов (задача п.7: хранение только в БД)
-                var fb = TryLoadMasterTemplateFromDb();
-                if (fb != null)
-                    return (fb, $"БД «{(Settings.MasterTcpTemplateName ?? "").Trim()}» " +
-                        $"(файл не найден: {Settings.TemplateFilePath})");
-                return (null, $"файл по пути не найден: {Settings.TemplateFilePath}");
-            }
-            string? path = ScadaTemplateXmlService.ResolveDefaultTemplatePath();
-            if (path != null)
-                return (File.ReadAllText(path), path);
-            // F88: авто-поиск не дал результата — fallback на БД
-            var fb2 = TryLoadMasterTemplateFromDb();
-            if (fb2 != null)
-                return (fb2, $"БД «{(Settings.MasterTcpTemplateName ?? "").Trim()}»");
-            return (null, "шаблон не найден — укажите файл или вставьте код");
+            string code = (InlineTemplateText ?? "").Trim();
+            if (code.Length > 0) return (code, "код редактора");
+            var fb = TryLoadMasterTemplateFromDb();
+            if (fb != null)
+                return (fb, $"БД «{(Settings.MasterTcpTemplateName ?? "").Trim()}»");
+            return (null, "мастер-шаблон не выбран — откройте шаблон кнопкой «В редактор» " +
+                "либо вставьте код и сохраните настройки");
         }
 
         /// <summary>F88: попытка загрузить тело мастер-шаблона из БД (SCADA_MASTER_TEMPLATES)
@@ -554,57 +486,22 @@ namespace IO_PJT.ViewModels
             }
         }
 
-        /// <summary>F13: выбрать файл шаблона (диалог) и переключить режим на «Файл».</summary>
-        private void BrowseTemplate()
-        {
-            var dlg = new Microsoft.Win32.OpenFileDialog
-            {
-                Filter = "XML шаблон (*.xml)|*.xml|Все файлы (*.*)|*.*",
-                FileName = Settings.TemplateFilePath
-            };
-            if (dlg.ShowDialog() != true) return;
-            ModeFile = true;
-            Settings.TemplateFilePath = dlg.FileName;
-            CheckTemplate();
-        }
-
         // ================== F13.1: шаблон привязок Data_Out ==================
 
-        /// <summary>F13.1/F18: прочитать текст шаблона привязок по режиму: Inline — вставленный
-        /// код, File — путь настройки (иначе авто-поиск Data_Out_пример.xml рядом с exe или
-        /// в Work\). F18: встроенных копий примеров больше нет — без файла/кода шаблон
-        /// не найден. F107: файл по пути недоступен (перенос БД на другой компьютер —
-        /// в настройках путь старого файла) → fallback на именованный шаблон из БД
-        /// (SCADA_DATAOUT_TEMPLATES по DataOutTemplateName), как это уже сделано для
-        /// мастер-шаблона (F88); иначе dataTpValid=false и экспорт уходит в «простые
-        /// привязки» без data-цепочек по Typno.</summary>
+        /// <summary>F108: текст текущего шаблона привязок — ТОЛЬКО из БД/редактора, внешних
+        /// файлов и путей нет: 1) непустой код редактора (InlineDataOutText, хранится
+        /// в SCADA_MB_TEMPLATE «dataout» при сохранении настроек); 2) именованный шаблон
+        /// SCADA_DATAOUT_TEMPLATES по Settings.DataOutTemplateName; иначе null.
+        /// Любой XML-файл подключается через «Из файла…» → сохранение в БД (F81).</summary>
         private (string? Text, string Source) LoadDataOutTemplateText()
         {
-            if (Settings.DataOutTemplateMode == MbTemplateMode.Inline)
-            {
-                string t = (InlineDataOutText ?? "").Trim();
-                return t.Length > 0 ? (t, "вставленный код") : (null, "вставленный код (пусто)");
-            }
-            if (!string.IsNullOrWhiteSpace(Settings.DataOutTemplateFilePath))
-            {
-                if (File.Exists(Settings.DataOutTemplateFilePath))
-                    return (File.ReadAllText(Settings.DataOutTemplateFilePath), Settings.DataOutTemplateFilePath);
-                // F107: файл не найден — fallback на именованный шаблон из БД
-                // (задача п.7: шаблоны живут в БД, пути не должны ломать генерацию)
-                var fb = TryLoadDataOutTemplateFromDb();
-                if (fb != null)
-                    return (fb, $"БД «{(Settings.DataOutTemplateName ?? "").Trim()}» " +
-                        $"(файл не найден: {Settings.DataOutTemplateFilePath})");
-                return (null, $"файл по пути не найден: {Settings.DataOutTemplateFilePath}");
-            }
-            string? path = ScadaDataOutXmlService.ResolveDefaultTemplatePath();
-            if (path != null)
-                return (File.ReadAllText(path), path);
-            // F107: авто-поиск не дал результата — fallback на БД (F81/F16)
-            var fb2 = TryLoadDataOutTemplateFromDb();
-            if (fb2 != null)
-                return (fb2, $"БД «{(Settings.DataOutTemplateName ?? "").Trim()}»");
-            return (null, "шаблон привязок не найден — укажите файл или вставьте код");
+            string code = (InlineDataOutText ?? "").Trim();
+            if (code.Length > 0) return (code, "код редактора");
+            var fb = TryLoadDataOutTemplateFromDb();
+            if (fb != null)
+                return (fb, $"БД «{(Settings.DataOutTemplateName ?? "").Trim()}»");
+            return (null, "шаблон привязок не выбран — нажмите «Загрузить» (перечень БД) " +
+                "либо вставьте код и сохраните настройки");
         }
 
         /// <summary>F107: попытка загрузить тело dataout-шаблона из БД (SCADA_DATAOUT_TEMPLATES)
@@ -626,10 +523,6 @@ namespace IO_PJT.ViewModels
             {
                 var (text, source) = LoadDataOutTemplateText();
                 _dataOutTemplateText = text;
-                // F107: явная отметка в журнале, что путь файла недоступен и шаблон
-                // подхвачен из БД (типичный симптом переноса базы на другой компьютер)
-                if (source.Contains("файл не найден", StringComparison.Ordinal))
-                    _s.Log.Warn($"F107: {source} — подхвачен шаблон привязок из SCADA_DATAOUT_TEMPLATES");
                 if (text == null)
                 {
                     _dataOutTemplate = null;
@@ -646,23 +539,6 @@ namespace IO_PJT.ViewModels
                 _dataOutTemplate = null;
                 DataOutTemplateStatus = $"Ошибка чтения шаблона привязок: {ex.Message}";
             }
-        }
-
-        /// <summary>F13.1: выбрать файл шаблона привязок (диалог) и переключить режим на «Файл».</summary>
-        private void BrowseDataOutTemplate()
-        {
-            var dlg = new Microsoft.Win32.OpenFileDialog
-            {
-                Filter = "XML шаблон привязок (*.xml)|*.xml|Все файлы (*.*)|*.*",
-                FileName = Settings.DataOutTemplateFilePath
-            };
-            if (dlg.ShowDialog() != true) return;
-            ModeDataOutFile = true;
-            Settings.DataOutTemplateFilePath = dlg.FileName;
-            // F16: имя шаблона подсказывается именем файла (пустое поле не затирается)
-            if (string.IsNullOrWhiteSpace(Settings.DataOutTemplateName))
-                Settings.DataOutTemplateName = Path.GetFileNameWithoutExtension(dlg.FileName);
-            CheckDataOutTemplate();
         }
 
         // ================== F16: именованные шаблоны привязок ==================
@@ -739,8 +615,7 @@ namespace IO_PJT.ViewModels
                 string name = (Settings.DataOutTemplateName ?? "").Trim();
                 if (name.Length == 0)
                     name = PromptTemplateName(
-                        "Шаблон не имеет имени — введите имя для сопоставления Typno «Шаблон привязок»:",
-                        Path.GetFileNameWithoutExtension(Settings.DataOutTemplateFilePath ?? "")) ?? "";
+                        "Шаблон не имеет имени — введите имя для сопоставления Typno «Шаблон привязок»:") ?? "";
                 if (name.Trim().Length == 0)
                 {
                     StatusText = "Имя шаблона не задано — шаблон не сохранён.";
@@ -748,10 +623,9 @@ namespace IO_PJT.ViewModels
                 }
                 name = name.Trim();
                 Settings.DataOutTemplateName = name;
-                // F81: источник — путь только в режиме «Файл» (имя без пути), иначе пусто →
-                // сохранится прежнее имя источника
-                _s.ModbusBlocks.SaveDataOutTemplate(name, text,
-                    ModeDataOutFile ? Settings.DataOutTemplateFilePath ?? "" : "");
+                // F108: внешних путей нет — пустой источник сохранения → F81 сохранит
+                // прежнее имя файла-источника шаблона
+                _s.ModbusBlocks.SaveDataOutTemplate(name, text, "");
                 LoadDataOutTemplateList();
                 _s.Log.Info($"F16: шаблон привязок сохранён под именем «{name}» (SCADA_DATAOUT_TEMPLATES)");
                 StatusText = $"Шаблон привязок сохранён: «{name}» ({source}).";
@@ -774,9 +648,7 @@ namespace IO_PJT.ViewModels
                 return;
             }
             InlineDataOutText = t.Body ?? "";
-            ModeDataOutInline = true;
             Settings.DataOutTemplateName = t.Name;
-            // F81: FilePath — только имя файла-источника (без пути), в настройки «Файл» не пишем
             CheckDataOutTemplate();
             StatusText = $"Шаблон «{t.Name}» загружен в редактор: {DataOutTemplateStatus}";
         }
@@ -1482,18 +1354,17 @@ namespace IO_PJT.ViewModels
                 if (dText != null)
                 {
                     string dName = (Settings.DataOutTemplateName ?? "").Trim();
-                    if (dName.Length == 0 && Settings.DataOutTemplateMode == MbTemplateMode.Inline)
+                    // F108: шаблоны живут только в БД — при пустом имени всегда спрашиваем
+                    if (dName.Length == 0)
                         dName = PromptTemplateName(
                             "Код шаблона привязок вставлен — присвойте ему имя «Шаблон привязок» " +
-                            "(Typno → этот шаблон в SCADA_TYPNO_MAP):",
-                            Path.GetFileNameWithoutExtension(Settings.DataOutTemplateFilePath ?? "")) ?? "";
+                            "(Typno → этот шаблон в SCADA_TYPNO_MAP):") ?? "";
                     if (dName.Trim().Length > 0)
                     {
                         dName = dName.Trim();
                         Settings.DataOutTemplateName = dName;
-                        // F81: источник — путь только в режиме «Файл» (имя без пути)
-                        _s.ModbusBlocks.SaveDataOutTemplate(dName, dText,
-                            ModeDataOutFile ? Settings.DataOutTemplateFilePath ?? "" : "");
+                        // F108: внешних путей нет — пустой источник → сохранится прежнее имя
+                        _s.ModbusBlocks.SaveDataOutTemplate(dName, dText, "");
                         LoadDataOutTemplateList();
                     }
                     else
@@ -1501,23 +1372,20 @@ namespace IO_PJT.ViewModels
                                 "в список шаблонов не добавлено";
                 }
                 _s.ModbusBlocks.SaveSettings(Settings);
-                if (Settings.TemplateMode == MbTemplateMode.Inline)
+                // F108: коды редактора всегда сохраняются в SCADA_MB_TEMPLATE —
+                // внешних режимов «Файл»/«Код» больше нет
+                if (!string.IsNullOrWhiteSpace(InlineTemplateText))
                     _s.ModbusBlocks.SaveInlineTemplate(InlineTemplateText ?? "");
-                if (Settings.DataOutTemplateMode == MbTemplateMode.Inline) // F13.1: строка «dataout»
+                if (!string.IsNullOrWhiteSpace(InlineDataOutText)) // F13.1: строка «dataout»
                     _s.ModbusBlocks.SaveInlineTemplate(
                         ModbusBlockPlannerService.InlineDataOutTemplateName, InlineDataOutText ?? "");
                 // F18: перечитать и провалидировать оба шаблона — статус отражает только что
-                // сохранённые настройки (путь/код/автопоиск) и ничего не «пропадает»
+                // сохранённые настройки и ничего не «пропадает»
                 CheckTemplate();
                 CheckDataOutTemplate();
-                _s.Log.Info($"F13: настройки генерации сохранены ({ModbusBlockPlannerService.SettingKeys.Length} параметров" +
-                            (Settings.TemplateMode == MbTemplateMode.Inline ? " + шаблон в SCADA_MB_TEMPLATE)" : ")"));
-                StatusText = (Settings.TemplateMode == MbTemplateMode.Inline
-                    ? "Настройки и шаблон сохранены (SCADA_MB_SETTINGS / SCADA_MB_TEMPLATE)"
-                    : "Настройки сохранены в SCADA_MB_SETTINGS")
-                    + (Settings.DataOutTemplateMode == MbTemplateMode.Inline
-                        ? "; шаблон привязок — SCADA_MB_TEMPLATE «dataout»"
-                        : "")
+                _s.Log.Info($"F13: настройки генерации сохранены ({ModbusBlockPlannerService.SettingKeys.Length} параметров; " +
+                            "коды шаблонов — SCADA_MB_TEMPLATE)");
+                StatusText = "Настройки и шаблоны сохранены (SCADA_MB_SETTINGS / SCADA_MB_TEMPLATE)"
                     + (dNote != null ? "; " + dNote : "") + ".";
             }
             catch (Exception ex)
@@ -2068,21 +1936,19 @@ namespace IO_PJT.ViewModels
                 if (_templateText == null) CheckTemplate();
                 if (_templateText == null)
                 {
-                    StatusText = "Сохранение мастер-шаблона невозможно: шаблон не загружен (укажите файл или код).";
+                    StatusText = "Сохранение мастер-шаблона невозможно: шаблон не загружен (откройте его в редакторе или вставьте код).";
                     return;
                 }
                 string name = (PromptTemplateName(
                     "Введите имя мастер-шаблона (со «RTU» в имени → протокол RTU, иначе TCP):",
-                    Path.GetFileNameWithoutExtension(Settings.TemplateFilePath ?? "")) ?? "").Trim();
+                    (Settings.MasterTcpTemplateName ?? "").Trim()) ?? "").Trim();
                 if (name.Length == 0)
                 {
                     StatusText = "Имя шаблона не задано — мастер-шаблон не сохранён.";
                     return;
                 }
-                // F81: источник — путь только в режиме «Файл» (имя без пути), иначе пусто →
-                // сохранится прежнее имя источника
-                _s.ModbusBlocks.SaveMasterTemplate(name, _templateText!, "",
-                    ModeFile ? Settings.TemplateFilePath ?? "" : "");
+                // F108: внешних путей нет — пустой источник → F81 сохранит прежнее имя источника
+                _s.ModbusBlocks.SaveMasterTemplate(name, _templateText!, "");
                 LoadMasterTemplateList();
                 _s.Log.Info($"F22: мастер-шаблон сохранён «{name}» (SCADA_MASTER_TEMPLATES)");
                 StatusText = $"Мастер-шаблон сохранён: «{name}» — выберите его в «TCP-шаблон»/«RTU-шаблон».";
@@ -2105,8 +1971,6 @@ namespace IO_PJT.ViewModels
                 return;
             }
             InlineTemplateText = t.Body ?? "";
-            ModeInline = true;
-            if (!string.IsNullOrWhiteSpace(t.FilePath)) Settings.TemplateFilePath = t.FilePath;
             CheckTemplate();
             StatusText = $"Мастер-шаблон «{t.Name}» загружен в редактор: {TemplateStatus}";
         }

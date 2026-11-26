@@ -100,22 +100,13 @@
 
                     <GroupBox Header="XML-шаблон (структура одного запроса)" Margin="0,0,0,6">
                         <StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="0,2,0,4">
-                                <RadioButton Content="Файл" GroupName="TMode" IsChecked="{Binding ModeFile}" Margin="0,0,12,0"
-                                             ToolTip="Шаблон читается из файла (по умолчанию — MB_TCP_MASTER_пример_new.xml рядом с программой)" />
-                                <RadioButton Content="Код" GroupName="TMode" IsChecked="{Binding ModeInline}"
-                                             ToolTip="Шаблон вставляется в поле ниже и хранится в SCADA_MB_TEMPLATE (MEMO)" />
-                            </StackPanel>
-                            <DockPanel Margin="0,0,0,4">
-                                <Button DockPanel.Dock="Right" Content="Обзор..." Command="{Binding BrowseTemplateCommand}" Width="80" Margin="6,0,0,0"
-                                        ToolTip="Выбрать файл шаблона и переключить режим на «Файл»" />
-                                <TextBox Text="{Binding Settings.TemplateFilePath, UpdateSourceTrigger=PropertyChanged}"
-                                         ToolTip="Путь к файлу шаблона; пусто — авто-поиск MB_TCP_MASTER_пример_new.xml (каталог exe, Work\, встроенная копия)" />
-                            </DockPanel>
+                            <!-- F108: режим «Файл» и поле пути убраны — шаблон берётся ТОЛЬКО
+                                 из БД (SCADA_MASTER_TEMPLATES по «TCP-шаблон») либо это код
+                                 в редакторе (хранится в SCADA_MB_TEMPLATE); внешних путей нет -->
                             <TextBox Text="{Binding InlineTemplateText, UpdateSourceTrigger=PropertyChanged}"
                                      AcceptsReturn="True" AcceptsTab="True" VerticalScrollBarVisibility="Auto"
                                      FontFamily="Consolas" FontSize="11" Height="120" TextWrapping="NoWrap"
-                                     ToolTip="XML-шаблон BufScadaPOUS: POU с блоком мастера MB_TCP_MASTER (IsaObjId 15003) и его обвязкой" />
+                                     ToolTip="XML-шаблон BufScadaPOUS: POU с блоком мастера MB_TCP_MASTER (IsaObjId 15003) и его обвязкой. Источник — код редактора (SCADA_MB_TEMPLATE) либо выбранный шаблон из БД" />
                             <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                                 <Button Content="Проверить шаблон" Command="{Binding CheckTemplateCommand}" Width="140" Margin="0,0,6,0"
                                         ToolTip="Разобрать шаблон: корень BufScadaPOUS, блоки, мастер MB_TCP_MASTER" />
@@ -352,22 +343,13 @@
                          (пакет, индекс DataOut) с подстановкой тега из IO_LIST -->
                     <GroupBox Header="XML-шаблон привязок (Data_Out: out → tagname)" Margin="0,0,0,6">
                         <StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="0,2,0,4">
-                                <RadioButton Content="Файл" GroupName="DMode" IsChecked="{Binding ModeDataOutFile}" Margin="0,0,12,0"
-                                             ToolTip="Шаблон привязок читается из файла (по умолчанию — Data_Out_пример.xml рядом с программой)" />
-                                <RadioButton Content="Код" GroupName="DMode" IsChecked="{Binding ModeDataOutInline}"
-                                             ToolTip="Шаблон привязок вставляется в поле ниже и хранится в SCADA_MB_TEMPLATE (строка «dataout»)" />
-                            </StackPanel>
-                            <DockPanel Margin="0,0,0,4">
-                                <Button DockPanel.Dock="Right" Content="Обзор..." Command="{Binding BrowseDataOutTemplateCommand}" Width="80" Margin="6,0,0,0"
-                                        ToolTip="Выбрать файл шаблона привязок и переключить режим на «Файл»" />
-                                <TextBox Text="{Binding Settings.DataOutTemplateFilePath, UpdateSourceTrigger=PropertyChanged}"
-                                         ToolTip="Путь к файлу шаблона привязок; пусто — авто-поиск Data_Out_пример.xml (каталог exe, Work\, встроенная копия)" />
-                            </DockPanel>
+                            <!-- F108: режим «Файл» и поле пути убраны — шаблон привязок берётся
+                                 ТОЛЬКО из БД (SCADA_DATAOUT_TEMPLATES по «Имя шаблона») либо это
+                                 код редактора (SCADA_MB_TEMPLATE «dataout»); внешних путей нет -->
                             <!-- F16: имя текущего шаблона + список именованных шаблонов (SCADA_DATAOUT_TEMPLATES) -->
                             <DockPanel Margin="0,0,0,4">
                                 <TextBlock DockPanel.Dock="Left" Text="Имя шаблона:" VerticalAlignment="Center" Margin="0,0,6,0"
-                                           ToolTip="F16: идентификатор шаблона для SCADA_TYPNO_MAP (колонка «Шаблон привязок»); для файла по умолчанию — его имя без расширения" />
+                                           ToolTip="F16: идентификатор шаблона для SCADA_TYPNO_MAP (колонка «Шаблон привязок»)" />
                                 <TextBox Text="{Binding Settings.DataOutTemplateName, UpdateSourceTrigger=PropertyChanged}"
                                          ToolTip="F16: имя шаблона в SCADA_DATAOUT_TEMPLATES (уникально без учёта регистра); пусто — имя будет задано при сохранении" />
                             </DockPanel>

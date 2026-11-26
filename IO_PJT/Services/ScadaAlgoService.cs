@@ -333,7 +333,8 @@ namespace IO_PJT.Services
                         {
                             Name = rd.IsDBNull(0) ? "" : rd.GetString(0),
                             Body = rd.IsDBNull(1) ? "" : rd.GetString(1),
-                            FilePath = rd.IsDBNull(2) ? "" : rd.GetString(2)
+                            // F108: легаси-пути обрезаются до имени файла-источника (F81)
+                            FilePath = rd.IsDBNull(2) ? "" : Path.GetFileName(rd.GetString(2))
                         });
                     break;
                 }
@@ -391,7 +392,9 @@ namespace IO_PJT.Services
                     ins.CommandTimeout = DbProbe.TimeoutSeconds;
                     OleDbArgs.Add(ins, name);
                     OleDbArgs.Add(ins, body);
-                    OleDbArgs.Add(ins, filePath);
+                    // F108: в БД сохраняется только ИМЯ файла-источника без пути
+                    // (как в SCADA_MASTER_/SCADA_DATAOUT_TEMPLATES, F81)
+                    OleDbArgs.Add(ins, Path.GetFileName(filePath ?? ""));
                     ins.ExecuteNonQuery();
                 }
                 tr.Commit();

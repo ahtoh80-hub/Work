@@ -1,5 +1,4 @@
 ﻿using System;
-using IO_PJT.Models;
 using IO_PJT.Services;
 using IO_PJT.ViewModels;
 
@@ -7,64 +6,79 @@ namespace IO_PJT.Smoke
 {
     public static partial class Program
     {
-        // ============ 13. F107: dataout-шаблон из БД при недоступном пути файла ============
+        // ============ 13. F108: шаблоны только из БД/редактора (внешних путей нет) ============
 
-        /// <summary>Смоук кейса переноса БД между компьютерами: настройки DataOutTemplateMode=File
-        /// хранят путь файла старого компьютера; файл не найден → шаблон привязок должен
-        /// подхватываться из SCADA_DATAOUT_TEMPLATES по DataOutTemplateName (fallback F107,
-        /// аналог F88 мастер-шаблона), иначе dataTplValid=false и экспорт уходит в «простые
-        /// привязки» без data-цепочек по Typno.</summary>
-        private static void Test13_DataOutDbFallback()
+        /// <summary>F108: генерация шаблонов работает только от данных БД: тело текущего
+        /// шаблона = код редактора (SCADA_MB_TEMPLATE) либо именованный шаблон из
+        /// SCADA_MASTER_TEMPLATES/SCADA_DATAOUT_TEMPLATES; внешние файлы и пути
+        /// (TemplateFilePath/DataOutTemplateFilePath) больше не читаются и не сохраняются.</summary>
+        private static void Test13_TemplatesFromDb()
         {
-            Log("=== Тест 13: F107 — недоступный путь dataout-шаблона → шаблон из БД ===");
+            Log("=== Тест 13: F108 — шаблоны только из БД/редактора (без внешних путей) ===");
             string db = NewDbPath();
             try
             {
-                CreateDb(db); // служебные таблицы (SCADA_*) + IO_LIST + MODBUS_MAP
+                CreateDb(db);
                 var app = new AppServices(db);
 
-                // 1) сохранить валидный dataout-шаблон в БД (тело — мини-шаблон Test11)
+                // 1) шаблоны в БД: dataout + мастер (тела — встроенные тестовые)
                 string body = BitDataTemplateXml();
                 app.ModbusBlocks.SaveDataOutTemplate("TPL_FB_TEST", body, "");
+                app.ModbusBlocks.SaveMasterTemplate("TPL_MST", MasterTemplateXml(), "TCP", "");
                 Check(app.ModbusBlocks.LoadDataOutTemplates().Count > 0,
-                    "F107: шаблон сохранён в SCADA_DATAOUT_TEMPLATES");
+                    "F108: dataout-шаблон сохранён в SCADA_DATAOUT_TEMPLATES");
+                Check(app.ModbusBlocks.LoadMasterTemplates().Count > 0,
+                    "F108: мастер-шаблон сохранён в SCADA_MASTER_TEMPLATES");
 
-                // 2) VM окна F13 от этой БД (конструктор загружает списки, в т.ч. шаблоны)
+                // 2) VM от этой БД (конструктор грузит коды из SCADA_MB_TEMPLATE — в свежей БД пусты)
                 var vm = new ScadaModbusBlocksViewModel(app);
-                Check(vm.DataOutTemplates.Count > 0,
-                    "F107: VM подгрузила перечень dataout-шаблонов из БД");
+                Check(vm.DataOutTemplates.Count > 0 && vm.MasterTemplates.Count > 0,
+                    "F108: перечни dataout/мастер-шаблонов подгружены из БД");
 
-                // 3) режим «Файл» + НЕСУЩЕСТВУЮЩИЙ путь (перенос БД на другой компьютер)
-                vm.Settings.DataOutTemplateMode = MbTemplateMode.File;
-                vm.Settings.DataOutTemplateFilePath = @"C:\_no_such_dir_f107\MB_DI_TO_LOOP.xml";
+                // 3) dataout: редактор пуст → шаблон из БД по имени
                 vm.Settings.DataOutTemplateName = "TPL_FB_TEST";
                 vm.CheckDataOutTemplateCommand.Execute(null);
-
                 string st = vm.DataOutTemplateStatus ?? "";
-                Log($"статус (нет файла): {st}");
+                Log($"dataout (по имени): {st}");
                 Check(st.Contains("БД «TPL_FB_TEST»"),
-                    "F107: файл не найден — шаблон подхвачен из БД по имени");
-                Check(!st.Contains("файл по пути не найден"),
-                    "F107: недоступный путь больше не роняет шаблон");
+                    "F108: пустой редактор → шаблон привязок взят из БД по имени");
                 Check(!st.Contains("ОШИБКА"),
-                    "F107: шаблон из БД провалидировался (без ошибки парсинга)");
+                    "F108: шаблон из БД провалидировался (эталоны разобраны)");
 
-                // 4) регресс: существующий файл читается из файла, fallback не срабатывает
-                string tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
-                    "f107_tpl_" + Guid.NewGuid().ToString("N") + ".xml");
-                System.IO.File.WriteAllText(tmp, body);
-                try
-                {
-                    vm.Settings.DataOutTemplateFilePath = tmp;
-                    vm.CheckDataOutTemplateCommand.Execute(null);
-                    string st2 = vm.DataOutTemplateStatus ?? "";
-                    Log($"статус (файл есть): {st2}");
-                    Check(st2.Contains(tmp),
-                        "регресс F13.1: существующий файл шаблона читается из файла");
-                    Check(!st2.Contains("БД «"),
-                        "регресс F13.1: при наличии файла fallback в БД не применяется");
-                }
-                finally { try { System.IO.File.Delete(tmp); } catch { } }
+                // 4) приоритет кода редактора над БД
+                vm.InlineDataOutText = body;
+                vm.CheckDataOutTemplateCommand.Execute(null);
+                string st2 = vm.DataOutTemplateStatus ?? "";
+                Log($"dataout (редактор): {st2}");
+                Check(st2.Contains("код редактора") && !st2.Contains("ОШИБКА"),
+                    "F108: непустой код редактора имеет приоритет над шаблоном БД");
+
+                // 5) регресс: ни имени, ни кода → понятное сообщение (внешние пути не читаются)
+                vm.InlineDataOutText = "";
+                vm.Settings.DataOutTemplateName = "";
+                vm.CheckDataOutTemplateCommand.Execute(null);
+                string st3 = vm.DataOutTemplateStatus ?? "";
+                Check(st3.Contains("не выбран"),
+                    "F108: без шаблона — понятное сообщение вместо чтения внешних файлов");
+
+                // 6) мастер: пустой редактор + имя → тело из SCADA_MASTER_TEMPLATES
+                vm.InlineTemplateText = "";
+                vm.Settings.MasterTcpTemplateName = "TPL_MST";
+                vm.CheckTemplateCommand.Execute(null);
+                string stM = vm.TemplateStatus ?? "";
+                Log($"мастер (по имени): {stM}");
+                Check(stM.Contains("БД «TPL_MST»") && !stM.Contains("ОШИБКА"),
+                    "F108: мастер-шаблон взят из БД по имени (внешние пути не используются)");
+
+                // 7) ключи путей убраны из настроек (в ObsoleteSettingKeys → удалятся из БД)
+                Check(Array.IndexOf(ModbusBlockPlannerService.SettingKeys, "TemplateFilePath") < 0 &&
+                      Array.IndexOf(ModbusBlockPlannerService.SettingKeys, "DataOutTemplateFilePath") < 0 &&
+                      Array.IndexOf(ModbusBlockPlannerService.SettingKeys, "TemplateMode") < 0 &&
+                      Array.IndexOf(ModbusBlockPlannerService.SettingKeys, "DataOutTemplateMode") < 0,
+                    "F108: ключи путей/режимов исключены из SettingKeys");
+                Check(Array.IndexOf(ModbusBlockPlannerService.ObsoleteSettingKeys, "TemplateFilePath") >= 0 &&
+                      Array.IndexOf(ModbusBlockPlannerService.ObsoleteSettingKeys, "DataOutTemplateFilePath") >= 0,
+                    "F108: ключи путей в ObsoleteSettingKeys (вычищаются при сохранении настроек)");
             }
             finally { DeleteDb(db); }
         }

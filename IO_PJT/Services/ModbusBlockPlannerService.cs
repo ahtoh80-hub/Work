@@ -687,8 +687,10 @@ namespace IO_PJT.Services
         public static readonly string[] SettingKeys =
         {
             "Policy", "MaxCountRegisters", "MaxCountBits", "MaxGap", "DefaultPort", "DefaultSlaveId", "DefaultTimeoutMs",
-            "TemplateMode", "TemplateFilePath", "MasterTcpTemplateName", "MasterRtuTemplateName",
-            "DataOutTemplateMode", "DataOutTemplateFilePath", "BlockNamePattern",
+            // F108: TemplateMode/TemplateFilePath/DataOutTemplateMode/DataOutTemplateFilePath убраны —
+            // шаблоны только из БД, внешние пути в настройках не хранятся
+            "MasterTcpTemplateName", "MasterRtuTemplateName",
+            "BlockNamePattern",
             "BlockNamePatternRtu", "FormatAddress", "DataOutTemplateName",
             "BlockNamePatternReserve", // F68: имя резервного (reserve) блока мастера TCP
             "BlockTokenReserve", // F69: токен reserve-блока в шаблонах (подмена имён)
@@ -701,13 +703,16 @@ namespace IO_PJT.Services
         };
 
         /// <summary>F13: устаревшие ключи SCADA_MB_SETTINGS (были в F13 v1 до шаблонной генерации);
-        /// удаляются при сохранении настроек.</summary>
+        /// удаляются при сохранении настроек. F108: + пути/режимы шаблонов — внешние файлы
+        /// при генерации не используются, ключи вычищаются из старых БД.</summary>
         public static readonly string[] ObsoleteSettingKeys =
         {
             "PulsePeriodMs", "TimeoutTagName", "PouName", "MasterPrefix", "ArrayPrefix",
             "NoLinkPrefix", "PouId", "PouNum", "ControllerTypeName", "ControllerId",
             "ResourceId", "ShowTitles",
-            "MaxCount" // F20: единый лимит заменён на MaxCountRegisters/MaxCountBits — удаляется при сохранении
+            "MaxCount", // F20: единый лимит заменён на MaxCountRegisters/MaxCountBits — удаляется при сохранении
+            "TemplateMode", "TemplateFilePath", // F108: шаблоны только из БД
+            "DataOutTemplateMode", "DataOutTemplateFilePath" // F108
         };
 
         /// <summary>F13: загрузить настройки генерации из SCADA_MB_SETTINGS
@@ -755,15 +760,11 @@ namespace IO_PJT.Services
             if (values.TryGetValue("DefaultPort", out var dp) && int.TryParse(dp, out int dpv)) s.DefaultPort = dpv;
             if (values.TryGetValue("DefaultSlaveId", out var ds) && int.TryParse(ds, out int dsv)) s.DefaultSlaveId = dsv;
             if (values.TryGetValue("DefaultTimeoutMs", out var dt) && int.TryParse(dt, out int dtv)) s.DefaultTimeoutMs = dtv;
-            if (values.TryGetValue("TemplateMode", out var tm) && Enum.TryParse(tm, true, out MbTemplateMode tmm))
-                s.TemplateMode = tmm;
-            if (values.TryGetValue("TemplateFilePath", out var tf)) s.TemplateFilePath = tf;
+            // F108: TemplateMode/TemplateFilePath/DataOutTemplateMode/DataOutTemplateFilePath
+            // больше не читаются — шаблоны берутся только из БД/редактора
             if (values.TryGetValue("MasterTcpTemplateName", out var mtc)) s.MasterTcpTemplateName = mtc;
             if (values.TryGetValue("MasterRtuTemplateName", out var mtr)) s.MasterRtuTemplateName = mtr;
             if (values.TryGetValue("MaxGap", out var mg) && int.TryParse(mg, out int mgv)) s.MaxGap = mgv;
-            if (values.TryGetValue("DataOutTemplateMode", out var dom) && Enum.TryParse(dom, true, out MbTemplateMode domm))
-                s.DataOutTemplateMode = domm;
-            if (values.TryGetValue("DataOutTemplateFilePath", out var dopf)) s.DataOutTemplateFilePath = dopf;
             if (values.TryGetValue("DataOutTemplateName", out var dont)) s.DataOutTemplateName = dont;
             if (values.TryGetValue("BlockNamePattern", out var bnp)) s.BlockNamePattern = bnp;
             if (values.TryGetValue("BlockNamePatternRtu", out var bnr)) s.BlockNamePatternRtu = bnr;
@@ -811,13 +812,11 @@ namespace IO_PJT.Services
                 ("DefaultPort", s.DefaultPort.ToString()),
                 ("DefaultSlaveId", s.DefaultSlaveId.ToString()),
                 ("DefaultTimeoutMs", s.DefaultTimeoutMs.ToString()),
-                ("TemplateMode", s.TemplateMode.ToString()),
-                ("TemplateFilePath", s.TemplateFilePath ?? ""),
+                // F108: ключи путей/режимов шаблонов не пишутся (в ObsoleteSettingKeys —
+                // удалятся из старых БД при первом сохранении настроек)
                 ("MasterTcpTemplateName", s.MasterTcpTemplateName ?? ""),
                 ("MasterRtuTemplateName", s.MasterRtuTemplateName ?? ""),
                 ("MaxGap", s.MaxGap.ToString()),
-                ("DataOutTemplateMode", s.DataOutTemplateMode.ToString()),
-                ("DataOutTemplateFilePath", s.DataOutTemplateFilePath ?? ""),
                 ("DataOutTemplateName", s.DataOutTemplateName ?? ""),
                 ("BlockNamePattern", s.BlockNamePattern ?? ""),
                 ("BlockNamePatternRtu", s.BlockNamePatternRtu ?? ""),

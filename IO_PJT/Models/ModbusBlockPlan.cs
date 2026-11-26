@@ -19,15 +19,6 @@ namespace IO_PJT.Models
         Gap = 3
     }
 
-    /// <summary>F13: источник XML-шаблона генерации блоков Modbus. File — файл шаблона
-    /// (по умолчанию «MB_TCP_MASTER_пример_new.xml»); Inline — код, вставленный в окно
-    /// и хранящийся в SCADA_MB_TEMPLATE (MEMO).</summary>
-    public enum MbTemplateMode
-    {
-        File = 0,
-        Inline = 1
-    }
-
     /// <summary>F13: привязка одной точки IO_LIST к выходу DataOut блока мастера
     /// (MB_TCP_MASTER_4_1.DataOut[0] — индекс = адрес точки − Address пакета).</summary>
     public sealed class MbBinding
@@ -899,9 +890,8 @@ namespace IO_PJT.Models
             Policy = Policy, MaxCountRegisters = MaxCountRegisters, MaxCountBits = MaxCountBits,
             MaxGap = MaxGap, DefaultPort = DefaultPort, DefaultSlaveId = DefaultSlaveId,
             SplitByControllerStation = SplitByControllerStation, // F37
-            DefaultTimeoutMs = DefaultTimeoutMs, TemplateMode = TemplateMode,
-            TemplateFilePath = TemplateFilePath, DataOutTemplateMode = DataOutTemplateMode,
-            DataOutTemplateFilePath = DataOutTemplateFilePath, DataOutTemplateName = DataOutTemplateName,
+            DefaultTimeoutMs = DefaultTimeoutMs, // F108: TemplateMode/TemplateFilePath/DataOutTemplateMode/DataOutTemplateFilePath убраны — шаблоны только из БД
+            DataOutTemplateName = DataOutTemplateName,
             MasterTcpTemplateName = MasterTcpTemplateName, MasterRtuTemplateName = MasterRtuTemplateName,
             BlockNamePattern = BlockNamePattern, BlockNamePatternRtu = BlockNamePatternRtu,
             BlockNamePatternReserve = BlockNamePatternReserve, // F68
@@ -917,16 +907,7 @@ namespace IO_PJT.Models
             PouCommentPattern = PouCommentPattern, DataOutPouCommentPattern = DataOutPouCommentPattern // F61
         };
 
-        // —— XML-шаблон ——
-        private MbTemplateMode _templateMode = MbTemplateMode.File;
-        /// <summary>Источник шаблона: файл (File) или вставленный код (Inline, SCADA_MB_TEMPLATE).</summary>
-        public MbTemplateMode TemplateMode { get => _templateMode; set => Set(ref _templateMode, value); }
-
-        private string _templateFilePath = "";
-        /// <summary>Путь к файлу шаблона; пуст — авто-поиск «MB_TCP_MASTER_пример_new.xml»
-        /// (каталог exe, потом Work\, затем встроенная копия).</summary>
-        public string TemplateFilePath { get => _templateFilePath; set => Set(ref _templateFilePath, value ?? ""); }
-
+        // —— XML-шаблон (F108: TemplateMode/TemplateFilePath удалены — шаблоны только из БД) ——
         private string _masterTcpTemplateName = "";
         /// <summary>F22: имя мастер-шаблона Modbus TCP из SCADA_MASTER_TEMPLATES, которым
         /// генерируются пакеты TCP; пуст — текущий шаблон редактора (историческое).</summary>
@@ -938,17 +919,7 @@ namespace IO_PJT.Models
         public string MasterRtuTemplateName { get => _masterRtuTemplateName; set => Set(ref _masterRtuTemplateName, value ?? ""); }
 
         // —— F13.1: шаблон привязок (out → tagname) и имя блока ——
-        private MbTemplateMode _dataOutTemplateMode = MbTemplateMode.File;
-        /// <summary>Источник шаблона привязок: файл или вставленный код (SCADA_MB_TEMPLATE,
-        /// строка Name='dataout'). Пуст/нет шаблона — простые привязки «блок 31 на пару
-        /// (блок, индекс)» (историческое поведение).</summary>
-        public MbTemplateMode DataOutTemplateMode { get => _dataOutTemplateMode; set => Set(ref _dataOutTemplateMode, value); }
-
-        private string _dataOutTemplateFilePath = "";
-        /// <summary>Путь к файлу шаблона привязок; пуст — авто-поиск
-        /// «Data_Out_пример.xml» (каталог exe → Work\ → встроенная копия).</summary>
-        public string DataOutTemplateFilePath { get => _dataOutTemplateFilePath; set => Set(ref _dataOutTemplateFilePath, value ?? ""); }
-
+        // F108: DataOutTemplateMode/DataOutTemplateFilePath удалены — шаблон только из БД
         private string _dataOutTemplateName = "";
         /// <summary>F16: имя текущего шаблона привязок в редакторе (SCADA_DATAOUT_TEMPLATES).
         /// Идентифицирует шаблон при «Сохранить под именем…»; пусто — имя ещё не присвоено
