@@ -103,7 +103,7 @@ namespace IO_PJT.ViewModels
 
         /// <summary>F61: превью пакетов — только станции с включённой галочкой «Генерировать»
         /// (FilterPacketsByStationRules — тот же фильтр, что у экспорта/записи привязок;
-        /// станции без правил — генерятся). Строка превью = пакет (F58-грid тегов заменён);
+        /// станции без правил — генерятся). Строка превью = пакет (F58-грид тегов заменён);
         /// F45: AddRange одним Reset.</summary>
         public RangeObservableCollection<MbPacketPlan> PreviewPackets { get; } = new();
 
@@ -802,7 +802,7 @@ namespace IO_PJT.ViewModels
             var t = SelectedMasterTemplate;
             if (t == null)
             {
-                StatusText = "ВВыберите мастер-шаблон в перечне.";
+                StatusText = "Выберите мастер-шаблон в перечне.";
                 return null;
             }
             return t.Body ?? "";
@@ -2071,7 +2071,7 @@ namespace IO_PJT.ViewModels
             var t = SelectedMasterTemplate;
             if (t == null)
             {
-                StatusText = "ВВыберите мастер-шаблон в списке «Мастер-блоки».";
+                StatusText = "Выберите мастер-шаблон в списке «Мастер-блоки».";
                 return;
             }
             InlineTemplateText = t.Body ?? "";
@@ -2088,7 +2088,7 @@ namespace IO_PJT.ViewModels
             var t = SelectedMasterTemplate;
             if (t == null)
             {
-                StatusText = "ВВыберите мастер-шаблон в списке «Мастер-блоки».";
+                StatusText = "Выберите мастер-шаблон в списке «Мастер-блоки».";
                 return;
             }
             var ans = System.Windows.MessageBox.Show(
@@ -2487,7 +2487,7 @@ namespace IO_PJT.ViewModels
             }
             catch (Exception ex)
             {
-                _s.Log.Error("F101: ошибка загрузки перечня оОбъектов мастер-шаблона: " +
+                _s.Log.Error("F101: ошибка загрузки перечня объектов мастер-шаблона: " +
                     DbProbe.ClassifyMessage(ex.Message));
             }
         }
@@ -2517,7 +2517,7 @@ namespace IO_PJT.ViewModels
             return map;
         }
 
-        /// <summary>F101: «аполнить из шаблонов» перечня оОбъектов мастер-шаблона: все блоки
+        /// <summary>F101: «Заполнить из шаблонов» перечня объектов мастер-шаблона: все блоки
         /// 31/34 выбранного мастер-шаблона (юнит + дополнительная логика), кроме блоков
         /// мастера и блоков-источников; существующие строки сохраняются.</summary>
         private void FillMasterObjectVars()
@@ -2545,14 +2545,14 @@ namespace IO_PJT.ViewModels
                 MasterObjectVarsView?.Refresh();
                 StatusText = added > 0
                     ? $"Объектов мастер-шаблона добавлено: {added} (всего {MasterObjectVars.Count}). " +
-                      "Задайте «кончание»/«олонка / шаблон» и «Сохранить маппинг объектов»."
-                    : "овых оОбъектов мастер-шаблона не найдено.";
+                      "Задайте «Окончание»/«Колонка / шаблон» и «Сохранить маппинг объектов»."
+                    : "Новых объектов мастер-шаблона не найдено.";
             }
             catch (Exception ex)
             {
                 string msg = DbProbe.ClassifyMessage(ex.Message);
-                _s.Log.Error("F101: ошибка заполнения оОбъектов мастер-шаблона: " + msg);
-                StatusText = "шибка заполнения оОбъектов мастер-шаблона: " + msg;
+                _s.Log.Error("F101: ошибка заполнения объектов мастер-шаблона: " + msg);
+                StatusText = "Ошибка заполнения объектов мастер-шаблона: " + msg;
             }
         }
 
@@ -2577,13 +2577,13 @@ namespace IO_PJT.ViewModels
                             Literal = r.Literal, NameSuffix = r.NameSuffix
                         });
                 int n = _s.ModbusBlocks.SaveTemplateVars("masterobj", t.Name, rows);
-                StatusText = $"аппинг оОбъектов мастер-шаблона «{t.Name}» сохранён (строк: {n}).";
+                StatusText = $"Маппинг объектов мастер-шаблона «{t.Name}» сохранён (строк: {n}).";
             }
             catch (Exception ex)
             {
                 string msg = DbProbe.ClassifyMessage(ex.Message);
-                _s.Log.Error("F101: ошибка сохранения перечня оОбъектов мастер-шаблона: " + msg);
-                StatusText = "шибка сохранения перечня оОбъектов мастер-шаблона: " + msg;
+                _s.Log.Error("F101: ошибка сохранения перечня объектов мастер-шаблона: " + msg);
+                StatusText = "Ошибка сохранения перечня объектов мастер-шаблона: " + msg;
             }
         }
     }

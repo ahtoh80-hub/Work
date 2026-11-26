@@ -170,7 +170,7 @@ namespace IO_PJT.ViewModels
                     : "Нет строк: в текущей таблице нет точек с заполненной адресацией Modbus " +
                       "(заполните M_-поля кнопкой «Обновить адресацию Modbus» — F9.4).";
                 if (result.Rows.Count == 0 && FilterConditions.Any(f => !string.IsNullOrWhiteSpace(f.Text)))
-                    StatusText = $"ет строк: набираемый фильтр отсеял точки (с адресацией: " +
+                    StatusText = $"Нет строк: набираемый фильтр отсеял точки (с адресацией: " +
                                  $"{result.WithAddressing}, отсеяно фильтром: {result.SkippedByFilter}) — измените условия или «Сброс».";
                 if (result.Warnings.Count > 0)
                     _s.Log.Info($"F12: предупреждения построения ({result.Warnings.Count}): " +
@@ -331,7 +331,7 @@ namespace IO_PJT.ViewModels
         private void AddFilter()
         {
             FilterConditions.Add(new ScadaFilterCondition { Field = "Tag" });
-            StatusText = $"словий фильтра: {FilterConditions.Count}. аберите текст — строки с вхождением покажутся в превью (условия — «»).";
+            StatusText = $"Добавлено условий фильтра: {FilterConditions.Count}. Введите текст — строки с вхождением покажутся в превью (условия действуют одновременно).";
         }
 
         private void RemoveFilter(ScadaFilterCondition? f)
@@ -342,7 +342,7 @@ namespace IO_PJT.ViewModels
         private void ClearFilters()
         {
             FilterConditions.Clear();
-            StatusText = "ильтр сброшен — в превью попадают все точки с адресацией (нажмите «остроить превью»).";
+            StatusText = "Фильтр сброшен — в превью попадают все точки с адресацией (нажмите «Построить превью»).";
         }
 
         // подписки условий: INPC-правки в окне перестраивают превью, если оно уже строилось
