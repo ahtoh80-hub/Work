@@ -529,7 +529,9 @@ namespace IO_PJT.Services
                         {
                             // Заменяем имя: часть до токена + замена токена + маппинг суффикса
                             string beforeToken = tokenPos > 0 ? text.Substring(0, tokenPos) : "";
-                            string tokenReplacement = wasReserveToken ? reserveName : mainName;
+                            // F106: ?? "" — reserveName/mainName nullable (устранение CS8600);
+                            // null и раньше давал пустую строку при конкатенации ниже
+                            string tokenReplacement = wasReserveToken ? reserveName ?? "" : mainName ?? "";
                             
                             return beforeToken + tokenReplacement + origMapping.NameSuffix;
                         }
@@ -541,7 +543,9 @@ namespace IO_PJT.Services
                     !string.IsNullOrEmpty(subMapping.NameSuffix))
                 {
                     // Находим позицию замененного токена в результирующем имени
-                    string tokenReplacement = substituted.Contains(reserveName ?? "") ? reserveName : mainName;
+                    // F106: ?? "" — reserveName/mainName nullable (устранение CS8600);
+                    // null → "" и раньше проходил ту же проверку IsNullOrEmpty ниже
+                    string tokenReplacement = substituted.Contains(reserveName ?? "") ? reserveName ?? "" : mainName ?? "";
                     
                     if (!string.IsNullOrEmpty(tokenReplacement))
                     {
