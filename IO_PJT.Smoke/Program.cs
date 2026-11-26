@@ -57,6 +57,7 @@ namespace IO_PJT.Smoke
             RunTest("10.1. Простая проверка методов маппинга", Test10_MasterObjectsBugSimple);
             RunTest("11. F105: удаление непривязанных битовых объектов", Test11_UnboundBits);
             RunTest("12. F106: точка в именах не заменяется на _", Test12_DotName);
+            RunTest("13. F107: dataout-шаблон из БД при недоступном пути", Test13_DataOutDbFallback);
             Console.WriteLine($"ИТОГО: OK {_passed}, FAIL {_failed}");
             return _failed == 0 ? 0 : 1;
         }

@@ -9,7 +9,10 @@
         /// 1.1 = F105 unbound bit object removal (data templates) + F102/F103 master
         /// object name mapping fixes; smoke suite Test 11.
         /// 1.2 = F106: dot "." is a normal character in names/marks (never replaced
-        /// with "_") + F13 window overlap fix (master objects group); smoke Test 12.</summary>
-        public const string Version = "1.2";
+        /// with "_") + F13 window overlap fix (master objects group); smoke Test 12.
+        /// 1.3 = F107: dataout template falls back to SCADA_DATAOUT_TEMPLATES when
+        /// the configured file path is missing (DB moved to another computer);
+        /// smoke Test 13.</summary>
+        public const string Version = "1.3";
     }
 }

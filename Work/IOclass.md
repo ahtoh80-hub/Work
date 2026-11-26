@@ -2810,3 +2810,31 @@ FP/LP нет, карточек удалённых нет, предупрежде
 аберите…(условия — «»)», «ильтр сброшен… «остроить превью»». Итого **24 правки в 4 файлах**;
 целые статусы в нижнем регистре (ScadaAlgoInstancesViewModel) — авторский стиль, не тронуты.
 Версия `AppInfo.Version` → **1.2**.
+
+**F107 — dataout-шаблон: fallback в БД при недоступном пути файла (2026-11, версия 1.3):**
+Симптом: перенос `BD Modbus MCC.accdb` на другой компьютер → «Сформировать XML» даёт
+`…_bindings.xml` только с источниками (`170 × GT31 DataOut[N]`, без data-цепочек), в статусе
+«простые привязки». Причина: `SCADA_MB_SETTINGS` хранит `DataOutTemplateMode=File` +
+`DataOutTemplateFilePath = C:\_Work\…\MB_DI_TO_LOOP.xml` (путь старого компьютера);
+`LoadDataOutTemplateText` (VM F13) при несуществующем файле возвращал `null` →
+`CheckDataOutTemplate` → `dataTplValid=false` → `ExportSplit` шёл в ветку «простые
+привязки» и **data-файлы по Typno вообще не создавались** — хотя `SCADA_TYPNO_MAP`
+(5 правил) и `SCADA_DATAOUT_TEMPLATES` (3 шаблона) в перенесённой БД были. Мастер-блоки
+пострадали только по пути `TemplateFilePath` — у мастер-шаблона с **F88** fallback в
+`SCADA_MASTER_TEMPLATES` уже был, у dataout — отсутствовал (асимметрия).
+**Фикс:** `LoadDataOutTemplateText` — файл не найден → `TryLoadDataOutTemplateFromDb()`
+(тело по `Settings.DataOutTemplateName` из `SCADA_DATAOUT_TEMPLATES`, аналог
+`TryLoadMasterTemplateFromDb` F88; source = `БД «X» (файл не найден: …)`); тот же
+fallback в ветке «автопоиск не дал результата». `CheckDataOutTemplate` при source с
+«файл не найден» пишет `Log.Warn` «F107: … подхвачен шаблон привязок из
+SCADA_DATAOUT_TEMPLATES». **Смоук Test 13** (`Test13.DataOutDbFallback.cs`, 7 проверок):
+временная БД → шаблон «TPL_FB_TEST» → VM F13 → режим File + несуществующий путь + имя →
+`CheckDataOutTemplateCommand` → статус «БД «TPL_FB_TEST» (файл не найден…)», валиден
+(эталоны BOOL/INT); регресс — существующий temp-файл читается из файла, fallback не
+применяется. Итог смоука: **152 OK / 0 FAIL**. Версия `AppInfo.Version` → **1.3**.
+**Данные (не код):** в `BD Modbus MCC.accdb` 2 из 5 правил Typno ссылаются на
+отсутствующие в БД шаблоны (`DOR16_BIT → MB_DO_WORD16_HOLDING_RES`,
+`AOR16 → MB_AO_WORD16K_RES`) — при генерации будет ⚠ «не найден в
+SCADA_DATAOUT_TEMPLATES»; шаблоны нужно пересохранить в эту БД.
+
+Версия `AppInfo.Version` → **1.2**.

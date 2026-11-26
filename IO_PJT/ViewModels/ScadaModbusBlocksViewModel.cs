@@ -573,7 +573,11 @@ namespace IO_PJT.ViewModels
         /// <summary>F13.1/F18: прочитать текст шаблона привязок по режиму: Inline — вставленный
         /// код, File — путь настройки (иначе авто-поиск Data_Out_пример.xml рядом с exe или
         /// в Work\). F18: встроенных копий примеров больше нет — без файла/кода шаблон
-        /// не найден.</summary>
+        /// не найден. F107: файл по пути недоступен (перенос БД на другой компьютер —
+        /// в настройках путь старого файла) → fallback на именованный шаблон из БД
+        /// (SCADA_DATAOUT_TEMPLATES по DataOutTemplateName), как это уже сделано для
+        /// мастер-шаблона (F88); иначе dataTpValid=false и экспорт уходит в «простые
+        /// привязки» без data-цепочек по Typno.</summary>
         private (string? Text, string Source) LoadDataOutTemplateText()
         {
             if (Settings.DataOutTemplateMode == MbTemplateMode.Inline)
@@ -585,12 +589,34 @@ namespace IO_PJT.ViewModels
             {
                 if (File.Exists(Settings.DataOutTemplateFilePath))
                     return (File.ReadAllText(Settings.DataOutTemplateFilePath), Settings.DataOutTemplateFilePath);
+                // F107: файл не найден — fallback на именованный шаблон из БД
+                // (задача п.7: шаблоны живут в БД, пути не должны ломать генерацию)
+                var fb = TryLoadDataOutTemplateFromDb();
+                if (fb != null)
+                    return (fb, $"БД «{(Settings.DataOutTemplateName ?? "").Trim()}» " +
+                        $"(файл не найден: {Settings.DataOutTemplateFilePath})");
                 return (null, $"файл по пути не найден: {Settings.DataOutTemplateFilePath}");
             }
             string? path = ScadaDataOutXmlService.ResolveDefaultTemplatePath();
-            return path != null
-                ? (File.ReadAllText(path), path)
-                : (null, "шаблон привязок не найден — укажите файл или вставьте код");
+            if (path != null)
+                return (File.ReadAllText(path), path);
+            // F107: авто-поиск не дал результата — fallback на БД (F81/F16)
+            var fb2 = TryLoadDataOutTemplateFromDb();
+            if (fb2 != null)
+                return (fb2, $"БД «{(Settings.DataOutTemplateName ?? "").Trim()}»");
+            return (null, "шаблон привязок не найден — укажите файл или вставьте код");
+        }
+
+        /// <summary>F107: попытка загрузить тело dataout-шаблона из БД (SCADA_DATAOUT_TEMPLATES)
+        /// по имени Settings.DataOutTemplateName; null — имя не задано, шаблона нет или тело
+        /// пустое (аналог TryLoadMasterTemplateFromDb, F88).</summary>
+        private string? TryLoadDataOutTemplateFromDb()
+        {
+            string name = (Settings.DataOutTemplateName ?? "").Trim();
+            if (name.Length == 0) return null;
+            var tpl = DataOutTemplates.FirstOrDefault(t =>
+                string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
+            return tpl != null && !string.IsNullOrWhiteSpace(tpl.Body) ? tpl.Body : null;
         }
 
         /// <summary>F13.1: загрузить и провалидировать шаблон привязок (кнопка «Проверить»).</summary>
@@ -600,6 +626,10 @@ namespace IO_PJT.ViewModels
             {
                 var (text, source) = LoadDataOutTemplateText();
                 _dataOutTemplateText = text;
+                // F107: явная отметка в журнале, что путь файла недоступен и шаблон
+                // подхвачен из БД (типичный симптом переноса базы на другой компьютер)
+                if (source.Contains("файл не найден", StringComparison.Ordinal))
+                    _s.Log.Warn($"F107: {source} — подхвачен шаблон привязок из SCADA_DATAOUT_TEMPLATES");
                 if (text == null)
                 {
                     _dataOutTemplate = null;
