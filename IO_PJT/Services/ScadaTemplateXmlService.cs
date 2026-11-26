@@ -335,10 +335,13 @@ namespace IO_PJT.Services
         }
 
         /// <summary>F13.1: очистка имени блока — F69: ЛЮБОЙ спецсимвол (всё кроме
-        /// букв/цифр/«_») → «_» и схлопывание серий «__» → «_» (два подчёркивания подряд
+        /// букв/цифр/«_»/«.») → «_» и схлопывание серий «__» → «_» (два подчёркивания подряд
         /// в именах запрещены); «пустые» (порождённые заменой символа на краю) края
         /// срезаются. F62: ведущий/замыкающий «_» ИСХОДНОЙ строки сохраняется — паттерн
         /// «_MB_{M_SlaveStation}_{Typno}» даёт имя «_MB_…», а не «MB_…».
+        /// F106: точка «.» — не аномальный символ: не заменяется на «_» внутри имени,
+        /// но краевые точки (не записанные в исходной строке) срезаются как раньше
+        /// (паттерн «.{Seq}» → «.3» → «3»).
         /// out renamed — true, если строка изменена (для предупреждения «ИМЯ:»).</summary>
         private static string SanitizeNamePart(string s, out bool renamed)
         {
@@ -346,8 +349,11 @@ namespace IO_PJT.Services
             bool keepLead = raw.StartsWith("_", StringComparison.Ordinal);
             bool keepTrail = raw.EndsWith("_", StringComparison.Ordinal);
             string v = SanitizeNameFull(raw, out renamed);
-            if (!keepLead) v = v.TrimStart('_');   // «_» создан заменой краевого пробела/точки
-            if (!keepTrail) v = v.TrimEnd('_');
+            // F106: краевые «_»/«.» срезаются по правилу F62 — ведущий/замыкающий «_»
+            // ИСХОДНОЙ строки сохраняется, а краевые точки (как и раньше, когда они
+            // превращались в «_») в имени не остаются: «.{Seq}» → «.3» → «3»
+            if (!keepLead) v = v.TrimStart('_', '.');
+            if (!keepTrail) v = v.TrimEnd('_', '.');
             if (!string.Equals(v, raw, StringComparison.Ordinal)) renamed = true;
             return v;
         }
@@ -355,11 +361,13 @@ namespace IO_PJT.Services
         private static string SanitizeNamePart(string s) => SanitizeNamePart(s, out _);
 
         /// <summary>F69: полная санитизация строки имени (без краевой логики): все символы,
-        /// кроме букв/цифр/«_», → «_» (серии спецсимволов — одним «_»), затем «__» → «_».</summary>
+        /// кроме букв/цифр/«_»/«.», → «_» (серии спецсимволов — одним «_»), затем «__» → «_».
+        /// F106: точка «.» — нормальный символ (разделитель члена/дробная часть адреса),
+        /// НЕ заменяется на «_» и не считается аномалией (renamed не срабатывает).</summary>
         public static string SanitizeNameFull(string? s, out bool renamed)
         {
             string v = s ?? "";
-            string r = CollapseUnderscores(Regex.Replace(v, @"[^\p{L}\p{Nd}_]+", "_"));
+            string r = CollapseUnderscores(Regex.Replace(v, @"[^\p{L}\p{Nd}_.]+", "_"));
             renamed = !string.Equals(r, v, StringComparison.Ordinal);
             return r;
         }
@@ -370,19 +378,19 @@ namespace IO_PJT.Services
         public static string CollapseUnderscores(string? s) =>
             Regex.Replace(s ?? "", "_{2,}", "_");
 
-        /// <summary>F69: проверка правильности имени: только буквы/цифры/«_» и нет «__»
-        /// подряд; пустое имя — валидно (валидируют вызывающие).</summary>
+        /// <summary>F69/F106: проверка правильности имени: буквы/цифры/«_»/«.» и нет «__»
+        /// подряд; пустое имя — валидно (валидируют вызывающие). Точка «.» допустима (F106).</summary>
         public static bool ValidateName(string? name)
         {
             if (string.IsNullOrEmpty(name)) return true;
             foreach (char ch in name!)
-                if (!char.IsLetterOrDigit(ch) && ch != '_') return false;
+                if (!char.IsLetterOrDigit(ch) && ch != '_' && ch != '.') return false;
             return !name!.Contains("__", StringComparison.Ordinal);
         }
 
         /// <summary>F69: имя объекта логики/шаблона исправляется ТОЛЬКО до первой точки
         /// («.busy», «.Xin», «.DataOut[0]» — член/путь: точка-разделитель допустима и не
-        /// заменяется). true — имя изменено.</summary>
+        /// заменяется; F106 — точка нормальна и вне головы имени). true — имя изменено.</summary>
         public static string SanitizeObjectInfo(string? s, out bool renamed)
         {
             string v = s ?? "";

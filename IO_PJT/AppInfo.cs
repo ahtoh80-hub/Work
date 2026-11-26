@@ -7,7 +7,9 @@
         /// <summary>Current program version. Versioning restarted at 1.0 (previously F-numbering,
         /// last F100); the change log lives in Work/ТЗ.md ("Перечень изменений").
         /// 1.1 = F105 unbound bit object removal (data templates) + F102/F103 master
-        /// object name mapping fixes; smoke suite Test 11.</summary>
-        public const string Version = "1.1";
+        /// object name mapping fixes; smoke suite Test 11.
+        /// 1.2 = F106: dot "." is a normal character in names/marks (never replaced
+        /// with "_") + F13 window overlap fix (master objects group); smoke Test 12.</summary>
+        public const string Version = "1.2";
     }
 }

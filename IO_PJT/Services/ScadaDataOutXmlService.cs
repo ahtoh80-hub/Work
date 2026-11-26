@@ -837,7 +837,8 @@ namespace IO_PJT.Services
 
         /// <summary>F13.1: имя тега-приёмника из IO_LIST: тире/пробелы → «_», ведущий «_»
         /// (правило F12 MakeMarka). F69: ЛЮБОЙ спецсимвол (всё кроме букв/цифр/«_») → «_»,
-        /// серии «__» → «_»; out renamed — true при факте замены (предупреждение «ИМЯ:»).</summary>
+        /// серии «__» → «_»; F106: точка «.» — нормальный символ, сохраняется («TAG.1» →
+        /// «_TAG.1»). out renamed — true при факте замены (предупреждение «ИМЯ:»).</summary>
         public static string TagNameFor(string? tag) => TagNameFor(tag, out _);
 
         public static string TagNameFor(string? tag, out bool renamed)

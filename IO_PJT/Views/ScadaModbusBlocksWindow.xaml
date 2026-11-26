@@ -190,8 +190,11 @@
                                           SelectedValue="{Binding Settings.MasterRtuTemplateName, UpdateSourceTrigger=PropertyChanged}"
                                           Height="24"
                                           ToolTip="F22: мастер-шаблон для пакетов Modbus RTU; пусто — RTU-пакеты пропускаются с предупреждением. Для конкретной станции выберите шаблон в правиле («Шаблон пакетов») — F29" />
+                        </Grid>
 
-                        <!-- F101: перечень объектов мастер-шаблона (окончание имени + привязки) -->
+                        <!-- F101: перечень объектов мастер-шаблона (окончание имени + привязки).
+                             F106: вынесен из Grid выше — раньше лежал в ячейке (0,0) без
+                             Grid.Row и накладывался на строки TCP/RTU-шаблонов. -->
                         <GroupBox Header="Объекты мастер-шаблона" Margin="0,4,0,0">
                             <StackPanel>
                                 <DataGrid ItemsSource="{Binding MasterObjectVarsView}"
@@ -213,7 +216,6 @@
                                 </StackPanel>
                             </StackPanel>
                         </GroupBox>
-                            </Grid>
                         </StackPanel>
                         </GroupBox>
                         <GridSplitter Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
