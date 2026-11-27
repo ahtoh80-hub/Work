@@ -21,7 +21,11 @@
         /// with the full member name imported as "_X.BUSY.Busy"; master and its
         /// .Busy/.Error members now share one card (as in the SCADA template),
         /// F101 "ending" mapping syncs the member T11Text, TCP/RTU merge keeps
-        /// the shared cardId; smoke Tests 8/9/10 extended (F109 invariants).</summary>
-        public const string Version = "1.5";
+        /// the shared cardId; smoke Tests 8/9/10 extended (F109 invariants).
+        /// 1.6 = F110: F105 now deletes unbound BIT objects even when their mapping
+        /// row contains {M_Marka} or a literal; only Address mode keeps them. This
+        /// includes var objects, receivers and write/simple template roots. The
+        /// removal decision is made before card creation; smoke Test 11 extended.</summary>
+        public const string Version = "1.6";
     }
 }

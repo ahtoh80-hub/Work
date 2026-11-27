@@ -1005,6 +1005,22 @@ namespace IO_PJT.Services
                                  !string.IsNullOrWhiteSpace(bm75))
                             bitMarka75 = bm75.Trim();
                     }
+                    // F105: настройка включена, объект битовый, марка не привязалась
+                    // (бит не найден в IO_LIST либо у точки пустая M_Marka). Проверка
+                    // выполняется до маппинга: строка {M_Marka}/литерал сама по себе не
+                    // является привязкой, а карточка удалённого объекта не создаётся.
+                    if (removeUnboundBits && (isVarBlock || isRootVar46 || isSimpleRoot46) &&
+                        (nameIsBit75 || explicitBit80) && want75 is int &&
+                        (bitFalse80 || bitMarka75.Length == 0))
+                    {
+                        if (warnings != null &&
+                            (noMapWarned == null ||
+                             noMapWarned.Add($"F105|{p.MasterName}|{objName}")))
+                            warnings.Add($"F105: {p.MasterName}: объект «{objName}» — марка " +
+                                "не привязана (бит не найден в IO_LIST / M_Marka пуста) — " +
+                                "объект удалён из цепочки");
+                        return false;
+                    }
                     if (hasRowV)
                     {
                         rootVarRow46 = isRootVar46;
@@ -1122,25 +1138,6 @@ namespace IO_PJT.Services
                             outCards.Add(NewCard(bitCard75, bitName75));
                         SetIvValue(clone, litRow75);
                     }
-                    // F105: настройка включена, объект битовый, марка не привязалась
-                    // (бит не найден в IO_LIST либо у точки пустая M_Marka) и у объекта
-                    // нет ЯВНОЙ строки маппинга (колонка/литерал; автозаполненные
-                    // BitMode/BitNo явными не считаются) → объект удаляется из цепочки:
-                    // карточка не создаётся, вызывающий код не добавляет блок/связи/подпись
-                    if (removeUnboundBits && isVarBlock &&
-                        (nameIsBit75 || explicitBit80) && want75 is int &&
-                        !bitApplied75 && (bitFalse80 || bitMarka75.Length == 0) &&
-                        !(hasRowV && ((drow.IoColumn ?? "").Trim().Length > 0 ||
-                                      (drow.Literal ?? "").Trim().Length > 0)))
-                    {
-                        if (warnings != null &&
-                            (noMapWarned == null ||
-                             noMapWarned.Add($"F105|{p.MasterName}|{objName}")))
-                            warnings.Add($"F105: {p.MasterName}: объект «{objName}» — марка " +
-                                "не привязана (бит не найден в IO_LIST / M_Marka пуста) — " +
-                                "объект удалён из цепочки");
-                        return false;
-                    }
                     // F97: бит не привязан (нет точки с M_Bit) — Info/карточка = имя
                     // объекта по умолчанию (FALSE/Literal в имя не подставляются);
                     // Literal «Начальное значение» — только в <IV> (канал значения
@@ -1157,11 +1154,11 @@ namespace IO_PJT.Services
                     }
                 }
             }
-            else if (isVarBlock || isSimpleRoot46)
+            else if (isVarBlock || isSimpleRoot46 || isRootVar46)
             {
-                // F69: таблицы маппинга не передана — подмена токенов/валидация шаблонного
-                // имени var-объекта/простого корня (write-корень без маппинга получает
-                // автотег F30 ниже — его здесь не трогаем)
+                // F69/F110: таблицы маппинга не передана — подмена токенов/валидация
+                // шаблонного имени var-объекта/простого или write-корня; битовый корень
+                // ниже участвует в проверке F105.
                 string objName69 = (blk.Attribute("Info")?.Value ?? "").Trim();
                 if (objName69.Length > 0)
                 {
@@ -1170,9 +1167,9 @@ namespace IO_PJT.Services
                     if (!string.Equals(fixedObj69, objName69, StringComparison.Ordinal))
                         clone.SetAttributeValue("Info", fixedObj69);
                     // F105: строк маппинга нет (dv == null) — явных привязок сохранить
-                    // нельзя; битовый объект с непривязанной маркой удаляется при
-                    // включённой настройке (только var-объект, корень цепочки не трогаем)
-                    if (removeUnboundBits && isVarBlock)
+                    // нельзя; битовый объект/корень с непривязанной маркой удаляется при
+                    // включённой настройке
+                    if (removeUnboundBits && (isVarBlock || isRootVar46 || isSimpleRoot46))
                     {
                         var bitM69 = Regex.Match(objName69, @"^Bit(\d{1,2})$",
                             RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
@@ -1319,12 +1316,11 @@ namespace IO_PJT.Services
                     else if (bitColsT75.TryGetValue("M_Marka", out var bmT75) && !string.IsNullOrWhiteSpace(bmT75))
                         bitMarkaT75 = bmT75.Trim();
                 }
-                // F105: приёмник-бит с непривязанной маркой и без ЯВНОЙ строки маппинга
-                // (колонка/литерал) удаляется из цепочки (карточка ниже не создаётся)
+                // F105: приёмник-бит с непривязанной маркой удаляется из цепочки
+                // (карточка ниже не создаётся). Строка маппинга {M_Marka}/литерал
+                // сама по себе не подтверждает привязку нужного бита.
                 if (removeUnboundBits && (nameIsBitT75 || explicitBitT80) &&
-                    wantT75 is int && (bitFalseT80 || bitMarkaT75.Length == 0) &&
-                    !(hasRowT && ((drowT.IoColumn ?? "").Trim().Length > 0 ||
-                                  (drowT.Literal ?? "").Trim().Length > 0)))
+                    wantT75 is int && (bitFalseT80 || bitMarkaT75.Length == 0))
                 {
                     if (warnings != null &&
                         (noMapWarned == null ||
