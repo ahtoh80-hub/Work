@@ -1,7 +1,16 @@
 # Основные команды Git для проекта TemplateGenerator
 
 git add . && git commit -m "New version IO PJT" && git push
+
+
+dotnet clean
 dotnet build --no-incremental
+
+dotnet build --no-incremental
+
+
+git fetch origin
+git reset --hard origin/main
 
 
 ## 1. Инициализация репозитория

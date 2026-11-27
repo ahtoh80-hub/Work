@@ -15,7 +15,13 @@
         /// smoke Test 13.
         /// 1.4 = F108: templates live only in the DB/editor — file mode and all
         /// external path settings removed from F13 (no file paths in the DB);
-        /// smoke Test 13 (templates from DB).</summary>
-        public const string Version = "1.4";
+        /// smoke Test 13 (templates from DB).
+        /// 1.5 = F109: master object card carries the base name only (no member):
+        /// SCADA composes the tag as UPPER(card.Info) + T11Text, so a card named
+        /// with the full member name imported as "_X.BUSY.Busy"; master and its
+        /// .Busy/.Error members now share one card (as in the SCADA template),
+        /// F101 "ending" mapping syncs the member T11Text, TCP/RTU merge keeps
+        /// the shared cardId; smoke Tests 8/9/10 extended (F109 invariants).</summary>
+        public const string Version = "1.5";
     }
 }

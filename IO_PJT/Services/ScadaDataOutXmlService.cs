@@ -1404,8 +1404,9 @@ namespace IO_PJT.Services
                 if (seenCards.Add(newCard))
                     // F36: карточка называется по ИМЕНИ приёмника: колонка/шаблон — новое имя
                     // (TagNameFor), литерал/отсутствие маппинга — имя шаблона (F69: после
-                    // подмены токенов/автозамены)
-                    outCards.Add(NewCard(newCard, cardTarget));
+                    // подмены токенов/автозамены); F109: rec несёт базу имени БЕЗ члена
+                    // T11Text — SCADA формирует тег UPPER(card.Info)+T11Text
+                    outCards.Add(NewCard(newCard, ScadaTemplateXmlService.CardBaseName(cardTarget, suffix)));
             }
             return true; // F105: блок остаётся в цепочки (удаление — только return false выше)
         }

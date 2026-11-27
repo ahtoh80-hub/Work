@@ -107,6 +107,39 @@ namespace IO_PJT.Smoke
             Log($"С маппингом: есть .ResBusy: {hasCustomResBusy}");
             
             Check(hasCustomBusy, "Окончание из маппинга применено (основной мастер)");
+
+            // F109: rec карточки = база имени без окончания, члены делят карточку мастера
+            CheckCardMembers(result1.PousXml, "F109 реальный шаблон, без маппинга");
+            CheckCardMembers(result2.PousXml, "F109 реальный шаблон, с маппингом");
+            foreach (var m in new[] { "_MB_X_MAIN", "_MB_X_RESERVE" })
+                CheckSharedCards(result1.PousXml, m, "F109 реальный шаблон, без маппинга");
+
+            // F109: склейка TCP/RTU (MergeSplitResults) — мастер и члены второй
+            // группы делят cardId и после склейки, rec не дублируются
+            var reserveRtu = new MbPacketPlan
+            {
+                No = 5, MasterName = "_MB_X_RESERVE_RTU", IsReserve = true, Protocol = "RTU",
+                Ip1 = 192, Ip2 = 168, Ip3 = 4, Ip4 = 12, Port = 502,
+                SlaveId = 9, FuncCode = 3, Address = 10, Count = 5, TimeoutMs = 150
+            };
+            var mainRtu = new MbPacketPlan
+            {
+                No = 4, MasterName = "_MB_X_RTU", Protocol = "RTU",
+                Ip1 = 192, Ip2 = 168, Ip3 = 4, Ip4 = 13, Port = 502,
+                SlaveId = 10, FuncCode = 3, Address = 10, Count = 5, TimeoutMs = 150,
+                ReserveTwin = reserveRtu
+            };
+            var allPackets = new List<MbPacketPlan>(packets) { mainRtu, reserveRtu };
+            string rtuTpl = tpl.Replace("<BufScadaPOUS>", "<BufScadaPOUS><!-- RTU -->"); // отличное тело → вторая группа
+            var merged = svc.WriteProtocolSplit(allPackets, tpl, rtuTpl, settings);
+            CheckCardMembers(merged.PousXml, "F109 склейка TCP/RTU");
+            CheckSharedCards(merged.PousXml, "_MB_X_MAIN", "F109 склейка TCP/RTU");
+            CheckSharedCards(merged.PousXml, "_MB_X_RTU", "F109 склейка TCP/RTU");
+            var mergedCards = XDocument.Parse(merged.PousXml).Root!
+                .Descendants("ISACARDSINFO").Elements("rec")
+                .Select(r => (string?)r.Attribute("ID")).ToList();
+            Check(mergedCards.Distinct().Count() == mergedCards.Count,
+                "F109 склейка TCP/RTU: ID карточек уникальны");
         }
     }
 }

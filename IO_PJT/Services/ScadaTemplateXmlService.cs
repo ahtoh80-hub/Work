@@ -860,6 +860,9 @@ namespace IO_PJT.Services
             var outLinks = new List<XElement>();
             var outPrims = new List<XElement>();
             var outCards = new List<XElement>();   // новые rec ISACARDSINFO (клоны)
+            // F109: база имени → cardId: мастер и его члены (.Busy/.Error) делят одну
+            // карточку (как в шаблоне SCADA); rec Info — база без окончания
+            var cardByBase = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             var masterMeta = new Dictionary<string, (int CardId, string Iv)>(StringComparer.OrdinalIgnoreCase);
             var tplPrims = onePou.Element("GrObj")?.Elements("OnePrim").ToList() ?? new List<XElement>();
 
@@ -1059,7 +1062,6 @@ namespace IO_PJT.Services
                                     "(проверьте M_SlaveIdBackup/токен reserve)");
                         }
                         else name = ShiftInstanceName(b.Info, k);
-                        int newCard = b.CardId > 0 ? NextCardId(ref nextCard) : 0;
 
                         var clone = new XElement(b.El);
                         // F52: объекты основного шаблона (блоки 31/34 юнита, кроме мастера) —
@@ -1127,20 +1129,28 @@ namespace IO_PJT.Services
                         var pr = clone.Element("Params");
                         if (pr != null && b.CardId > 0)
                         {
-                            pr.SetAttributeValue("cardId", newCard);
-                            if (newCard != b.CardId) // карточка клона — новая, Info = новое имя
+                            // F109: карточка — по базе имени (мастер и члены .Busy/.Error
+                            // делят одну карточку, как в шаблоне SCADA); rec Info — база
+                            // без окончания: SCADA формирует тег UPPER(card.Info)+T11Text,
+                            // иначе импорт даёт удвоение окончания (_X.BUSY.Busy)
+                            string t11Text = (string?)pr.Attribute("T11Text") ?? "";
+                            string cardBase = CardBaseName(name, t11Text);
+                            if (!cardByBase.TryGetValue(cardBase, out int newCard))
                             {
+                                newCard = NextCardId(ref nextCard);
+                                cardByBase[cardBase] = newCard;
                                 var tplRec = root.Element("ISACARDSINFO")?.Elements("rec")
                                     .FirstOrDefault(r => ((string?)r.Attribute("ID")) == b.CardId.ToString());
                                 var rec = tplRec != null ? new XElement(tplRec) : new XElement("rec");
                                 rec.SetAttributeValue("ID", newCard);
-                                rec.SetAttributeValue("Info", name);
+                                rec.SetAttributeValue("Info", cardBase);
                                 if (rec.Attribute("IsRetain") == null) rec.SetAttributeValue("IsRetain", "1");
                                 if (rec.Attribute("Name") == null) rec.SetAttributeValue("Name", "");
                                 if (rec.Attribute("SSize") == null) rec.SetAttributeValue("SSize", "0");
                                 if (rec.Attribute("KLPath") == null) rec.SetAttributeValue("KLPath", "");
                                 outCards.Add(rec);
                             }
+                            pr.SetAttributeValue("cardId", newCard);
                         }
                         cloneByT11[newT11] = clone;
                         outBlocks.Add(clone);
@@ -1349,7 +1359,9 @@ namespace IO_PJT.Services
             {
                 var bp = b.Element("Params");
                 if (bp != null && int.TryParse((string?)bp.Attribute("cardId"), out int cid) && cid > 0)
-                    cardNames[cid] = (string?)b.Attribute("Info") ?? "";
+                    // F109: rec шаблона получает базу имени (без члена T11Text)
+                    cardNames[cid] = CardBaseName((string?)b.Attribute("Info") ?? "",
+                        (string?)bp.Attribute("T11Text") ?? "");
             }
             var cardsEl = new XElement("ISACARDSINFO");
             foreach (var rec in root.Element("ISACARDSINFO")?.Elements("rec") ?? Enumerable.Empty<XElement>())
@@ -1792,7 +1804,21 @@ namespace IO_PJT.Services
                         objName.IndexOf(reserveToken, StringComparison.OrdinalIgnoreCase) >= 0;
                     string baseName = (resObj ? reserveName : p.MasterName) ?? "";
                     if (baseName.Length > 0)
-                        name101 = baseName + suff;
+                    {
+                        // F109: члену (T11Text вида «.Busy») — окончание меняется и в
+                        // T11Text: SCADA формирует тег UPPER(card.Info)+T11Text, иначе
+                        // после «Окончания» импорт даёт удвоение (_X.MYBUSY.Busy)
+                        var t11a = clone.Element("Params")?.Attribute("T11Text");
+                        if (t11a != null && t11a.Value.StartsWith(".", StringComparison.Ordinal))
+                        {
+                            string ending = suff.StartsWith(".", StringComparison.Ordinal)
+                                ? suff : "." + suff;
+                            t11a.Value = ending;
+                            name101 = baseName + ending;
+                        }
+                        else
+                            name101 = baseName + suff;
+                    }
                     else if (warned.Add("f101res|" + objName))
                         warnings.Add($"ИМЯ: объект «{objName}» (пакет {p.MasterName}) — резервный " +
                             "токен не заменён: у пакета нет reserve-блока " +
@@ -1981,30 +2007,43 @@ namespace IO_PJT.Services
                 b.SetAttributeValue("Info", uniq);
             }
 
-            // —— cardId: конфликт → новый (rec из шаблона второго копируется с новым ID) ——
+            // —— cardId: конфликт → новый (rec из шаблона второго копируется с новым ID);
+            // F109: блоки, делившие cardId во втором документе (мастер + члены
+            // .Busy/.Error), получают ОДИН новый id через словарь — иначе склейка
+            // разрывает общую карточку и копирует rec повторно ——
             var cards1 = root1.Element("ISACARDSINFO");
             var cards2 = root2.Element("ISACARDSINFO");
+            var cardRemap2 = new Dictionary<int, int>();
             foreach (var b in root2.Descendants("Block"))
             {
                 var bp = b.Element("Params");
                 if (bp == null || !int.TryParse((string?)bp.Attribute("cardId"), out int cid) || cid <= 0)
                     continue;
-                int id = cid;
-                if (usedCard.Contains(cid))
+                if (!cardRemap2.TryGetValue(cid, out int id))
                 {
-                    id = nextCard;
-                    nextCard += 10;
-                    bp.SetAttributeValue("cardId", id);
+                    id = cid;
+                    if (usedCard.Contains(cid))
+                    {
+                        id = nextCard;
+                        nextCard += 10;
+                    }
+                    cardRemap2[cid] = id;
+                    usedCard.Add(id);
+                    if (cards1 != null && cards2 != null &&
+                        !cards1.Elements("rec").Any(r => ((string?)r.Attribute("ID")) == id.ToString()))
+                    {
+                        var rec = cards2.Elements("rec")
+                            .FirstOrDefault(r => ((string?)r.Attribute("ID")) == cid.ToString());
+                        if (rec != null)
+                        {
+                            var rc = new XElement(rec);
+                            rc.SetAttributeValue("ID", id);
+                            cards1.Add(rc);
+                        }
+                    }
                 }
-                usedCard.Add(id);
-                if (cards1 == null || cards2 == null) continue;
-                if (cards1.Elements("rec").Any(r => ((string?)r.Attribute("ID")) == id.ToString())) continue;
-                var rec = cards2.Elements("rec")
-                    .FirstOrDefault(r => ((string?)r.Attribute("ID")) == cid.ToString());
-                if (rec == null) continue;
-                var rc = new XElement(rec);
-                rc.SetAttributeValue("ID", id);
-                cards1.Add(rc);
+                if (id != cid)
+                    bp.SetAttributeValue("cardId", id);
             }
 
             MergeSplitTail(root1, root2, g1, g2, out string pousXml, out string bindingsXml);
@@ -2188,6 +2227,21 @@ namespace IO_PJT.Services
             int id = next;
             next += 10;
             return id;
+        }
+
+        /// <summary>F109: база имени блока — Info без члена T11Text («.Busy»).
+        /// SCADA формирует тег UPPER(card.Info) + T11Text, поэтому rec карточки
+        /// должен нести только базу, иначе окончание удваивается
+        /// (_MB_..._MAIN_3.BUSY.Busy). Членом считается суффикс, начинающийся
+        /// с «.»; без него (константы, _LINK, пустой T11Text) — имя без изменений.</summary>
+        public static string CardBaseName(string name, string t11Text)
+        {
+            if (string.IsNullOrEmpty(name)) return name;
+            if (string.IsNullOrEmpty(t11Text) || t11Text[0] != '.') return name;
+            if (name.Length > t11Text.Length &&
+                name.EndsWith(t11Text, StringComparison.OrdinalIgnoreCase))
+                return name.Substring(0, name.Length - t11Text.Length);
+            return name;
         }
 
         /// <summary>F13: имя инстанса клона (TON_8 + k=2 → TON_9; нет цифр — «_k»).</summary>

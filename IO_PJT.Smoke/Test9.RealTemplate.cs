@@ -12,7 +12,10 @@ namespace IO_PJT.Smoke
         // ============ 9. Реальный мастер-шаблон: перечень объектов и окончание ============
         private static void TestRealTemplate()
         {
+            // F109: путь авторского стенда; фолбэк — шаблон в репозитории (запуск из корня)
             string path = @"c:\Users\RAN-Notebook\Desktop\Work\Work\_Шаблоны\ModbusTCP_reserv_v0.xml";
+            if (!System.IO.File.Exists(path))
+                path = @"Work\_Шаблоны\ModbusTCP_reserv_v0.xml";
             if (!System.IO.File.Exists(path))
             {
                 Check(false, "эталонный мастер-шаблон ModbusTCP_reserv_v0.xml найден");
@@ -43,6 +46,10 @@ namespace IO_PJT.Smoke
                 "токены имени мастера подменены во всём результате");
             Check(!plain.Contains("NAME_PACK_TCP_RESERVE.BUSY") && !plain.Contains("NAME_PACK_TCP_MAINE.BUSY"),
                 "после подмены не осталось литералов токена с BUSY");
+            // F109: rec = база имени без окончания, члены делят карточку мастера
+            CheckCardMembers(plain, "F109 реальный шаблон, без маппинга");
+            foreach (var m in new[] { "_MB_X_MAIN", "_MB_X_RESERVE" })
+                CheckSharedCards(plain, m, "F109 реальный шаблон, без маппинга");
 
             // маппинг: окончание задано пользователем
             if (reserve != null)
@@ -54,6 +61,9 @@ namespace IO_PJT.Smoke
                 string mapped = svc.Write(packets, tpl, new ScadaMbGenSettings(), masterObjVars: map).PousXml;
                 Check(mapped.Contains("Info=\"_MB_X_RESERVE.Busy\""),
                     "окончание из маппинга: резервный объект → _MB_X_RESERVE.Busy");
+                // F109: и с маппингом окончания — rec = база, члены делят карточку
+                CheckCardMembers(mapped, "F109 реальный шаблон, с маппингом");
+                CheckSharedCards(mapped, "_MB_X_RESERVE", "F109 реальный шаблон, с маппингом");
             }
         }
     }
