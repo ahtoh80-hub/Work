@@ -138,10 +138,22 @@ namespace IO_PJT.Models
         public string? MapFile { get; set; }
         /// <summary>Slave-станция (Slave Station, напр. IMCS EBSM102).</summary>
         public string? SlaveStation { get; set; }
-        /// <summary>Slave ID основной (IP main: адрес/маска/порт).</summary>
+        /// <summary>Slave ID основной (IP main: адрес/маска/порт) — легаси, сохраняется для совместимости.</summary>
         public string? SlaveIdMain { get; set; }
-        /// <summary>Slave ID резервный (IP backup).</summary>
+        /// <summary>Slave ID резервный (IP backup) — легаси, сохраняется для совместимости.</summary>
         public string? SlaveIdBackup { get; set; }
+        /// <summary>M_IP_Main — основной IP-адрес станции (только IPv4).</summary>
+        public string? IpMain { get; set; }
+        /// <summary>M_IP_Reserve — резервный IP-адрес станции (только IPv4).</summary>
+        public string? IpReserve { get; set; }
+        /// <summary>M_IP_Mask_Main — маска основного подключения.</summary>
+        public string? IpMaskMain { get; set; }
+        /// <summary>M_IP_Mask_Reserve — маска резервного подключения.</summary>
+        public string? IpMaskReserve { get; set; }
+        /// <summary>M_IP_Port_Main — порт основного подключения (текст).</summary>
+        public string? IpPortMain { get; set; }
+        /// <summary>M_IP_Port_Reserve — порт резервного подключения (текст).</summary>
+        public string? IpPortReserve { get; set; }
         /// <summary>Скорость обмена (speed; для TCP — 100Mbps).</summary>
         public string? Speed { get; set; }
         /// <summary>Таймаут ответа устройства (timeout, мс).</summary>

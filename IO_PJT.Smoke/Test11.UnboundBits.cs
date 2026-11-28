@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Xml.Linq;
@@ -177,6 +177,41 @@ namespace IO_PJT.Smoke
             XDocument.Parse(xml).Descendants("rec").Any(e =>
                 string.Equals((string?)e.Attribute("Info"), info, StringComparison.Ordinal));
 
+        /// <summary>F112: simple logic template without DataOut/DataIn blocks.</summary>
+        private static string SimpleLogicTemplateXml() => (
+            "<?xml version='1.0' encoding='UTF-8'?><BufScadaPOUS><Common/>" +
+            "<POUS><OnePOU ID='9301' NAME='LOGIC' Disc='LOGIC'><PARAMS WIDTH='400' HEIGHT='200'/>" +
+            "<ISAGraf><Blocks>" +
+            "<Block T11ID='93001' GROBJTYPE='31' Info='SRC_TAG'>" +
+            "<Graphics X='40' Y='40' WIDTH='160' HEIGHT='20'/>" +
+            "<Params T11Text='' CI='1' CO='1' cardId='93011'><IV/></Params></Block>" +
+            "<Block T11ID='93002' GROBJTYPE='31' Info='DST_TAG'>" +
+            "<Graphics X='300' Y='40' WIDTH='160' HEIGHT='20'/>" +
+            "<Params T11Text='' CI='1' CO='1' cardId='93012'><IV/></Params></Block>" +
+            "</Blocks><Links><Link Negative='false' asPointer='false' UserEdit='false' Color='0' GetBitNum='-1' ConvertTo='0'>" +
+            "<PointList PL='(200,50);(300,50);'/><FirstPoint FP='93001|False|0|0,0,100,20'/>" +
+            "<LastPoint LP='93002|True||0,0,100,20'/></Link></Links></ISAGraf></OnePOU>" +
+            "</POUS><ISAOBJSINFO/><ISACARDSINFO/></BufScadaPOUS>").Replace('\'', '"');
+
+        /// <summary>F112: one binding for a simple logic chain.</summary>
+        private static List<MbPacketPlan> SimpleLogicPackets()
+        {
+            var p = new MbPacketPlan
+            {
+                No = 1, MasterName = "_MB_LOGIC",
+                Ip1 = 192, Ip2 = 168, Ip3 = 4, Ip4 = 20, Port = 502,
+                SlaveId = 5, FuncCode = 3, Address = 0, Count = 1, TimeoutMs = 200
+            };
+            p.Bindings.Add(new MbBinding
+            {
+                Tag = "1130-MXA-B01", Address = 0, Offset = 0, BlockName = "_MB_LOGIC",
+                DataType = "BOOL", Typno = "ANY_T",
+                ColumnValues = new Dictionary<string, string> { ["M_Marka"] = "SIMPLE_SRC" }
+            });
+            return new List<MbPacketPlan> { p };
+        }
+
+
         private static void Test11_UnboundBits()
         {
             string tpl = BitDataTemplateXml();
@@ -188,6 +223,63 @@ namespace IO_PJT.Smoke
 
             var packets = BitPackets();
             var masterMeta = new Dictionary<string, (int CardId, string Iv)>();
+            var simpleTpl = SimpleLogicTemplateXml();
+            var simpleInfo = svc.Parse(simpleTpl);
+            Check(simpleInfo.Valid && ScadaDataOutXmlService.IsSimpleTemplate(simpleInfo),
+                "F112: template without DataOut/DataIn is simple logic");
+            var simpleNamed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["LOGIC"] = simpleTpl
+            };
+            var simpleVars = new Dictionary<string, IReadOnlyDictionary<string,
+                (string IoColumn, string Literal, string BitMode, string BitNo)>>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                ["LOGIC"] = new Dictionary<string, (string, string, string, string)>(
+                    StringComparer.OrdinalIgnoreCase)
+                {
+                    ["SRC_TAG"] = ("{M_Marka}", "", "", ""),
+                    ["DST_TAG"] = ("", "1", "", "")
+                }
+            };
+            var wSimple = new List<string>();
+            string xSimple = svc.WriteMulti(SimpleLogicPackets(), tpl, masterMeta, new ScadaMbGenSettings(), wSimple,
+                typnoMap: null, namedTemplates: simpleNamed, dataVars: simpleVars,
+                dataVarsTemplateKey: "LOGIC");
+            Check(xSimple.Contains("Info=\"_SIMPLE_SRC\""),
+                "F112: simple logic chain maps source object by data mapping");
+            Check(xSimple.Contains("Info=\"DST_TAG\"") && xSimple.Contains(">1<"),
+                "F112: simple logic target keeps name and gets mapped initial value");
+            Check(xSimple.Contains("Info=\"TAG_IN\""),
+                "F112: normal Modbus data chain remains alongside logic chain");
+            Check(!wSimple.Any(w => w.StartsWith("F33")),
+                "F112: simple logic does not produce F33");
+            var typnoOther = new Dictionary<string, List<(string Template, string Exemplar, string Size)>>
+            {
+                ["OTHER"] = new List<(string, string, string)> { ("BIT_T", "", "") }
+            };
+            var wOther = new List<string>();
+            string xOther = svc.WriteMulti(SimpleLogicPackets(), tpl, masterMeta,
+                new ScadaMbGenSettings(), wOther, typnoMap: typnoOther,
+                namedTemplates: simpleNamed, dataVars: simpleVars, dataVarsTemplateKey: "LOGIC");
+            Check(xOther.Contains("_SIMPLE_SRC") && !wOther.Any(w => w.StartsWith("F33")),
+                "F112: unmapped Typno still gets simple logic without F33");
+            var typnoExplicit = new Dictionary<string, List<(string Template, string Exemplar, string Size)>>
+            {
+                ["ANY_T"] = new List<(string, string, string)> { ("LOGIC", "", "logic") }
+            };
+            var wExplicit = new List<string>();
+            string xExplicit = svc.WriteMulti(SimpleLogicPackets(), tpl, masterMeta,
+                new ScadaMbGenSettings(), wExplicit, typnoMap: typnoExplicit,
+                namedTemplates: simpleNamed, dataVars: simpleVars, dataVarsTemplateKey: "LOGIC");
+            Check(xExplicit.Contains("_SIMPLE_SRC"),
+                "F112: explicitly mapped simple logic is generated without duplicates");
+            var split = ModbusBlockPlannerService.ParseIpParts("192.168.4.10(Default)\n255.255.255.0\nport 502");
+            Check(split.Ip == "192.168.4.10" && split.Mask == "255.255.255.0" && split.Port == "502",
+                "F111: legacy endpoint splits into IP/mask/port");
+            var endpoint = ModbusBlockPlannerService.ParseEndpoint("192.168.4.10", "502", 502);
+            Check(endpoint != null && endpoint.Value.Ip1 == 192 && endpoint.Value.Port == 502,
+                "F111: clean IP/port parses to endpoint");
 
             // ---- 1. Настройка выкл (default): непривязанные объекты остаются ----
             var sOff = new ScadaMbGenSettings();
@@ -349,6 +441,28 @@ namespace IO_PJT.Smoke
                 planner.SaveSettings(sOff);
                 Check(!planner.LoadSettings().RemoveUnboundBitObjects,
                     "roundtrip: Save/Load сохраняет false");
+                planner.SaveSlaveRules(new[]
+                {
+                    new MbSlaveIdRule
+                    {
+                        Station = "ST_NEW", SlaveId = 7,
+                        IpMain = "10.1.2.3", IpReserve = "10.1.2.4",
+                        IpMaskMain = "255.255.255.0", IpMaskReserve = "255.255.0.0",
+                        IpPortMain = "502", IpPortReserve = "503"
+                    },
+                    new MbSlaveIdRule
+                    {
+                        Station = "ST_LEGACY", SlaveId = 8,
+                        LegacyIpMain = "192.168.1.10(Default)\n255.255.255.0\nport 1502"
+                    }
+                });
+                var rules = planner.LoadSlaveRules();
+                var added = rules.FirstOrDefault(r => r.Station == "ST_NEW");
+                var legacy = rules.FirstOrDefault(r => r.Station == "ST_LEGACY");
+                Check(added != null && added.IpMain == "10.1.2.3" && added.IpMaskReserve == "255.255.0.0" && added.IpPortReserve == "503",
+                    "F111: Save/Load new IP/mask/port columns");
+                Check(legacy != null && legacy.IpMain == "192.168.1.10" && legacy.IpMaskMain == "255.255.255.0" && legacy.IpPortMain == "1502",
+                    "F111: legacy endpoint is parsed when new columns are empty");
             }
             finally { DeleteDb(db); }
         }

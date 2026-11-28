@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
 namespace IO_PJT.Data
 {
@@ -69,6 +69,12 @@ namespace IO_PJT.Data
             ["M_SlaveStation"] = "F9: Slave-станция Modbus (Interface parameters, напр. IMCS EBSM102)",
             ["M_SlaveIdMain"] = "F9: Slave ID основной (IP main: адрес/маска/порт)",
             ["M_SlaveIdBackup"] = "F9: Slave ID резервный (IP backup)",
+            ["M_IP_Main"] = "F9: основной IP-адрес станции (IPv4)",
+            ["M_IP_Reserve"] = "F9: резервный IP-адрес станции (IPv4)",
+            ["M_IP_Mask_Main"] = "F9: маска основного подключения",
+            ["M_IP_Mask_Reserve"] = "F9: маска резервного подключения",
+            ["M_IP_Port_Main"] = "F9: порт основного подключения",
+            ["M_IP_Port_Reserve"] = "F9: порт резервного подключения",
             ["M_Speed"] = "F9: скорость обмена интерфейса (speed; для TCP — 100Mbps)",
             ["M_Timeout"] = "F9: таймаут ответа устройства (timeout, мс)",
             ["M_PrfDesignation"] = "F9: Project Functional Designation — функциональное обозначение объекта ПЛК",

@@ -402,6 +402,95 @@ namespace IO_PJT.Services
             return result;
         }
 
+        /// <summary>F113: «Заполнить M_bit из M_Address» — разобрать совмещённые адреса
+        /// «регистр+бит» (например 32.1, 32,1, 32_1) и записать M_Address=32, M_Bit=1.
+        /// points == null — все строки IO_LIST; иначе только переданные (выбранные) точки.
+        /// Обычные адреса без разделителя и некорректные строки не изменяются.</summary>
+        public ModbusBitFillResult FillBitsFromCombinedAddress(IEnumerable<IoPoint>? points = null)
+        {
+            var result = new ModbusBitFillResult();
+            List<IoPoint> work = points?.ToList() ?? _repo.GetAll();
+            if (work.Count == 0)
+            {
+                _log.Warn("F113: нет точек для заполнения M_Bit из M_Address");
+                return result;
+            }
+
+            _repo.BeginSession();
+            try
+            {
+                var seen = new HashSet<long>();
+                foreach (var p in work)
+                {
+                    result.Examined++;
+                    if (p.Id <= 0 || !seen.Add(p.Id))
+                    {
+                        result.Skipped++;
+                        continue;
+                    }
+
+                    string raw = (p.Modbus?.Address ?? "").Trim();
+                    if (raw.Length == 0)
+                    {
+                        result.Skipped++;
+                        continue;
+                    }
+
+                    // Обычный адрес «32» — не совмещённый: не ошибка и не изменение.
+                    if (!ModbusAddressParser.HasSeparator(raw))
+                    {
+                        result.Skipped++;
+                        continue;
+                    }
+
+                    if (!ModbusAddressParser.TryParse(raw, p.Modbus?.BitOffset,
+                            out string address, out string bit, out string? error))
+                    {
+                        result.Invalid++;
+                        string msg = $"{p.Tag ?? ("ID=" + p.Id)}: M_Address «{raw}» — {error}";
+                        result.Errors.Add(msg);
+                        if (result.Samples.Count < 10) result.Samples.Add(msg);
+                        continue;
+                    }
+
+                    p.Modbus ??= new Modbus();
+                    string oldAddress = p.Modbus.Address ?? "";
+                    string oldBit = p.Modbus.Bit ?? "";
+                    if (string.Equals(oldAddress, address, StringComparison.Ordinal) &&
+                        string.Equals(oldBit, bit, StringComparison.Ordinal))
+                    {
+                        result.Unchanged++;
+                        continue;
+                    }
+
+                    p.Modbus.Address = address;
+                    p.Modbus.Bit = bit;
+                    int changed = _repo.Update(p);
+                    if (changed > 0)
+                    {
+                        result.Updated++;
+                        result.ChangedFields += changed;
+                    }
+                    else
+                    {
+                        result.Unchanged++;
+                    }
+                }
+                _repo.EndSession();
+            }
+            catch (Exception ex)
+            {
+                _repo.AbortSession();
+                _log.Error($"F113: ошибка заполнения M_Bit из M_Address: {ex.Message}");
+                throw;
+            }
+
+            _log.Info(result.Summary);
+            foreach (var sample in result.Samples.Take(10))
+                _log.Warn("F113: " + sample);
+            return result;
+        }
+
         // ================== Кандидаты-объекты ПЛК ==================
 
         /// <summary>Кандидат объекта ПЛК: тег + приоритет (0 — тег точки в виде полного имени

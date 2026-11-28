@@ -52,6 +52,18 @@ namespace IO_PJT.ViewModels
         private IoPoint? _selectedPoint;
         public IoPoint? SelectedPoint { get => _selectedPoint; set => Set(ref _selectedPoint, value, nameof(SelectedPoint)); }
 
+        private IReadOnlyList<IoPoint> _selectedPoints = Array.Empty<IoPoint>();
+        /// <summary>F113: выбранные строки главного грида (множественный выбор) — для
+        /// кнопки «Заполнить M_bit из M_Address»; обновляется из code-behind.</summary>
+        public IReadOnlyList<IoPoint> SelectedPoints => _selectedPoints;
+
+        /// <summary>F113: передать выбранные строки из DataGrid (SelectedItems не bindable).</summary>
+        public void SetSelectedPoints(IEnumerable<IoPoint> points)
+        {
+            _selectedPoints = points.ToList();
+            System.Windows.Input.CommandManager.InvalidateRequerySuggested();
+        }
+
         public ObservableCollection<LogEntry> LogEntries { get; } = new();
 
         /// <summary>Очередь журнала: события из фонового потока, UI забирает пачкой по таймеру (F2.9).</summary>
@@ -66,6 +78,8 @@ namespace IO_PJT.ViewModels
         public RelayCommand NewPointCommand { get; }
         public RelayCommand EditPointCommand { get; }
         public RelayCommand DeletePointCommand { get; }
+        /// <summary>F113: заполнить M_Bit из совмещённого M_Address для выбранных строк.</summary>
+        public RelayCommand FillBitsFromAddressCommand { get; }
         public RelayCommand BackupCommand { get; }
         public RelayCommand ClearTableCommand { get; }
         public RelayCommand ExportExcelCommand { get; }
@@ -139,6 +153,8 @@ namespace IO_PJT.ViewModels
                 () => { if (SelectedPoint != null) OpenCardWindow?.Invoke(SelectedPoint, true); },
                 () => SelectedPoint != null);
             DeletePointCommand = new RelayCommand(DeleteSelected, () => SelectedPoint != null);
+            FillBitsFromAddressCommand = new RelayCommand(FillBitsFromAddress,
+                () => SelectedPoints.Count > 0);
             BackupCommand = new RelayCommand(BackupTable, () => _services.Creator.TableExists(_services.CurrentTable));
             ClearTableCommand = new RelayCommand(ClearTable, () => _services.Creator.TableExists(_services.CurrentTable));
             ExportExcelCommand = new RelayCommand(ExportExcel, () => Points.Count > 0);
@@ -276,6 +292,30 @@ namespace IO_PJT.ViewModels
 
         /// <summary>Пересоздать список таблиц (после «Создать таблицу»).</summary>
         public void ReloadTables() => LoadTables();
+
+        /// <summary>F113: заполнить M_Bit из M_Address только для выбранных строк грида.</summary>
+        private void FillBitsFromAddress()
+        {
+            if (SelectedPoints.Count == 0)
+            {
+                InfoText = "F113: выберите строки в таблице для заполнения M_Bit из M_Address.";
+                return;
+            }
+            try
+            {
+                var r = _services.ModbusLink.FillBitsFromCombinedAddress(SelectedPoints);
+                _services.Log.Info(r.Summary);
+                InfoText = r.Summary;
+                if (r.Errors.Count > 0)
+                    _services.Log.Warn("F113: " + string.Join("; ", r.Samples.Take(10)));
+                Refresh();
+            }
+            catch (Exception ex)
+            {
+                _services.Log.Error($"F113: ошибка заполнения M_Bit из M_Address: {ex.Message}");
+                InfoText = "F113: ошибка — " + ex.Message;
+            }
+        }
 
         private void DeleteSelected()
         {

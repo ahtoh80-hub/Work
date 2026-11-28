@@ -435,6 +435,14 @@ namespace IO_PJT.Models
         /// <summary>Резервный адрес (M_SlaveIdBackup) — авто.</summary>
         public string IpReserve { get; set; } = "";
 
+        // F111: split IP fields (M_IP_*), old combined columns stay legacy
+        public string IpMaskMain { get; set; } = "";
+        public string IpMaskReserve { get; set; } = "";
+        public string IpPortMain { get; set; } = "";
+        public string IpPortReserve { get; set; } = "";
+        public string LegacyIpMain { get; set; } = "";
+        public string LegacyIpReserve { get; set; } = "";
+
         /// <summary>Протокол: «TCP»/«RTU» (эвристика: в IpMain есть IPv4 → TCP, непустой
         /// не-IP → RTU; заполняется для новых/пустых, редактируется вручную).</summary>
         public string Protocol { get; set; } = "";
@@ -709,6 +717,9 @@ namespace IO_PJT.Models
 
         /// <summary>true — шаблон записи (SCADA_DATAIN_TEMPLATES).</summary>
         public bool IsWrite => Kind == "запись";
+
+        /// <summary>F112: simple logic template (no DataOut/DataIn blocks).</summary>
+        public bool IsLogic => Kind == "логика";
 
         /// <summary>Имя шаблона (ключ SCADA_TYPNO_MAP / идентификатор).</summary>
         public string Name { get; set; } = "";

@@ -22,10 +22,18 @@
         /// .Busy/.Error members now share one card (as in the SCADA template),
         /// F101 "ending" mapping syncs the member T11Text, TCP/RTU merge keeps
         /// the shared cardId; smoke Tests 8/9/10 extended (F109 invariants).
+        /// 1.10 = F114: mask & is only a component boundary (no automatic '-'); default tag mask
+        /// uses explicit '-' separators; smoke 225 checks.
+        /// 1.9 = F113: fill M_Bit from combined M_Address (register+bit, e.g. 32.1);
+        /// all IO_LIST rows in the Modbus addressing window, selected rows in the main grid.
+        /// 1.8 = F112: data templates without DataOut/DataIn are classified as logic and
+        /// applied as supplementary non-Modbus templates to any Typno; smoke 202 checks.
+        /// 1.7 = F111: split station IP/mask/port columns in IO_LIST and SCADA_MB_SLAVE_RULES,
+        /// controlled read/write buttons and compact grid headers; smoke 195 checks.
         /// 1.6 = F110: F105 now deletes unbound BIT objects even when their mapping
         /// row contains {M_Marka} or a literal; only Address mode keeps them. This
         /// includes var objects, receivers and write/simple template roots. The
         /// removal decision is made before card creation; smoke Test 11 extended.</summary>
-        public const string Version = "1.6";
+        public const string Version = "1.10";
     }
 }

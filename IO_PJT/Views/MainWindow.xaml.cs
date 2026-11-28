@@ -1,5 +1,7 @@
 using System;
+using System.Linq;
 using System.Windows;
+using System.Windows.Controls;
 using IO_PJT.Models;
 using IO_PJT.Services;
 using IO_PJT.ViewModels;
@@ -28,6 +30,14 @@ namespace IO_PJT.Views
             _vm.OpenHistoryWindow = ShowHistory;
             _vm.OpenCardWindow = ShowCard;
             _vm.OpenCreateTableDialog = ShowCreateTable;
+        }
+
+        /// <summary>F113: DataGrid.SelectedItems не поддерживает Binding — передаём
+        /// выбранные строки в VM для кнопки «Заполнить M_bit из M_Address».</summary>
+        private void PointsGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (DataContext is MainViewModel vm && sender is DataGrid grid)
+                vm.SetSelectedPoints(grid.SelectedItems.OfType<IoPoint>());
         }
 
         /// <summary>Единое окно импорта (F6.3). F100: target — DisplayName профиля-пресета

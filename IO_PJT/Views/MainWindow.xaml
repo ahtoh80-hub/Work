@@ -56,6 +56,8 @@
                 <Button Content="📥 Импорт Excel" Command="{Binding ImportCommand}" />
                 <Button Content="🔗 Modbus адресация" Command="{Binding ModbusAddressingCommand}"
                         ToolTip="F99: единое окно — обновление связей (полное/только пустые), M_-адресация (F9.4), правила связывания MODBUS_LINK_RULES и проверка маски на теге" />
+                <Button Content="Заполнить M_bit из M_Address" Command="{Binding FillBitsFromAddressCommand}"
+                        ToolTip="F113: для выбранных строк разобрать совмещённый M_Address «регистр+бит» (32.1, 32,1, 32_1) → M_Address=32, M_Bit=1" />
                 <Button Content="🕘 История" Command="{Binding HistoryCommand}" />
                 <Separator />
                 <Button Content="🔄 Обновить" Command="{Binding RefreshCommand}" />
@@ -114,6 +116,8 @@
 
         <!-- ===== Основной грид репозитория ===== -->
         <DataGrid ItemsSource="{Binding Points}" SelectedItem="{Binding SelectedPoint}"
+                  x:Name="PointsGrid" SelectionMode="Extended"
+                  SelectionChanged="PointsGrid_SelectionChanged"
                   Margin="6,4" IsReadOnly="True">
             <DataGrid.Columns>
                 <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="50" />

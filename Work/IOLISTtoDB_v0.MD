@@ -561,7 +561,7 @@ data-шаблонах («Адрес/бит») для бита, не найден
   Эвристики F9 (DetectRole), F55 (FullKey), F66 (семейство) — фазы 1/2 удалены из цикла.
   Full/FillEmpty-режимы, F9.4 (только Modbus-сигналы), boundTags (один тег → одна строка) — сохранены.
 - **F94** — UI/п.11: колонка «Маска (п.10)» в гриде правил; маска по умолчанию для новых правил
-  `{PTAG_TagArea}&{PTag_DeviceClass}&{Ptag_LoopNumber}&{Ptag_TagNumber}&{PTag_Suffix}` (полное совпадение
+  `{PTAG_TagArea}&-&{PTAG_DeviceClass}&-&{Ptag_LoopNumber}&{Ptag_TagNumber}&{PTag_Suffix}` (полное совпадение
   по имени тега); **«Служебное поле» (ServiceField) удалено** из окна и VM (F69-эвристики отключены).
   `&` в ToolTip XAML экранирован как `&amp;`.
 ### F95 — удаление мёртвого кода эвристики после п.10 (2026-11)
@@ -660,7 +660,7 @@ data-шаблонах («Адрес/бит») для бита, не найден
   — null не совпадает / 0 полное / N — сколько символов поглотил wildcard; `FindBest` —
   лучшее (минимальное отклонение) среди совпавших; кэш скомпилированных wildcard-regex
   (`ConcurrentDictionary`, `RegexOptions.Compiled`); константа `DefaultTagMask`
-  (`{PTAG_TagArea}&{PTag_DeviceClass}&{Ptag_LoopNumber}&{Ptag_TagNumber}&{PTag_Suffix}`).
+(`{PTAG_TagArea}&-&{PTAG_DeviceClass}&-&{Ptag_LoopNumber}&{Ptag_TagNumber}&{PTag_Suffix}`).
 - **`ModbusLinkService.Link`.** Из связывания ушли `ExtractCandidates`/`ServiceField`:
   участвуют **все точки с заполненным Tag** (отбор MCC-кандидатов не выполняется —
   `Examined` = все точки; сообщение «Не связано» без части «(кандидат: …)»; метод

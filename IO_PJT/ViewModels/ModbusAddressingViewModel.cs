@@ -31,6 +31,7 @@ namespace IO_PJT.ViewModels
             LinkFullCommand = new RelayCommand(() => RunLink(ModbusLinkMode.Full));
             LinkFillEmptyCommand = new RelayCommand(() => RunLink(ModbusLinkMode.FillEmpty));
             UpdateAddressingCommand = new RelayCommand(RunAddressing);
+            FillBitsFromAddressCommand = new RelayCommand(RunFillBitsFromAddress);
             CheckMaskCommand = new RelayCommand(CheckMask, () => SelectedRule != null);
             LoadRules();
         }
@@ -68,8 +69,8 @@ namespace IO_PJT.ViewModels
         public string FieldsHint =>
             $"IO: колонка IO_LIST ({FieldRegistry.Columns.Length} шт., напр. Tag, Service, Loop); " +
             "карта: любое строковое поле MODBUS_MAP (Description, PlcTag, FuncCode, …). " +
-            "Маска: {Колонка} + «-» между компонентами, «*» — wildcard, (−N)/(+N) — обрезка; " +
-            "пустая маска — точное совпадение. Правила применяются при «Обновить связи».";
+            "Маска: {Колонка} + «&» — граница компонентов (символ не вставляет), «-» — только если явно указан; " +
+            "«*» — wildcard, (−N)/(+N) — обрезка; пустая маска — точное совпадение. Правила применяются при «Обновить связи».";
 
         public RelayCommand AddCommand { get; }
         public RelayCommand DeleteCommand { get; }
@@ -78,6 +79,7 @@ namespace IO_PJT.ViewModels
         public RelayCommand LinkFullCommand { get; }
         public RelayCommand LinkFillEmptyCommand { get; }
         public RelayCommand UpdateAddressingCommand { get; }
+        public RelayCommand FillBitsFromAddressCommand { get; }
         public RelayCommand CheckMaskCommand { get; }
 
         private void RaiseCommands() =>
@@ -320,6 +322,31 @@ namespace IO_PJT.ViewModels
                 string msg = DbProbe.ClassifyMessage(ex.Message);
                 _s.Log.Error($"F9.4: ошибка обновления адресации Modbus: {msg}");
                 AppendLog($"Обновить адресацию: ОШИБКА — {msg}");
+            }
+        }
+
+        /// <summary>F113: разобрать все совмещённые M_Address «регистр+бит» и заполнить M_Bit.
+        /// Обрабатываются все строки текущей таблицы IO_LIST; обычные адреса не меняются.</summary>
+        private void RunFillBitsFromAddress()
+        {
+            try
+            {
+                var r = _s.ModbusLink.FillBitsFromCombinedAddress();
+                var sb = new StringBuilder(r.Summary);
+                if (r.Errors.Count > 0)
+                {
+                    sb.AppendLine().AppendLine().AppendLine("Некорректные M_Address (до 10):");
+                    foreach (var e in r.Errors.Take(10)) sb.AppendLine("  " + e);
+                    if (r.Errors.Count > 10) sb.AppendLine($"  … и ещё {r.Errors.Count - 10}");
+                }
+                AppendLog(sb.ToString());
+                RefreshMain?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                string msg = DbProbe.ClassifyMessage(ex.Message);
+                _s.Log.Error($"F113: ошибка заполнения M_Bit из M_Address: {msg}");
+                AppendLog($"Заполнить M_bit из M_Address: ОШИБКА — {msg}");
             }
         }
 

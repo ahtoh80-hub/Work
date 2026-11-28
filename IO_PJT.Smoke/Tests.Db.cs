@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using IO_PJT.Data;
@@ -35,6 +35,11 @@ namespace IO_PJT.Smoke
                     "созданы IO_LIST, MODBUS_MAP, MODBUS_LINK_RULES, SCADA_TEMPLATE_VARS");
                 var cols = creator.GetColumns(Schema.DefaultTable);
                 Check(cols.Contains("Tag") && cols.Contains("M_Marka"), "IO_LIST содержит Tag и M_Marka");
+                var ipCols = new[] { "M_IP_Main", "M_IP_Reserve", "M_IP_Mask_Main", "M_IP_Mask_Reserve", "M_IP_Port_Main", "M_IP_Port_Reserve" };
+                Check(ipCols.All(cols.Contains), "IO_LIST contains split M_IP_* columns");
+                var ruleCols = creator.GetColumns(Schema.ScadaMbSlaveRulesTable);
+                Check(ipCols.All(ruleCols.Contains) && ruleCols.Contains("IpMain") && ruleCols.Contains("IpReserve"),
+                    "SCADA_MB_SLAVE_RULES contains new M_IP_* and legacy IP columns");
                 creator.EnsureServiceTables();
                 new ModbusBlockPlannerService(db).EnsureTables();
                 Check(true, "повторное создание служебных таблиц идемпотентно (без исключений)");

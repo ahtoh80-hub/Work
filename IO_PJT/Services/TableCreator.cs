@@ -200,7 +200,11 @@ namespace IO_PJT.Services
                 foreach (var (col, type) in new (string, string)[]
                 {
                     ("Controller", "TEXT(255)"), // F37: контроллер IO_LIST (Identification.Controller)
-                    ("IpMain", "TEXT(255)"), ("IpReserve", "TEXT(255)"), ("Protocol", "TEXT(10)"),
+                    ("IpMain", "TEXT(255)"), ("IpReserve", "TEXT(255)"),
+                    ("M_IP_Main", "TEXT(255)"), ("M_IP_Reserve", "TEXT(255)"),
+                    ("M_IP_Mask_Main", "TEXT(255)"), ("M_IP_Mask_Reserve", "TEXT(255)"),
+                    ("M_IP_Port_Main", "TEXT(20)"), ("M_IP_Port_Reserve", "TEXT(20)"),
+                    ("Protocol", "TEXT(10)"),
                     ("Speed", "TEXT(50)"), ("Parity", "YESNO"), ("StopBit", "LONG"),
                     ("DataBit", "LONG"), ("Reverse", "YESNO"), ("Timeout", "LONG"),
                     ("MaxLength", "LONG"),

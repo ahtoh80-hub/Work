@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -6,9 +6,10 @@ using System.Text.RegularExpressions;
 namespace IO_PJT.Services
 {
     /// <summary>п.10: маска сопоставления IO_LIST ↔ MODBUS_MAP — переиспользуемый парсер/оценщик.
-    /// Синтаксис: <c>{ИмяКолонки}</c> — значение колонки; <c>&amp;</c> — разделитель «-»
-    /// (только между непустыми компонентами); <c>*</c> — wildcard; <c>(-N)</c> — убрать N
-    /// символов справа; <c>(+N)</c> — взять N символов слева. Пустая маска = полное совпадение.</summary>
+    /// Синтаксис: <c>{ИмяКолонки}</c> — значение колонки; <c>&amp;</c> — граница компонентов
+    /// (сама по себе символ НЕ добавляет); литералы, например <c>-</c>, добавляются как указано
+    /// в маске; <c>*</c> — wildcard; <c>(-N)</c> — убрать N символов справа;
+    /// <c>(+N)</c> — взять N символов слева. Пустая маска = полное совпадение.</summary>
     public sealed class MaskPattern
     {
         private readonly List<object> _tokens = new();
@@ -54,15 +55,15 @@ namespace IO_PJT.Services
             return p;
         }
 
-        /// <summary>Оценить маску по строке (колонка → значение) → паттерн для поиска в MODBUS_MAP.</summary>
+        /// <summary>Оценить маску по строке (колонка → значение) → паттерн для поиска в MODBUS_MAP.
+        /// <c>&amp;</c> — граница компонентов без символа; разделители задаются литералами маски.</summary>
         public string Evaluate(IReadOnlyDictionary<string, string> row)
         {
             var sb = new StringBuilder();
-            bool needSep = false;
             foreach (var tok in _tokens)
             {
-                if (tok is SeparatorToken) { needSep = true; }
-                else if (tok is WildcardToken) { needSep = false; sb.Append('*'); }
+                if (tok is SeparatorToken) { /* F114: только граница, без автоматического «-» */ }
+                else if (tok is WildcardToken) { sb.Append('*'); }
                 else if (tok is FieldToken ft)
                 {
                     string val = "";
@@ -75,16 +76,11 @@ namespace IO_PJT.Services
                         else { val = val.Substring(0, Math.Min(md, val.Length)); }
                     }
                     if (val.Length == 0) continue;
-                    if (needSep && sb.Length > 0) sb.Append('-');
-                    needSep = false;
                     sb.Append(val);
                 }
                 else if (tok is string lit)
                 {
-                    if (lit.Length == 0) continue;
-                    if (needSep && sb.Length > 0) sb.Append('-');
-                    needSep = false;
-                    sb.Append(lit);
+                    if (lit.Length > 0) sb.Append(lit);
                 }
             }
             return sb.ToString();
@@ -111,7 +107,7 @@ namespace IO_PJT.Services
 
         /// <summary>F99: пустая маска = полное совпадение IOField ↔ MapField (валидна всегда).</summary>
         public const string DefaultTagMask =
-            "{PTAG_TagArea}&{PTag_DeviceClass}&{Ptag_LoopNumber}&{Ptag_TagNumber}&{PTag_Suffix}";
+            "{PTAG_TagArea}&-&{PTAG_DeviceClass}&-&{Ptag_LoopNumber}&{Ptag_TagNumber}&{PTag_Suffix}";
 
         /// <summary>F99: проверить маску (для UI/валидации правил): null — ок (в т.ч. пустая),
         /// иначе текст ошибки — неразборчивый синтаксис либо неизвестная колонка FieldRegistry.</summary>

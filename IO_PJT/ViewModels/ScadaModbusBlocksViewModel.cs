@@ -248,6 +248,7 @@ namespace IO_PJT.ViewModels
         public RelayCommand FillTypnoRulesCommand { get; }
         /// <summary>F21: автосбор станций slave из IO_LIST («Заполнить из IO_LIST»).</summary>
         public RelayCommand FillSlaveRulesCommand { get; }
+        public RelayCommand WriteSlaveRulesToIoListCommand { get; } // F111
         /// <summary>F22: CRUD мастер-шаблонов (SCADA_MASTER_TEMPLATES).</summary>
         public RelayCommand SaveMasterTemplateAsCommand { get; }
         public RelayCommand LoadMasterTemplateCommand { get; }
@@ -349,6 +350,7 @@ namespace IO_PJT.ViewModels
             SaveTypnoMapCommand = new RelayCommand(SaveTypnoMap);
             FillTypnoRulesCommand = new RelayCommand(FillTypnoRules);
             FillSlaveRulesCommand = new RelayCommand(FillSlaveRules);
+            WriteSlaveRulesToIoListCommand = new RelayCommand(WriteSlaveRulesToIoList); // F111
             SaveMasterTemplateAsCommand = new RelayCommand(SaveMasterTemplateAs);
             LoadMasterTemplateCommand = new RelayCommand(LoadMasterTemplateIntoEditor);
             DeleteMasterTemplateCommand = new RelayCommand(DeleteMasterTemplate,
@@ -664,7 +666,10 @@ namespace IO_PJT.ViewModels
             }
             string? body = r.IsWrite
                 ? DataInTemplates.FirstOrDefault(t => string.Equals(t.Name, r.Name, StringComparison.OrdinalIgnoreCase))?.Body
-                : DataOutTemplates.FirstOrDefault(t => string.Equals(t.Name, r.Name, StringComparison.OrdinalIgnoreCase))?.Body;
+                : r.IsLogic
+                    ? (DataOutTemplates.FirstOrDefault(t => string.Equals(t.Name, r.Name, StringComparison.OrdinalIgnoreCase))?.Body
+                       ?? DataInTemplates.FirstOrDefault(t => string.Equals(t.Name, r.Name, StringComparison.OrdinalIgnoreCase))?.Body)
+                    : DataOutTemplates.FirstOrDefault(t => string.Equals(t.Name, r.Name, StringComparison.OrdinalIgnoreCase))?.Body;
             if (body == null)
             {
                 StatusText = $"Шаблон «{r.Name}» не найден в БД — обновите перечень.";
@@ -681,7 +686,10 @@ namespace IO_PJT.ViewModels
             try
             {
                 string name = string.IsNullOrWhiteSpace(newName) ? r.Name : newName.Trim();
-            if (r.IsWrite) _s.ModbusBlocks.SaveDataInTemplate(name, text, null, version);
+                bool saveIn = r.IsWrite || (r.IsLogic &&
+                    DataInTemplates.Any(t => string.Equals(t.Name, r.Name, StringComparison.OrdinalIgnoreCase)) &&
+                    !DataOutTemplates.Any(t => string.Equals(t.Name, r.Name, StringComparison.OrdinalIgnoreCase)));
+                if (saveIn) _s.ModbusBlocks.SaveDataInTemplate(name, text, null, version);
                 else _s.ModbusBlocks.SaveDataOutTemplate(name, text, null, version);
                 LoadDataOutTemplateList();
                 LoadDataInTemplateList();
@@ -1298,7 +1306,14 @@ namespace IO_PJT.ViewModels
                 StringComparer.OrdinalIgnoreCase);
             foreach (var t in DataInTemplates)
                 if (t.Name.Trim().Length > 0 && !string.IsNullOrWhiteSpace(t.Body))
+                {
                     dataInTemplates[t.Name.Trim()] = t.Body;
+                    // F112: logic template may live in DataIn; make it visible to the
+                    // supplementary non-Modbus chain builder without affecting write selection.
+                    if (ScadaDataOutXmlService.IsSimpleTemplate(_dataOut.Parse(t.Body)) &&
+                        !namedTemplates.ContainsKey(t.Name.Trim()))
+                        namedTemplates[t.Name.Trim()] = t.Body;
+                }
             var dataVars = new System.Collections.Generic.Dictionary<string,
                 System.Collections.Generic.IReadOnlyDictionary<string,
                     (string IoColumn, string Literal, string BitMode, string BitNo)>>(StringComparer.OrdinalIgnoreCase);
@@ -1643,7 +1658,6 @@ namespace IO_PJT.ViewModels
         {
             var warnings = new List<string>();
             if (_built == null) return warnings;
-            // 1. направление Typno из плана пакетов
             var typnoDir = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var packet in _built.Packets)
             {
@@ -1656,18 +1670,14 @@ namespace IO_PJT.ViewModels
                     {
                         if (existing != dir && existing != "смешанное") typnoDir[t] = "смешанное";
                     }
-                    else
-                    {
-                        typnoDir[t] = dir;
-                    }
+                    else typnoDir[t] = dir;
                 }
             }
-            // 2. направление шаблонов из DataTemplates
             var tmplDir = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var row in DataTemplates)
                 if (!string.IsNullOrWhiteSpace(row.Name))
-                    tmplDir[row.Name.Trim()] = row.IsWrite ? "запись" : "чтение";
-            // 3. валидация каждого правила
+                    tmplDir[row.Name.Trim()] = row.IsLogic ? "логика"
+                        : row.IsWrite ? "запись" : "чтение";
             foreach (var rule in TypnoRules)
             {
                 string t = (rule.Typno ?? "").Trim();
@@ -1675,6 +1685,7 @@ namespace IO_PJT.ViewModels
                 if (t.Length == 0 || tmpl.Length == 0) continue;
                 if (!typnoDir.TryGetValue(t, out var td)) continue;
                 if (!tmplDir.TryGetValue(tmpl, out var md)) continue;
+                if (md == "логика") continue;
                 if (td != "смешанное" && md != td)
                     warnings.Add($"Typno «{t}» ({td}) → шаблон «{tmpl}» ({md}) — направление не совпадает");
             }
@@ -1743,6 +1754,80 @@ namespace IO_PJT.ViewModels
             }
         }
 
+        // F111: controlled write of station IP fields back to IO_LIST (only by button)
+        private void WriteSlaveRulesToIoList()
+        {
+            try
+            {
+                var points = _s.Repo.GetAll();
+                var byCs = new Dictionary<string, MbSlaveIdRule>(StringComparer.OrdinalIgnoreCase);
+                var bySt = new Dictionary<string, MbSlaveIdRule>(StringComparer.OrdinalIgnoreCase);
+                foreach (var r in SlaveRules)
+                {
+                    string st = (r.Station ?? "").Trim();
+                    string ct = (r.Controller ?? "").Trim();
+                    if (st.Length == 0) continue;
+                    string key = ct + "|" + st;
+                    if (!byCs.ContainsKey(key)) byCs[key] = r;
+                    if (ct.Length == 0 && !bySt.ContainsKey(st)) bySt[st] = r;
+                }
+                int changedPoints = 0, changedFields = 0, skipped = 0;
+                _s.Repo.BeginSession();
+                try
+                {
+                    foreach (var point in points)
+                    {
+                        string st = (point.Modbus?.SlaveStation ?? "").Trim();
+                        if (st.Length == 0) { skipped++; continue; }
+                        string ct = (point.Identification.Controller ?? "").Trim();
+                        MbSlaveIdRule? rule = null;
+                        bool found = (ct.Length > 0 && byCs.TryGetValue(ct + "|" + st, out rule)) ||
+                                     bySt.TryGetValue(st, out rule);
+                        if (!found || rule == null) { skipped++; continue; }
+                        var mb = point.Modbus ??= new Modbus();
+                        int changed = ApplySlaveRuleToPoint(mb, rule);
+                        if (changed == 0) continue;
+                        _s.Repo.Update(point);
+                        changedPoints++;
+                        changedFields += changed;
+                    }
+                    _s.Repo.EndSession();
+                }
+                catch
+                {
+                    _s.Repo.AbortSession();
+                    throw;
+                }
+                StatusText = $"Записано в IO_LIST: точек {changedPoints}, полей {changedFields}; без правила: {skipped}.";
+                _s.Log.Info($"F111: write to IO_LIST: points={changedPoints}, fields={changedFields}, skipped={skipped}");
+            }
+            catch (Exception ex)
+            {
+                string msg = DbProbe.ClassifyMessage(ex.Message);
+                _s.Log.Error($"F111: IO_LIST write error: {msg}");
+                StatusText = "Ошибка записи в IO_LIST: " + msg;
+            }
+        }
+
+        private static int ApplySlaveRuleToPoint(Modbus mb, MbSlaveIdRule r)
+        {
+            int n = 0;
+            string ipMain = (r.IpMain ?? "").Trim();
+            string ipReserve = (r.IpReserve ?? "").Trim();
+            string maskMain = (r.IpMaskMain ?? "").Trim();
+            string maskReserve = (r.IpMaskReserve ?? "").Trim();
+            string portMain = (r.IpPortMain ?? "").Trim();
+            string portReserve = (r.IpPortReserve ?? "").Trim();
+            if (mb.IpMain != ipMain) { mb.IpMain = ipMain; n++; }
+            if (mb.IpReserve != ipReserve) { mb.IpReserve = ipReserve; n++; }
+            if (mb.IpMaskMain != maskMain) { mb.IpMaskMain = maskMain; n++; }
+            if (mb.IpMaskReserve != maskReserve) { mb.IpMaskReserve = maskReserve; n++; }
+            if (mb.IpPortMain != portMain) { mb.IpPortMain = portMain; n++; }
+            if (mb.IpPortReserve != portReserve) { mb.IpPortReserve = portReserve; n++; }
+            return n;
+        }
+
+
         // ================== F22: залитые шаблоны (мастер / DataIn) ==================
 
         /// <summary>F22: перечитать список мастер-шаблонов блоков (SCADA_MASTER_TEMPLATES).</summary>
@@ -1785,9 +1870,15 @@ namespace IO_PJT.ViewModels
         /// DataIn: грид Typno «Шаблон привязок» ссылается на любой data-шаблон.</summary>
         private void RefreshDataTemplates()
         {
-            // 1) объединённый перечень: удалённые убрать, новые добавить (чтение, затем запись)
-            var wanted = DataOutTemplates.Select(t => ("чтение", t.Name, t.FilePath, t.Version, t.SavedAt))
-                .Concat(DataInTemplates.Select(t => ("запись", t.Name, t.FilePath, t.Version, t.SavedAt))).ToList();
+            string KindOf(string? body, string fallback)
+            {
+                var parsed = _dataOut.Parse(body ?? "");
+                return ScadaDataOutXmlService.IsSimpleTemplate(parsed) ? "логика" : fallback;
+            }
+            var wanted = DataOutTemplates.Select(t => (KindOf(t.Body, "чтение"), t.Name, t.FilePath, t.Version, t.SavedAt))
+                .Concat(DataInTemplates.Select(t => (KindOf(t.Body, "запись"), t.Name, t.FilePath, t.Version, t.SavedAt))).ToList();
+            var seenKinds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            wanted = wanted.Where(w => seenKinds.Add(w.Item1 + "|" + w.Name)).ToList();
             foreach (var gone in DataTemplates
                 .Where(r => !wanted.Any(w => string.Equals(w.Name, r.Name, StringComparison.OrdinalIgnoreCase)
                                           && w.Item1 == r.Kind)).ToList())
@@ -1809,8 +1900,6 @@ namespace IO_PJT.ViewModels
                     cur.SavedAt = w.SavedAt;
                 }
             }
-
-            // 2) имена для колонки «Шаблон привязок» грида Typno: dataout ∪ datain (поштучно)
             foreach (var t in DataInTemplates)
                 if (!DataOutTemplateNames.Any(n => string.Equals(n, t.Name, StringComparison.OrdinalIgnoreCase)))
                     DataOutTemplateNames.Add(t.Name);
@@ -1887,6 +1976,23 @@ namespace IO_PJT.ViewModels
                 SelectedDataInTemplate = DataInTemplates.FirstOrDefault(t =>
                     string.Equals(t.Name, r.Name, StringComparison.OrdinalIgnoreCase));
                 DeleteDataInTemplate();
+            }
+            else if (r.IsLogic)
+            {
+                var di = DataInTemplates.FirstOrDefault(t =>
+                    string.Equals(t.Name, r.Name, StringComparison.OrdinalIgnoreCase));
+                if (di != null && !DataOutTemplates.Any(t =>
+                        string.Equals(t.Name, r.Name, StringComparison.OrdinalIgnoreCase)))
+                {
+                    SelectedDataInTemplate = di;
+                    DeleteDataInTemplate();
+                }
+                else
+                {
+                    SelectedDataOutTemplate = DataOutTemplates.FirstOrDefault(t =>
+                        string.Equals(t.Name, r.Name, StringComparison.OrdinalIgnoreCase));
+                    DeleteDataOutTemplate();
+                }
             }
             else
             {

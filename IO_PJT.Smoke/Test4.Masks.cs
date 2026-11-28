@@ -20,10 +20,24 @@ namespace IO_PJT.Smoke
 
             Check(MaskPattern.Parse("") == null && MaskPattern.Parse("  ") == null,
                 "пустая маска → Parse = null (полное совпадение)");
-            Check(MaskPattern.Parse("{Area}&{Class}")!.Evaluate(row) == "1120-M",
-                "{Area}&{Class} → «1120-M» (& = разделитель «-»)");
-            Check(MaskPattern.Parse("{Area}&{Empty}&{Class}")!.Evaluate(row) == "1120-M",
-                "пустой компонент не даёт двойного разделителя");
+            Check(MaskPattern.Parse("{Area}&{Class}")!.Evaluate(row) == "1120M",
+                "{Area}&{Class} → «1120M» (& — граница без автоматического «-»)");
+            Check(MaskPattern.Parse("{Area}&{Empty}&{Class}")!.Evaluate(row) == "1120M",
+                "пустой компонент просто пропускается");
+            Check(MaskPattern.Parse("{Area}&-&{Class}")!.Evaluate(row) == "1120-M",
+                "{Area}&-&{Class} → «1120-M» (дефис задан в маске)");
+            Check(MaskPattern.Parse("{Area}-{Class}")!.Evaluate(row) == "1120-M",
+                "{Area}-{Class} → «1120-M» (литерал без &)");
+            var ptagRow = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["PTAG_TagArea"] = "1120",
+                ["PTAG_DeviceClass"] = "MII",
+                ["Ptag_LoopNumber"] = "0120",
+                ["Ptag_TagNumber"] = "6",
+                ["PTag_Suffix"] = ""
+            };
+            Check(MaskPattern.Parse(MaskPattern.DefaultTagMask)!.Evaluate(ptagRow) == "1120-MII-01206",
+                "F114: маска по умолчанию восстанавливает 1120-MII-01206 без лишнего «-»");
             Check(MaskPattern.Parse("{Loop}(-1)")!.Evaluate(row) == "1120-M-01203",
                 "(-1) убирает 1 символ справа");
             Check(MaskPattern.Parse("{Area}(+2)")!.Evaluate(row) == "11",

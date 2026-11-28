@@ -58,6 +58,7 @@ namespace IO_PJT.Smoke
             RunTest("11. F105: удаление непривязанных битовых объектов", Test11_UnboundBits);
             RunTest("12. F106: точка в именах не заменяется на _", Test12_DotName);
             RunTest("13. F108: шаблоны только из БД (без внешних путей)", Test13_TemplatesFromDb);
+            RunTest("14. F113: M_Bit из M_Address", Test14_FillBitFromAddress);
             Console.WriteLine($"ИТОГО: OK {_passed}, FAIL {_failed}");
             return _failed == 0 ? 0 : 1;
         }

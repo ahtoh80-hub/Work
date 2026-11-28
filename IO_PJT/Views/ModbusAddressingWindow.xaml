@@ -1,7 +1,7 @@
 <Window x:Class="IO_PJT.Views.ModbusAddressingWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Обновление адресации Modbus согласно MODBUS_MAP (F99)" Width="1100" Height="720"
+        Title="Обновление адресации Modbus согласно MODBUS_MAP (F99)" Width="1240" Height="720"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
 
     <!-- F99: единое окно — три действия (связи полностью / только пустые / M_-адресация),
@@ -33,8 +33,11 @@
                         Width="155" Padding="6,3" Margin="0,0,6,0"
                         ToolTip="F59 FillEmpty: заполняются только строки карты без привязки — ручные привязки не сбрасываются" />
                 <Button Content="Обновить адресацию M_..." Command="{Binding UpdateAddressingCommand}"
-                        Width="155" Padding="6,3" Margin="0,0,14,0"
+                        Width="155" Padding="6,3" Margin="0,0,6,0"
                         ToolTip="F9.4: записать M_-поля IO_LIST по парам MODBUS_MAP.DcsTag ↔ IO_LIST.Tag (только Modbus-сигналы)" />
+                <Button Content="Заполнить M_bit из M_Address" Command="{Binding FillBitsFromAddressCommand}"
+                        Width="210" Padding="6,3" Margin="0,0,14,0"
+                        ToolTip="F113: разобрать совмещённые M_Address «регистр+бит» (32.1, 32,1, 32_1) → M_Address=32, M_Bit=1; обрабатываются все строки IO_LIST" />
                 <Button Content="Добавить" Command="{Binding AddCommand}" Width="80" Padding="6,3" Margin="0,0,6,0"
                         ToolTip="Новое правило (маска по умолчанию — полное совпадение имени тега)" />
                 <Button Content="Удалить" Command="{Binding DeleteCommand}" Width="75" Padding="6,3" Margin="0,0,6,0"
@@ -86,7 +89,7 @@
                 </DataGridTemplateColumn>
                 <DataGridTextColumn Header="Маска (п.10)" Binding="{Binding Mask, UpdateSourceTrigger=PropertyChanged}"
                                     Width="220"
-                                    ToolTipService.ToolTip="Маска: {Колонка}&amp;*(-N)(+N); пусто — точное совпадение IOField↔MapField" />
+                                    ToolTipService.ToolTip="Маска: {Колонка}; «&amp;» — граница компонентов (символ не добавляет), «-» — только если явно указан; * — wildcard, (-N)/(+N); пусто — точное совпадение" />
                 <DataGridTextColumn Header="FuncCode" Binding="{Binding FuncCode, UpdateSourceTrigger=PropertyChanged}"
                                     Width="70"
                                     ToolTipService.ToolTip="Фильтр Function Code строки карты (02/03/06); пусто — без фильтра" />

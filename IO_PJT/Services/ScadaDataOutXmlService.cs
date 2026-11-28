@@ -355,6 +355,10 @@ namespace IO_PJT.Services
         /// F51: правил Typno у Typno может быть НЕСКОЛЬКО (по одному на шаблон привязок) —
         /// каждое правило клонирует СВОЮ цепочку для этой привязки; карта — список правил
         /// на Typno. Старый формат «один шаблон на Typno» — перегрузка Write (обёртка).</summary>
+        /// <summary>F112: true when template has no DataOut/DataIn blocks.</summary>
+        public static bool IsSimpleTemplate(DataOutTemplateInfo info) =>
+            info.Valid && info.Exemplars.Count > 0 && info.Exemplars.Values.All(e => e.IsSimple);
+
         public string WriteMulti(IReadOnlyList<MbPacketPlan> packets, string templateXml,
             IReadOnlyDictionary<string, (int CardId, string Iv)> masterMeta, ScadaMbGenSettings s,
             List<string>? warnings = null,
@@ -409,6 +413,21 @@ namespace IO_PJT.Services
                         catch (Exception) { /* невалиден — предупреждение при обращении */ }
                     }
 
+            var simpleTemplates = namedInfo
+                .Where(kv => IsSimpleTemplate(kv.Value))
+                .Select(kv => kv.Key)
+                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            string mainSimpleKey = (dataVarsTemplateKey ?? "").Trim();
+            if (mainSimpleKey.Length > 0 && IsSimpleTemplate(info))
+            {
+                if (!namedInfo.ContainsKey(mainSimpleKey)) namedInfo[mainSimpleKey] = info;
+                // typnoMap == null: the default rule already uses info; adding a synthetic
+                // rule would duplicate the same simple chain.
+                if (typnoMap != null &&
+                    !simpleTemplates.Contains(mainSimpleKey, StringComparer.OrdinalIgnoreCase))
+                    simpleTemplates.Add(mainSimpleKey);
+            }
             var tplRoot = XDocument.Parse(templateXml!).Root!;
 
             // счётчики уникальности клонов (продолжение после шаблонных ID)
@@ -453,8 +472,9 @@ namespace IO_PJT.Services
 
                 foreach (var b in p.Bindings)
                 {
-                    if (b.DataOutExpr != null && b.DataOutExpr.Length > 0 &&
-                        !seenExpr.Add(b.DataOutExpr)) continue;
+                    bool exprSeen = b.DataOutExpr != null && b.DataOutExpr.Length > 0 &&
+                                    !seenExpr.Add(b.DataOutExpr);
+                    if (exprSeen && simpleTemplates.Count == 0) continue;
 
                     // F14/F16: приоритет — сопоставление «Typno → (шаблон, эталон)» (SCADA_TYPNO_MAP)
                     // F51: на Typno — список правил (несколько шаблонов привязок): привязка
@@ -466,11 +486,8 @@ namespace IO_PJT.Services
                             typnoMap.TryGetValue(b.Typno.Trim(), out var ruleListF51) &&
                             ruleListF51.Count > 0)
                             rulesF51.AddRange(ruleListF51);
-                        else
+                        else if (simpleTemplates.Count == 0)
                         {
-                            // F33 (этап 5): при активных правилах (typnoMap != null) маппинг Typno
-                            // ОБЯЗАТЕЛЕН — точка без правила не генерится (исторический выбор эталона
-                            // по M_DataType отключён)
                             warnings.Add($"F33: {b.Tag}: Typno «{b.Typno}» не сопоставлен в " +
                                          "SCADA_TYPNO_MAP — привязка пропущена (добавьте правило " +
                                          "«Typno → шаблон привязок»)");
@@ -480,11 +497,23 @@ namespace IO_PJT.Services
                     else
                         rulesF51.Add(default);
 
+                    // F112: simple logic templates are supplementary and apply to ANY Typno.
+                    foreach (var st in simpleTemplates)
+                        if (!(typnoMap == null && IsSimpleTemplate(info) &&
+                              mainSimpleKey.Length > 0 &&
+                              string.Equals(st, mainSimpleKey, StringComparison.OrdinalIgnoreCase)) &&
+                            !rulesF51.Any(r => string.Equals((r.Template ?? "").Trim(), st,
+                                StringComparison.OrdinalIgnoreCase)))
+                            rulesF51.Add((st, "", "logic"));
+
                     foreach (var rule in rulesF51)
                     {
-                    string? mappedEx = typnoMap != null ? rule.Exemplar : null;
-                    string mappedTplName = typnoMap != null ? (rule.Template ?? "").Trim() : "";
+                    string mappedEx = (rule.Exemplar ?? "").Trim();
+                    string mappedTplName = (rule.Template ?? "").Trim();
                     bool haveRule = typnoMap != null;
+                    bool simpleRule = mappedTplName.Length > 0 &&
+                        simpleTemplates.Contains(mappedTplName, StringComparer.OrdinalIgnoreCase);
+                    if (exprSeen && !simpleRule) continue;
 
                     // F33: тип эталона — из правила Typno; правило без эталона → тип точки
                     // (подсказка для единственного эталона шаблона)
@@ -492,9 +521,14 @@ namespace IO_PJT.Services
                         ? mappedEx!.Trim()
                         : MapTypeKey(b.DataType);
 
-                    // F16/F30: активный шаблон выбирается по типу/шаблону правила
+                    // F16/F30: active template by rule type/name; F112 simple rule always uses named template
                     var active = info;
-                    if (b.IsWrite)
+                    if (simpleRule)
+                    {
+                        if (namedInfo.TryGetValue(mappedTplName, out var simpleActive) && simpleActive.Valid)
+                            active = simpleActive;
+                    }
+                    else if (b.IsWrite)
                     {
                         var wact = ChooseWriteTemplate(writeInfo, namedInfo, mappedTplName, typeKey);
                         if (wact == null)
@@ -521,7 +555,12 @@ namespace IO_PJT.Services
                     }
 
                     Exemplar ex;
-                    if (b.IsWrite)
+                    if (simpleRule)
+                    {
+                        ex = active.Exemplars.TryGetValue(typeKey, out var simpleEx)
+                            ? simpleEx : active.Exemplars.Values.First();
+                    }
+                    else if (b.IsWrite)
                     {
                         // F30: datain-шаблон обычно один — ключ эталона = имя POU (не тип);
                         // единственный write-эталон берётся без предупреждений
@@ -564,7 +603,7 @@ namespace IO_PJT.Services
 
                     // F30: направление эталона должно совпадать с привязкой — read-эталон
                     // в записи (и наоборот) даёт неверную цепочку
-                    if (b.IsWrite != ex.IsWrite)
+                    if (!ex.IsSimple && b.IsWrite != ex.IsWrite)
                     {
                         if (haveRule)
                         {
@@ -591,7 +630,7 @@ namespace IO_PJT.Services
                     // и у пакета есть резервный twin: верхняя половина источников → main-блок,
                     // нижняя → reserve-блок (байты в каждой половине повторяются — адресация
                     // идентична). Байтов на ОДИН блок — половина (nBlock)
-                    bool f68Split = p.ReserveTwin != null &&
+                    bool f68Split = !ex.IsSimple && p.ReserveTwin != null &&
                         !string.IsNullOrEmpty(p.ReserveTwin.MasterName) &&
                         nSrc >= 2 && nSrc % 2 == 0;
                     int nBlock = f68Split ? nSrc / 2 : nSrc;
@@ -600,7 +639,7 @@ namespace IO_PJT.Services
                     // F33 (этап 6): валидация Size правила Typno — размер должен соответствовать
                     // эталону шаблона (число источников = байт/слотов) и типу функции пакета;
                     // расхождение — предупреждение (клонирование идёт по шаблону — эталон истины)
-                    if (haveRule)
+                    if (haveRule && !ex.IsSimple)
                     {
                         string ruleSize = MbTypnoMapRule.NormalizeSize(rule.Size);
                         if (ruleSize == "bit" && !p.IsBit)
@@ -622,7 +661,7 @@ namespace IO_PJT.Services
                     // F68: граница — по байтам одного блока (nBlock при разделении main/reserve)
                     int byteBase = ModbusBlockPlannerService.DataOutByteIndex(b.Offset, p.IsBit);
                     int bytesAvail = p.IsBit ? p.Count : p.Count * 2;
-                    if (byteBase + nBlock - 1 >= bytesAvail)
+                    if (!ex.IsSimple && byteBase + nBlock - 1 >= bytesAvail)
                     {
                         warnings.Add(p.IsBit
                             ? $"F18: {p.MasterName}: привязка {b.Tag} (адрес {byteBase}, эталон " +
@@ -640,7 +679,8 @@ namespace IO_PJT.Services
                     // F35: строго по ключу — правило Typno (Template), иначе настройка
                     // шаблона; ключ не найден — подстановок НЕТ (fallback «единственного
                     // шаблона» F34 удалён — недопустимы скрытые подстановки)
-                    string activeTplName = mappedTplName.Length > 0 ? mappedTplName : dataVarsTemplateKey;
+                    string activeTplName = !string.IsNullOrEmpty(mappedTplName)
+                        ? mappedTplName : (dataVarsTemplateKey ?? "");
                     IReadOnlyDictionary<string, (string IoColumn, string Literal, string BitMode, string BitNo)>? dv = null;
                     if (dataVars != null && activeTplName.Length > 0 &&
                         dataVars.TryGetValue(activeTplName, out var dvFound))

@@ -53,6 +53,54 @@ namespace IO_PJT.Services
         /// <summary>F13: разбор M_SlaveIdMain (колонка E «Interface parameters») — многострочное
         /// значение вида «192.168.4.10(Default)↵255.255.255.0↵port 502»: первый IPv4-адрес →
         /// октеты, «port N» → порт (иначе defaultPort). Нечисловой фрагмент — null.</summary>
+        // F111: split old combined endpoint text into IP / mask / port
+        public static (string Ip, string Mask, string Port) ParseIpParts(string? text)
+        {
+            string s = (text ?? "").Trim();
+            if (s.Length == 0) return ("", "", "");
+            var ips = System.Text.RegularExpressions.Regex.Matches(s,
+                @"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}");
+            string ip = ips.Count > 0 ? ips[0].Value : "";
+            string mask = ips.Count > 1 ? ips[1].Value : "";
+            var pm = System.Text.RegularExpressions.Regex.Match(s, @"port\s*(\d{1,5})", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            string port = pm.Success ? pm.Groups[1].Value : "";
+            return (ip, mask, port);
+        }
+
+        // F111: parse clean IP + port into octets
+        public static (int Ip1, int Ip2, int Ip3, int Ip4, int Port)? ParseEndpoint(string? ip, string? port, int defaultPort)
+        {
+            string s = (ip ?? "").Trim();
+            if (s.Length == 0) return null;
+            var m = System.Text.RegularExpressions.Regex.Match(s, @"(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})");
+            if (!m.Success) return null;
+            int o1 = int.Parse(m.Groups[1].Value);
+            int o2 = int.Parse(m.Groups[2].Value);
+            int o3 = int.Parse(m.Groups[3].Value);
+            int o4 = int.Parse(m.Groups[4].Value);
+            if (o1 > 255 || o2 > 255 || o3 > 255 || o4 > 255) return null;
+            int pt = defaultPort;
+            if (int.TryParse((port ?? "").Trim(), out int p) && p >= 1 && p <= 65535) pt = p;
+            return (o1, o2, o3, o4, pt);
+        }
+
+        // F111: new columns first, legacy combined value as fallback
+        public static (string Ip, string Mask, string Port) ResolveEndpointParts(
+            string? ip, string? mask, string? port, string? legacy)
+        {
+            string ipT = (ip ?? "").Trim();
+            string maskT = (mask ?? "").Trim();
+            string portT = (port ?? "").Trim();
+            if (ipT.Length == 0)
+            {
+                var l = ParseIpParts(legacy);
+                if (ipT.Length == 0) ipT = l.Ip;
+                if (maskT.Length == 0) maskT = l.Mask;
+                if (portT.Length == 0) portT = l.Port;
+            }
+            return (ipT, maskT, portT);
+        }
+
         public static (int Ip1, int Ip2, int Ip3, int Ip4, int Port)? ParseSlaveIdMain(string? text, int defaultPort)
         {
             string s = (text ?? "").Trim();
@@ -204,7 +252,8 @@ namespace IO_PJT.Services
                 int? addr = ParseAddress(mb.Address);
                 if (addr == null) { result.SkippedBadAddress++; continue; }
 
-                var ep = ParseSlaveIdMain(mb.SlaveIdMain, settings.DefaultPort);
+                var partsMain = ResolveEndpointParts(mb.IpMain, mb.IpMaskMain, mb.IpPortMain, mb.SlaveIdMain);
+                var ep = ParseEndpoint(partsMain.Ip, partsMain.Port, settings.DefaultPort);
                 if (ep == null) { result.SkippedBadEndpoint++; continue; }
 
                 bool isBitFunc = fc == 1 || fc == 2 || fc == 5 || fc == 15;
@@ -237,10 +286,12 @@ namespace IO_PJT.Services
                 bool hasRes = false;
                 int r1 = 0, r2 = 0, r3 = 0, r4 = 0, rPort = 0;
                 (int Ip1, int Ip2, int Ip3, int Ip4, int Port)? rep = null;
-                string backup = (mb.SlaveIdBackup ?? "").Trim();
+                string backup = (mb.IpReserve ?? "").Trim();
+                if (backup.Length == 0) backup = (mb.SlaveIdBackup ?? "").Trim();
                 if (backup.Length > 0)
                 {
-                    rep = ParseSlaveIdMain(backup, ep.Value.Port);
+                    var partsRes = ResolveEndpointParts(mb.IpReserve, mb.IpMaskReserve, mb.IpPortReserve, backup);
+                    rep = ParseEndpoint(partsRes.Ip, partsRes.Port, ep.Value.Port);
                     if (rep == null)
                         result.Warnings.Add(
                             $"F68: {p.Tag}: M_SlaveIdBackup не содержит IP-адреса — резервный блок не создан");
@@ -251,8 +302,12 @@ namespace IO_PJT.Services
                     bool hasRule = (controller.Length > 0 &&
                                     ruleByCs.TryGetValue(controller + "|" + station, out rrule)) ||
                                    ruleByStation.TryGetValue(station, out rrule);
-                    if (hasRule && !string.IsNullOrWhiteSpace(rrule!.IpReserve))
-                        rep = ParseSlaveIdMain(rrule.IpReserve, ep.Value.Port);
+                    if (hasRule && (!string.IsNullOrWhiteSpace(rrule!.IpReserve) ||
+                                    !string.IsNullOrWhiteSpace(rrule.LegacyIpReserve)))
+                    {
+                        var partsRule = ResolveEndpointParts(rrule.IpReserve, rrule.IpMaskReserve, rrule.IpPortReserve, rrule.LegacyIpReserve);
+                        rep = ParseEndpoint(partsRule.Ip, partsRule.Port, ep.Value.Port);
+                    }
                 }
                 if (rep != null)
                 {
@@ -890,37 +945,51 @@ namespace IO_PJT.Services
             {
                 try
                 {
-                    EnsureTables(); // F21: таблица + миграция колонок параметров станции
+                    EnsureTables();
                     using var cn = new OleDbConnection(ConnStr);
                     cn.Open();
                     using var cmd = new OleDbCommand(
-                        $@"SELECT ID, [Controller], [Station], [SlaveId], [IpMain], [IpReserve], [Protocol],
-                                   [Speed], [Parity], [StopBit], [DataBit], [Reverse], [Timeout], [MaxLength],
+                        $@"SELECT ID, [Controller], [Station], [SlaveId], [IpMain], [IpReserve],
+                                   [M_IP_Main], [M_IP_Reserve], [M_IP_Mask_Main], [M_IP_Mask_Reserve],
+                                   [M_IP_Port_Main], [M_IP_Port_Reserve], [Protocol], [Speed],
+                                   [Parity], [StopBit], [DataBit], [Reverse], [Timeout], [MaxLength],
                                    [MasterTemplate], [Generate]
                             FROM [{Schema.ScadaMbSlaveRulesTable}] ORDER BY ID", cn);
                     cmd.CommandTimeout = DbProbe.TimeoutSeconds;
                     using var rd = cmd.ExecuteReader();
                     while (rd.Read())
-                        list.Add(new MbSlaveIdRule
+                    {
+                        var r = new MbSlaveIdRule
                         {
                             Id = Convert.ToInt64(rd.GetValue(0)),
-                            Controller = rd.IsDBNull(1) ? "" : rd.GetString(1), // F37
+                            Controller = rd.IsDBNull(1) ? "" : rd.GetString(1),
                             Station = rd.IsDBNull(2) ? "" : rd.GetString(2),
                             SlaveId = rd.IsDBNull(3) ? 1 : Convert.ToInt32(rd.GetValue(3)),
-                            IpMain = rd.IsDBNull(4) ? "" : rd.GetString(4),
-                            IpReserve = rd.IsDBNull(5) ? "" : rd.GetString(5),
-                            Protocol = rd.IsDBNull(6) ? "" : rd.GetString(6),
-                            Speed = rd.IsDBNull(7) ? "" : rd.GetString(7),
-                            Parity = !rd.IsDBNull(8) && Convert.ToBoolean(rd.GetValue(8)),
-                            StopBit = rd.IsDBNull(9) ? 1 : Convert.ToInt32(rd.GetValue(9)),
-                            DataBit = rd.IsDBNull(10) ? 8 : Convert.ToInt32(rd.GetValue(10)),
-                            Reverse = !rd.IsDBNull(11) && Convert.ToBoolean(rd.GetValue(11)),
-                            Timeout = rd.IsDBNull(12) ? 0 : Convert.ToInt32(rd.GetValue(12)),
-                            MaxLength = rd.IsDBNull(13) ? 0 : Convert.ToInt32(rd.GetValue(13)),
-                            MasterTemplate = rd.IsDBNull(14) ? "" : rd.GetString(14), // F29
-                            // F53: галочка «Генерировать»; NULL у старых строк (миграция) — true
-                            Generate = rd.IsDBNull(15) || Convert.ToBoolean(rd.GetValue(15))
-                        });
+                            LegacyIpMain = rd.IsDBNull(4) ? "" : rd.GetString(4),
+                            LegacyIpReserve = rd.IsDBNull(5) ? "" : rd.GetString(5),
+                            IpMain = rd.IsDBNull(6) ? "" : rd.GetString(6),
+                            IpReserve = rd.IsDBNull(7) ? "" : rd.GetString(7),
+                            IpMaskMain = rd.IsDBNull(8) ? "" : rd.GetString(8),
+                            IpMaskReserve = rd.IsDBNull(9) ? "" : rd.GetString(9),
+                            IpPortMain = rd.IsDBNull(10) ? "" : rd.GetString(10),
+                            IpPortReserve = rd.IsDBNull(11) ? "" : rd.GetString(11),
+                            Protocol = rd.IsDBNull(12) ? "" : rd.GetString(12),
+                            Speed = rd.IsDBNull(13) ? "" : rd.GetString(13),
+                            Parity = !rd.IsDBNull(14) && Convert.ToBoolean(rd.GetValue(14)),
+                            StopBit = rd.IsDBNull(15) ? 1 : Convert.ToInt32(rd.GetValue(15)),
+                            DataBit = rd.IsDBNull(16) ? 8 : Convert.ToInt32(rd.GetValue(16)),
+                            Reverse = !rd.IsDBNull(17) && Convert.ToBoolean(rd.GetValue(17)),
+                            Timeout = rd.IsDBNull(18) ? 0 : Convert.ToInt32(rd.GetValue(18)),
+                            MaxLength = rd.IsDBNull(19) ? 0 : Convert.ToInt32(rd.GetValue(19)),
+                            MasterTemplate = rd.IsDBNull(20) ? "" : rd.GetString(20),
+                            Generate = rd.IsDBNull(21) || Convert.ToBoolean(rd.GetValue(21))
+                        };
+                        var pm = ResolveEndpointParts(r.IpMain, r.IpMaskMain, r.IpPortMain, r.LegacyIpMain);
+                        r.IpMain = pm.Ip; r.IpMaskMain = pm.Mask; r.IpPortMain = pm.Port;
+                        var pr = ResolveEndpointParts(r.IpReserve, r.IpMaskReserve, r.IpPortReserve, r.LegacyIpReserve);
+                        r.IpReserve = pr.Ip; r.IpMaskReserve = pr.Mask; r.IpPortReserve = pr.Port;
+                        list.Add(r);
+                    }
                     break;
                 }
                 catch (OleDbException ex) when (attempt < 3 && DbProbe.IsLockError(ex.Message))
@@ -935,17 +1004,22 @@ namespace IO_PJT.Services
         /// и SlaveId вне 1-255 отбрасываются).</summary>
         public int SaveSlaveRules(IEnumerable<MbSlaveIdRule> rules)
         {
-            if (string.IsNullOrEmpty(_dbPath)) throw new InvalidOperationException("База данных не задана");
+            if (string.IsNullOrEmpty(_dbPath)) throw new InvalidOperationException("Database is not set");
             var list = rules
                 .Where(r => !string.IsNullOrWhiteSpace(r.Station) && r.SlaveId >= 1 && r.SlaveId <= 255)
                 .Select(r => new MbSlaveIdRule
                 {
-                    Controller = (r.Controller ?? "").Trim(), // F37
+                    Controller = (r.Controller ?? "").Trim(),
                     Station = r.Station.Trim(),
                     SlaveId = r.SlaveId,
-                    // F21: параметры станции (IP/протокол/скорость/UART/таймаут/длина)
                     IpMain = r.IpMain ?? "",
                     IpReserve = r.IpReserve ?? "",
+                    IpMaskMain = r.IpMaskMain ?? "",
+                    IpMaskReserve = r.IpMaskReserve ?? "",
+                    IpPortMain = r.IpPortMain ?? "",
+                    IpPortReserve = r.IpPortReserve ?? "",
+                    LegacyIpMain = r.LegacyIpMain ?? "",
+                    LegacyIpReserve = r.LegacyIpReserve ?? "",
                     Protocol = (r.Protocol ?? "").Trim(),
                     Speed = r.Speed ?? "",
                     Parity = r.Parity,
@@ -954,8 +1028,8 @@ namespace IO_PJT.Services
                     Reverse = r.Reverse,
                     Timeout = r.Timeout,
                     MaxLength = r.MaxLength,
-                    MasterTemplate = (r.MasterTemplate ?? "").Trim(), // F29
-                    Generate = r.Generate // F53: галочка «Генерировать»
+                    MasterTemplate = (r.MasterTemplate ?? "").Trim(),
+                    Generate = r.Generate
                 })
                 .ToList();
             EnsureTables();
@@ -984,18 +1058,26 @@ namespace IO_PJT.Services
                 }
                 using var ins = new OleDbCommand(
                     $@"INSERT INTO [{Schema.ScadaMbSlaveRulesTable}]
-                       ([Controller], [Station], [SlaveId], [IpMain], [IpReserve], [Protocol], [Speed],
+                       ([Controller], [Station], [SlaveId], [IpMain], [IpReserve],
+                        [M_IP_Main], [M_IP_Reserve], [M_IP_Mask_Main], [M_IP_Mask_Reserve],
+                        [M_IP_Port_Main], [M_IP_Port_Reserve], [Protocol], [Speed],
                         [Parity], [StopBit], [DataBit], [Reverse], [Timeout], [MaxLength], [MasterTemplate], [Generate])
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", cn, tr);
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", cn, tr);
                 ins.CommandTimeout = DbProbe.TimeoutSeconds;
                 foreach (var r in list)
                 {
                     ins.Parameters.Clear();
-                    OleDbArgs.Add(ins, r.Controller ?? ""); // F37
+                    OleDbArgs.Add(ins, r.Controller ?? "");
                     OleDbArgs.Add(ins, r.Station);
                     OleDbArgs.Add(ins, r.SlaveId);
+                    OleDbArgs.Add(ins, r.LegacyIpMain);
+                    OleDbArgs.Add(ins, r.LegacyIpReserve);
                     OleDbArgs.Add(ins, r.IpMain);
                     OleDbArgs.Add(ins, r.IpReserve);
+                    OleDbArgs.Add(ins, r.IpMaskMain);
+                    OleDbArgs.Add(ins, r.IpMaskReserve);
+                    OleDbArgs.Add(ins, r.IpPortMain);
+                    OleDbArgs.Add(ins, r.IpPortReserve);
                     OleDbArgs.Add(ins, r.Protocol);
                     OleDbArgs.Add(ins, r.Speed);
                     OleDbArgs.Add(ins, r.Parity);
@@ -1004,8 +1086,8 @@ namespace IO_PJT.Services
                     OleDbArgs.Add(ins, r.Reverse);
                     OleDbArgs.Add(ins, r.Timeout);
                     OleDbArgs.Add(ins, r.MaxLength);
-                    OleDbArgs.Add(ins, r.MasterTemplate); // F29
-                    OleDbArgs.Add(ins, r.Generate); // F53
+                    OleDbArgs.Add(ins, r.MasterTemplate);
+                    OleDbArgs.Add(ins, r.Generate);
                     ins.ExecuteNonQuery();
                 }
                 tr.Commit();
@@ -1013,7 +1095,7 @@ namespace IO_PJT.Services
             }
             catch
             {
-                try { tr.Rollback(); } catch { /* соединение могло упасть — не мешаем исходной ошибке */ }
+                try { tr.Rollback(); } catch { }
                 throw;
             }
         }
@@ -1097,8 +1179,6 @@ namespace IO_PJT.Services
         public static List<MbSlaveIdRule> MergeSlaveRulesFromPoints(
             IEnumerable<MbSlaveIdRule>? current, IEnumerable<IoPoint>? points)
         {
-            // F37: ключ правила — (Controller, Station); правило с пустым Controller —
-            // универсальное (покрывает станцию у всех контроллеров)
             var byKey = new Dictionary<string, MbSlaveIdRule>(StringComparer.OrdinalIgnoreCase);
             var byStation = new Dictionary<string, MbSlaveIdRule>(StringComparer.OrdinalIgnoreCase);
             foreach (var r in current ?? Array.Empty<MbSlaveIdRule>())
@@ -1111,26 +1191,30 @@ namespace IO_PJT.Services
                 if (ctR.Length == 0 && !byStation.ContainsKey(stR)) byStation[stR] = r;
             }
 
-            // авто-поля из IO_LIST: первая точка станции задаёт значения, пустые дозаполняются
             var auto = new Dictionary<string,
-                (string Ctrl, string St, string IpMain, string IpReserve, string Speed, int TimeoutMs)>(
+                (string Ctrl, string St, string IpMain, string IpReserve, string MaskMain, string MaskReserve,
+                 string PortMain, string PortReserve, string Speed, int TimeoutMs)>(
                 StringComparer.OrdinalIgnoreCase);
             foreach (var p in points ?? Array.Empty<IoPoint>())
             {
                 string st = (p.Modbus?.SlaveStation ?? "").Trim();
                 if (st.Length == 0) continue;
-                string ct = (p.Identification.Controller ?? "").Trim(); // F37
+                string ct = (p.Identification.Controller ?? "").Trim();
                 string key = ct + "|" + st;
-                string ipMain = (p.Modbus?.SlaveIdMain ?? "").Trim();
-                string ipReserve = (p.Modbus?.SlaveIdBackup ?? "").Trim();
+                var main = ResolveEndpointParts(p.Modbus?.IpMain, p.Modbus?.IpMaskMain, p.Modbus?.IpPortMain, p.Modbus?.SlaveIdMain);
+                var res = ResolveEndpointParts(p.Modbus?.IpReserve, p.Modbus?.IpMaskReserve, p.Modbus?.IpPortReserve, p.Modbus?.SlaveIdBackup);
                 string speed = (p.Modbus?.Speed ?? "").Trim();
                 int timeout = ParseTimeoutMs(p.Modbus?.Timeout) ?? 0;
                 if (!auto.TryGetValue(key, out var a))
-                    auto[key] = (ct, st, ipMain, ipReserve, speed, timeout);
+                    auto[key] = (ct, st, main.Ip, res.Ip, main.Mask, res.Mask, main.Port, res.Port, speed, timeout);
                 else
                     auto[key] = (a.Ctrl, a.St,
-                        a.IpMain.Length > 0 ? a.IpMain : ipMain,
-                        a.IpReserve.Length > 0 ? a.IpReserve : ipReserve,
+                        a.IpMain.Length > 0 ? a.IpMain : main.Ip,
+                        a.IpReserve.Length > 0 ? a.IpReserve : res.Ip,
+                        a.MaskMain.Length > 0 ? a.MaskMain : main.Mask,
+                        a.MaskReserve.Length > 0 ? a.MaskReserve : res.Mask,
+                        a.PortMain.Length > 0 ? a.PortMain : main.Port,
+                        a.PortReserve.Length > 0 ? a.PortReserve : res.Port,
                         a.Speed.Length > 0 ? a.Speed : speed,
                         a.TimeoutMs > 0 ? a.TimeoutMs : timeout);
             }
@@ -1142,11 +1226,9 @@ namespace IO_PJT.Services
                 MbSlaveIdRule? rule;
                 if (byKey.TryGetValue(kv.Key, out rule))
                 {
-                    // правило пары (Controller, Station) уже есть
                 }
                 else if (a.Ctrl.Length > 0 && byStation.TryGetValue(a.St, out rule))
                 {
-                    // универсальное правило (без Controller) покрывает станцию — новое не создаётся
                 }
                 else
                 {
@@ -1156,6 +1238,10 @@ namespace IO_PJT.Services
                 }
                 rule.IpMain = a.IpMain;
                 rule.IpReserve = a.IpReserve;
+                rule.IpMaskMain = a.MaskMain;
+                rule.IpMaskReserve = a.MaskReserve;
+                rule.IpPortMain = a.PortMain;
+                rule.IpPortReserve = a.PortReserve;
                 rule.Speed = a.Speed;
                 rule.Timeout = a.TimeoutMs;
                 if (string.IsNullOrWhiteSpace(rule.Protocol))
@@ -1163,7 +1249,7 @@ namespace IO_PJT.Services
                 if (!result.Contains(rule))
                     result.Add(rule);
             }
-            foreach (var r in byKey.Values) // ручные станции без точек в IO_LIST
+            foreach (var r in byKey.Values)
                 if (!result.Contains(r))
                     result.Add(r);
             return result

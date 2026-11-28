@@ -571,9 +571,10 @@
                             <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
                                 <Button Content="Добавить" Command="{Binding AddRuleCommand}" Width="80" Margin="0,0,6,0"
                                         ToolTip="Новая станция (сохраняется кнопкой «Сохранить правила SlaveId»)" />
-                                <Button Content="Удалить" Command="{Binding DeleteRuleCommand}" Width="70" Margin="0,0,6,0" />
-                                <Button Content="Из IO_LIST" Command="{Binding FillSlaveRulesCommand}" Width="90" Margin="0,0,6,0"
-                                        ToolTip="F21: автосбор станций из IO_LIST — IP main/reserve, скорость, таймаут (merge по Station: ручные поля и SlaveId сохраняются, Protocol заполняется эвристикой «есть IPv4 → TCP, иначе RTU» для новых/пустых строк). Изменения сохраните кнопкой «Сохранить»" />
+                                <Button Content="Прочитать из IO_LIST" Command="{Binding FillSlaveRulesCommand}" Width="150" Margin="0,0,6,0"
+                                        ToolTip="F111: read station IP/mask/port fields from IO_LIST (manual fields are preserved)" />
+                                <Button Content="Записать в IO_LIST" Command="{Binding WriteSlaveRulesToIoListCommand}" Width="150" Margin="0,0,6,0"
+                                        ToolTip="F111: write edited station IP/mask/port fields back to IO_LIST (controlled operation)" />
                                 <Button Content="Все" Command="{Binding SelectAllStationsCommand}" Width="46" Margin="6,0,4,0"
                                         ToolTip="F53: включить генерацию всех станций (галочки «Генерировать»)" />
                                 <Button Content="Ни одной" Command="{Binding ClearAllStationsCommand}" Width="70" Margin="0,0,8,0"
@@ -589,48 +590,48 @@
                                     <!-- F53: № строки и галочка «Генерировать» — выбор станций экспорта -->
                                     <DataGridTextColumn Header="№"
                                                         Binding="{Binding No}" Width="40" IsReadOnly="True" />
-                                    <DataGridCheckBoxColumn Header="Генерировать"
+                                    <DataGridCheckBoxColumn Header="Gen.&#10;on/off"
                                                             Binding="{Binding Generate, UpdateSourceTrigger=PropertyChanged}" Width="90"
                                                             ToolTipService.ToolTip="F53: станция участвует в экспорте XML и записи привязок в IO_LIST; снятие галочки исключает её пакеты" />
-                                    <DataGridTextColumn Header="Контроллер"
+                                    <DataGridTextColumn Header="Ctrl&#10;cont."
                                                         Binding="{Binding Controller, UpdateSourceTrigger=PropertyChanged}" Width="110"
                                                         ToolTipService.ToolTip="F37: контроллер IO_LIST (пусто — правило действует для всех контроллеров станции); точный ключ «Контроллер|Станция» приоритетнее" />
-                                    <DataGridTextColumn Header="Станция (M_SlaveStation)"
+                                    <DataGridTextColumn Header="Sta.&#10;SlaveSt."
                                                         Binding="{Binding Station, UpdateSourceTrigger=PropertyChanged}" Width="150" />
-                                    <DataGridTextColumn Header="SlaveId (1-255)"
+                                    <DataGridTextColumn Header="ID&#10;1-255"
                                                         Binding="{Binding SlaveId, UpdateSourceTrigger=PropertyChanged}" Width="70"
                                                         ToolTipService.ToolTip="Числовой SlaveId отсутствует в IO_LIST — задаётся здесь (1-255)" />
-                                    <DataGridTextColumn Header="IP main"
-                                                        Binding="{Binding IpMain, UpdateSourceTrigger=PropertyChanged}" Width="150"
-                                                        ToolTipService.ToolTip="F21: авто из M_SlaveIdMain (IP/маска/port либо COM-интерфейс); редактируется вручную" />
-                                    <DataGridTextColumn Header="IP reserve"
-                                                        Binding="{Binding IpReserve, UpdateSourceTrigger=PropertyChanged}" Width="130"
-                                                        ToolTipService.ToolTip="F21: авто из M_SlaveIdBackup" />
-                                    <DataGridTextColumn Header="Protocol"
+                                    <DataGridTextColumn Header="IP&#10;main" Binding="{Binding IpMain, UpdateSourceTrigger=PropertyChanged}" Width="100" ToolTipService.ToolTip="F111: main IP (M_IP_Main)" />
+                                    <DataGridTextColumn Header="Mask&#10;main" Binding="{Binding IpMaskMain, UpdateSourceTrigger=PropertyChanged}" Width="100" ToolTipService.ToolTip="F111: main mask (M_IP_Mask_Main)" />
+                                    <DataGridTextColumn Header="Port&#10;main" Binding="{Binding IpPortMain, UpdateSourceTrigger=PropertyChanged}" Width="70" ToolTipService.ToolTip="F111: main port (M_IP_Port_Main)" />
+                                    <DataGridTextColumn Header="IP&#10;reserve" Binding="{Binding IpReserve, UpdateSourceTrigger=PropertyChanged}" Width="100" ToolTipService.ToolTip="F111: reserve IP (M_IP_Reserve)" />
+                                    <DataGridTextColumn Header="Mask&#10;reserve" Binding="{Binding IpMaskReserve, UpdateSourceTrigger=PropertyChanged}" Width="100" ToolTipService.ToolTip="F111: reserve mask (M_IP_Mask_Reserve)" />
+                                    <DataGridTextColumn Header="Port&#10;reserve" Binding="{Binding IpPortReserve, UpdateSourceTrigger=PropertyChanged}" Width="70" ToolTipService.ToolTip="F111: reserve port (M_IP_Port_Reserve)" />
+                                    <DataGridTextColumn Header="Prot.&#10;TCP/RTU"
                                                         Binding="{Binding Protocol, UpdateSourceTrigger=PropertyChanged}" Width="70"
                                                         ToolTipService.ToolTip="F21: «TCP» или «RTU» — определяет мастер-шаблон при генерации; эвристика: в IP main есть IPv4 → TCP, непустое без IPv4 (COM) → RTU" />
-                                    <DataGridTextColumn Header="Speed"
+                                    <DataGridTextColumn Header="Speed&#10;M_Speed"
                                                         Binding="{Binding Speed, UpdateSourceTrigger=PropertyChanged}" Width="80"
                                                         ToolTipService.ToolTip="F21: авто из M_Speed (напр. 100Mbps / 9600)" />
-                                    <DataGridCheckBoxColumn Header="Parity"
+                                    <DataGridCheckBoxColumn Header="Par.&#10;parity"
                                                             Binding="{Binding Parity, UpdateSourceTrigger=PropertyChanged}" Width="55"
                                                             ToolTipService.ToolTip="F21: чётность (вход Parity MB_RTU_MASTER) — в IO_LIST отсутствует, задаётся вручную" />
-                                    <DataGridTextColumn Header="Stop bit"
+                                    <DataGridTextColumn Header="Stop&#10;bit"
                                                         Binding="{Binding StopBit, UpdateSourceTrigger=PropertyChanged}" Width="55"
                                                         ToolTipService.ToolTip="F21: 1 или 2 (вход StopBit MB_RTU_MASTER) — ручное" />
-                                    <DataGridTextColumn Header="Data bit"
+                                    <DataGridTextColumn Header="Data&#10;bit"
                                                         Binding="{Binding DataBit, UpdateSourceTrigger=PropertyChanged}" Width="55"
                                                         ToolTipService.ToolTip="F21: 7 или 8 (вход DataBit MB_RTU_MASTER) — ручное" />
-                                    <DataGridCheckBoxColumn Header="Reverse"
+                                    <DataGridCheckBoxColumn Header="Rev.&#10;reverse"
                                                             Binding="{Binding Reverse, UpdateSourceTrigger=PropertyChanged}" Width="60"
                                                             ToolTipService.ToolTip="F21: reverse обмена — ручное" />
-                                    <DataGridTextColumn Header="Timeout, мс"
+                                    <DataGridTextColumn Header="TO&#10;ms"
                                                         Binding="{Binding Timeout, UpdateSourceTrigger=PropertyChanged}" Width="70"
                                                         ToolTipService.ToolTip="F21: авто из M_Timeout («100ms» → 100); 0 — пусто" />
-                                    <DataGridTextColumn Header="Max length"
+                                    <DataGridTextColumn Header="Max&#10;len"
                                                         Binding="{Binding MaxLength, UpdateSourceTrigger=PropertyChanged}" Width="70"
                                                         ToolTipService.ToolTip="F21: maximum length пакета — ручное" />
-                                    <DataGridTemplateColumn Header="Шаблон пакетов" Width="150"
+                                    <DataGridTemplateColumn Header="Tpl&#10;packet" Width="150"
                                                             ToolTipService.ToolTip="F29: имя шаблона пакетов SCADA_MASTER_TEMPLATES для станции (выбор при экспорте); пусто — мастер-шаблон по Protocol (TCP/RTU из настроек)">
                                         <DataGridTemplateColumn.CellTemplate>
                                             <DataTemplate>
